@@ -75,10 +75,10 @@ def ExpandMorpheme(prefix_index, morpheme, previous_morpheme, instruction, suffi
     # dictionary entries.
     prefix = chr(ord('a') + prefix_index // 26) + chr(ord('a') + prefix_index % 26)
 
-    if instruction is 0x00 or instruction is 0x12:
+    if instruction == 0x00 or instruction == 0x12:
         # Nothing to do here
         pass
-    elif instruction is 0x20:
+    elif instruction == 0x20:
         # Capitalize word
         prefix = prefix.title()
     elif 0x40 < instruction < 0x50:
@@ -90,10 +90,10 @@ def ExpandMorpheme(prefix_index, morpheme, previous_morpheme, instruction, suffi
         n = instruction - 0x60
         morpheme = previous_morpheme[:n] + morpheme
         prefix = prefix.title()
-    elif instruction is 0x80:
+    elif instruction == 0x80:
         # Attach a suffix to the morpheme
         morpheme = morpheme + suffixes[suffix_index]
-    elif instruction is 0xA0:
+    elif instruction == 0xA0:
         # Same as above, capitalized
         morpheme = morpheme + suffixes[suffix_index]
         prefix = prefix.title()
@@ -142,7 +142,7 @@ def Import(dictionary, path):
 
             # English entries are terminated by a 0xFF character
             en_len = 0
-            while data[pos + en_len] is not 0xFF:
+            while data[pos + en_len] != 0xFF:
                 en_len += 1
             english = data[pos:pos + en_len].decode("cp857")
             english = ExpandMorpheme(i, english, previous_word, instruction, suffix_index)

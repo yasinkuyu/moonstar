@@ -2,3 +2,5 @@ data/*
 !data/README
 output/
 temp/
+docs/
+src/__pycache__/
