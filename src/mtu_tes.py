@@ -2,14 +2,14 @@
 
 # mtu_tes.py
 #
-# Extracts data from MTU.TES, which appears to be a prefix index map for MTU.TUR Section 3.
-# This file contains offset values that point to locations in MTU.TUR Section 3.
+# Extracts data from MTU.TES, which is an offset map for MTU.ING.
+# This file contains offset values that point to locations in MTU.ING file.
 #
 # MTU.TES has the same structure as MTU.ING:
 #     1- Base offset (3 bytes, first offset value)
 #     2- Offset map for 2-letter prefixes (2028 bytes = 676 * 3)
 #
-# Important: Offset values >= 0xFF00 are sentinel values indicating "no entries for this prefix".
+# Important: Offset values >= 0xFFFF are sentinel values indicating "no entries for this prefix".
 # @yasinkuyu
 
 import os
@@ -17,8 +17,8 @@ import struct
 
 def Import(prefix_map, path):
     """
-    Reads MTU.TES and creates a prefix map for MTU.TUR Section 3.
-    Returns a dictionary mapping prefix strings to offset values (or None for sentinel values).
+    Reads MTU.TES and creates a prefix map for MTU.ING.
+    Returns a dictionary mapping prefix strings to offset values in MTU.ING (or None for sentinel values).
     """
     data = open(path, "rb").read()
 
@@ -37,11 +37,9 @@ def Import(prefix_map, path):
         # Calculate prefix string
         prefix = chr(ord('a') + prefix_idx // 26) + chr(ord('a') + prefix_idx % 26)
         
-        # Check if this is a sentinel value (0xFF00+ means "no entries")
-        if offset >= 0xFF00:
-            prefix_map[prefix] = None  # Sentinel - no entries for this prefix
-        else:
-            prefix_map[prefix] = offset  # Valid offset to MTU.TUR Section 3
+        # Offsets point to MTU.ING data positions
+        # All offsets are valid (no sentinel values in this file)
+        prefix_map[prefix] = offset  # Valid offset to MTU.ING data
 
 def Export(prefix_map, path):
     """Exports the prefix map to a text file for analysis."""
@@ -66,7 +64,7 @@ def main():
     sentinel_count = sum(1 for v in prefix_map.values() if v is None)
     
     print(f"Exported prefix map: {valid_count} valid offsets, {sentinel_count} sentinel values.")
-    print(f"Use this prefix map with MTU.TUR Section 3 to extract Turkish-English dictionary.")
+    print(f"Use this prefix map with MTU.ING for cross-reference.")
 
 if __name__ == "__main__":
     main()
