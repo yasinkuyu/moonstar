@@ -78,14 +78,101 @@ Suffix length is determined by the second byte of Section 4 entries:
 - `0xd0-0xe8`: length 4
 - `0xe8-0x100`: length 5
 
-## MTU.ING / MTU.TES Format
+## MTU.ING Format (Corrected)
 
-MTU.ING and MTU.TES have the same structure:
-1. Base offset (3 bytes) - first offset value
-2. Offset map for 2-letter prefixes (2,028 bytes = 676 prefixes × 3 bytes)
-3. List of entries (variable length)
+MTU.ING is a 654,684-byte file that stores English vocabulary data for the İngilizce Leb Demeden feature. It uses a frequency-based custom alphabet and a suffix-based compression scheme.
 
-Format appears similar to MTU.TRK but entries contain only English words (no Turkish translations). Uses CP 857 encoding with morpheme expansion.
+### Structure Overview
+
+1. **Table size** (bytes 0-2): 96,000 = 32,000 × 3 bytes
+2. **Offset table** (bytes 3-96,002): 32,000 × 3-byte little-endian offsets
+   - Offsets are absolute file positions pointing into the data area
+   - Only ~14,464 of 32,000 slots are non-empty
+3. **Data area** (bytes 96,003 onwards): ~558,681 bytes
+
+### Slot Structure
+
+Each slot (when non-empty) has:
+- **2-byte header**: `[0x00, (slot_index + 1) % 256]`
+- **Body**: variable-length byte sequence ending with an instruction byte (≥0x80)
+
+### Frequency-Based Alphabet
+
+Instead of a sequential a=0 mapping (as used by MTU.TUR), MTU.ING uses a frequency-ordered alphabet where each byte value 0x00-0x19 maps to an English letter based on its frequency in the data:
+
+| Byte | Count | Letter | English Freq Rank |
+|------|-------|--------|-------------------|
+| 0x00 | 24,806 | e | 1st |
+| 0x03 | 21,725 | t | 2nd |
+| 0x0b | 20,525 | a | 3rd |
+| 0x02 | 17,598 | o | 4th |
+| 0x11 | 17,555 | i | 5th |
+| 0x05 | 17,110 | n | 6th |
+| 0x16 | 15,818 | s | 7th |
+| 0x04 | 15,026 | h | 8th |
+| 0x15 | 14,981 | r | 9th |
+| 0x19 | 12,237 | d | 10th |
+| 0x10 | 10,997 | l | 11th |
+| 0x13 | 8,386 | c | 12th |
+| 0x18 | 8,184 | u | 13th |
+| 0x0e | 7,721 | m | 14th |
+| 0x07 | 8,800 | w | 15th |
+| 0x09 | 7,726 | f | 16th |
+| 0x0f | 7,706 | g | 17th |
+| 0x01 | 6,934 | y | 18th |
+| 0x06 | 6,436 | p | 19th |
+| 0x0d | 3,730 | b | 20th |
+| 0x17 | 1,107 | v | 21st |
+| 0x14 | 2,264 | k | 22nd |
+| 0x0c | 1,073 | j | 23rd |
+| 0x12 | 1,038 | x | 24th |
+| 0x08 | 773 | q | 25th |
+| 0x0a | 331 | z | 26th |
+
+**Validation**: This mapping correctly decodes "the" (0x03 0x04 0x00), "an" (0x0b 0x05), "and" (0x0b 0x05 0x19), "for" (0x09 0x02 0x15), "are" (0x0b 0x15 0x00). 185 letter sequences between control bytes match words in the MTU.TRK English dictionary.
+
+ASCII characters (0x20-0x7E) are used directly for punctuation, digits, and uppercase letters.
+
+### Instruction Bytes (≥ 0x80)
+
+Bytes 0x80-0xFF are instruction/control bytes that correspond to the suffix table stored in MTU.EXE (offset 0x1B8B8-0x1BC45, 195 entries). The suffix index = instruction_byte - 0x80.
+
+| Byte | Index | Suffix | Frequency |
+|------|-------|--------|-----------|
+| 0x81 | 1 | ibility | 15,494 |
+| 0x8a | 10 | lessly | 8,680 |
+| 0x85 | 5 | ousness | 8,166 |
+| 0x87 | 7 | edness | 7,063 |
+| 0xc1 | 65 | ible | 5,890 |
+| 0xc5 | 69 | ious | 5,454 |
+| 0xca | 74 | like | 4,658 |
+| 0x84 | 4 | fulness | 4,618 |
+| 0x98 | 24 | fully | 3,523 |
+| 0x9e | 30 | istic | 3,259 |
+
+**Important**: The last byte of every non-empty slot is always an instruction byte (≥0x80).
+
+### Entry Format (Partial Understanding)
+
+The body of each slot consists of alternating letter sequences and instruction bytes:
+```
+[letter_bytes] [instruction] [letter_bytes] [instruction] ... [instruction]
+```
+
+Each instruction byte likely:
+1. Terminates the preceding letter fragment
+2. Specifies how to process/combine it (add suffix, modify, etc.)
+3. The exact combination semantics are still under investigation
+
+### Status
+
+- ✅ Slot structure (32K slots, 3B offsets, freq alphabet) - Complete
+- ✅ Frequency-based alphabet (0x00='e', 0x03='t', ...) - Verified against TRK dictionary
+- ✅ Instruction bytes = suffix table indices from MTU.EXE - Confirmed
+- ✅ Every slot ends with an instruction byte - Confirmed
+- ⚠️ Instruction combination semantics - Unknown
+- ⚠️ Multi-entry slots - Structure understood but content unreadable
+- ❌ Complete working decoder - Not yet implemented
 
 ## MTU.SOZ Format
 

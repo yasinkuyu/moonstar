@@ -184,9 +184,10 @@ def Export(dictionary, path):
             file.write('\n')
 
 def main():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     dictionary = []
-    Import(dictionary, os.path.join("..", "data", "MTU.TRK"))
-    Export(dictionary, os.path.join("..", "output", "MTU.TRK.TXT"))
+    Import(dictionary, os.path.join(script_dir, "..", "data", "MTU.TRK"))
+    Export(dictionary, os.path.join(script_dir, "..", "output", "MTU.TRK.TXT"))
     print("Exported", len(dictionary), "entries.") # 17988
 
 if __name__ == "__main__":

@@ -62,9 +62,10 @@ def Export(suffixes, path):
             file.write("# " + ", ".join(f'"{s}"' for s in sorted(by_length[length])) + "\n")
 
 def main():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     suffixes = []
-    ExtractSuffixes(suffixes, os.path.join("..", "data", "MTU.EXE"))
-    Export(suffixes, os.path.join("..", "output", "MTU.EXE.SUFFIXES.TXT"))
+    ExtractSuffixes(suffixes, os.path.join(script_dir, "..", "data", "MTU.EXE"))
+    Export(suffixes, os.path.join(script_dir, "..", "output", "MTU.EXE.SUFFIXES.TXT"))
     print(f"Extracted {len(suffixes)} suffixes from MTU.EXE")
     print(f"Saved to output/MTU.EXE.SUFFIXES.TXT")
 

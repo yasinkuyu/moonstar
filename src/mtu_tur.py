@@ -16,6 +16,7 @@
 
 import os
 import struct
+import sys
 
 # MTU.TUR encodes all text in its own custom alphabet, where 0x00 is 'a', 0x01
 # is 'b' and so on.
@@ -230,92 +231,80 @@ def Export(dictionary, path):
             file.write(entry)
             file.write('\n')
 
-def ImportTurkishEnglishDictionary(dictionary, path):
+def DecodeEnglishText(bytes11):
+    """
+    Decodes English text from the 11-byte block in Section 3.
+    The text uses the MTU custom alphabet but values might be shifted or masked.
+    """
+    english_chars = []
+    for b in bytes11:
+        # Try treating byte as direct custom alphabet index
+        if b < len(alphabet):
+            english_chars.append(alphabet[b])
+        else:
+            # Try low 5 bits (0-31) mapping to first 32 alphabet letters
+            idx = b & 0x1f
+            if idx < 32:
+                english_chars.append(alphabet[idx])
+            else:
+                english_chars.append('')
+    return ''.join(english_chars).strip()
+
+def ImportTurkishEnglishDictionary(dictionary, path, synonyms_dict=None):
     """
     Imports Turkish-English dictionary entries from Section 3.
     Section 1 provides index ranges for each starting letter in Section 3.
     Section 3 entries reference Section 4 to build Turkish words.
 
-    The 11-byte block in Section 3 contains English translation data.
-    Format appears to be: [flags] [length] [english_text_bytes...]
+    The 11-byte block in Section 3 contains English translation data encoded
+    in the custom alphabet.
     """
     data = open(path, "rb").read()
     pos = 0
 
-    # Skip magic number
     if data[pos:pos+4] != b'MG2\x1a':
         raise ValueError("Invalid magic number")
     pos += 4
 
-    # Read header
-    header = []
-    for i in range(0, 4):
-        length = struct.unpack("<H", data[pos:pos + 2])[0]
-        pos += 2
-        header.append(length)
+    header = [struct.unpack("<H", data[pos + i*2:pos + i*2 + 2])[0] for i in range(4)]
+    pos += 8
 
     letter_count = 32
 
-    # Read Section 1 - provides index ranges for each letter
     section1_start = pos
-    section1 = []
-    for i in range(0, letter_count + 1):
-        value = struct.unpack("<H", data[pos:pos + 2])[0]
-        section1.append(value)
-        pos += 2
+    section1 = [struct.unpack("<H", data[pos + i*2:pos + i*2 + 2])[0] for i in range(letter_count + 1)]
+    pos += (letter_count + 1) * 2
 
-    # Skip Section 2
     pos += (letter_count**2 + 1) * 2
 
-    # Read Section 3
-    section3_start = pos
     section3 = []
-    for i in range(0, header[1]):
+    for i in range(header[1]):
         byte0 = data[pos]
-        pos += 1
-        value = struct.unpack("<H", data[pos:pos + 2])[0]
-        pos += 2
-        bytes3_13 = data[pos:pos + 11]
-        pos += 11
-        section3.append((byte0, value, bytes3_13))
+        val = struct.unpack("<H", data[pos + 1:pos + 3])[0]
+        bytes11 = data[pos + 3:pos + 14]
+        pos += 14
+        section3.append((byte0, val, bytes11))
 
-    # Read Section 4
-    section4_start = pos
-    section4 = []
-    for i in range(0, header[0]):
-        section4.append(data[pos:pos + 4])
-        pos += 4
+    section4 = [data[pos + i*4:pos + (i+1)*4] for i in range(header[0])]
+    pos += header[0] * 4
 
-    # Section 5 (suffixes)
     base_offset = pos
     pos += header[2]
 
-    # Section 6 (modifications)
-    section6 = []
-    for i in range(0, header[3]):
-        section6.append(data[pos:pos + 4])
-        pos += 4
+    section6 = [data[pos + i*4:pos + (i+1)*4] for i in range(header[3])]
+    pos += header[3] * 4
 
-    # Build all Turkish words from Section 4 first
-    turkish_words = {}  # Map section4_index to turkish_word
-    section2_count = letter_count**2
-
-    # Re-read Section 2 to get proper counts
-    pos = section1_start + (letter_count + 1) * 2
-    section2 = []
-    for i in range(section2_count + 1):
-        value = struct.unpack("<H", data[pos:pos + 2])[0]
-        section2.append(value)
-        pos += 2
+    # Build Turkish words from Section 4
+    turkish_words = {}
+    pos2 = section1_start + (letter_count + 1) * 2
+    section2 = [struct.unpack("<H", data[pos2 + i*2:pos2 + (i+1)*2])[0] for i in range(letter_count**2 + 1)]
 
     prefixes = []
     for prefix_index in range(len(section2) - 1):
-        prefix = alphabet[prefix_index // letter_count]
-        prefix += alphabet[prefix_index % letter_count]
+        prefix = alphabet[prefix_index // letter_count] + alphabet[prefix_index % letter_count]
         count = section2[prefix_index + 1] - section2[prefix_index]
         prefixes.append((prefix, count))
 
-    # Build Turkish words from Section 4
     item_index = 0
     for prefix, count in prefixes:
         if count == 0:
@@ -327,21 +316,18 @@ def ImportTurkishEnglishDictionary(dictionary, path):
                 suffix = GetSuffix(data, section4[i], base_offset)
                 section6_idx = section4[i][0]
                 if section6_idx < len(section6):
-                    prefix_mod, suffix_mod = ApplyModifications(section6[section6_idx], prefix, suffix)
-                    word = prefix_mod + suffix_mod
+                    p, s = ApplyModifications(section6[section6_idx], prefix, suffix)
+                    turkish_words[i] = p + s
                 else:
-                    word = prefix + suffix
-                turkish_words[i] = word
+                    turkish_words[i] = prefix + suffix
             except (IndexError, ValueError):
                 pass
         item_index += count
 
-    # Process Section 3 entries to build Turkish-English pairs
+    # Process Section 3
     for letter_idx in range(letter_count):
-        letter = alphabet[letter_idx]
         start_idx = section1[letter_idx]
         end_idx = section1[letter_idx + 1]
-
         if start_idx >= end_idx:
             continue
 
@@ -349,83 +335,56 @@ def ImportTurkishEnglishDictionary(dictionary, path):
             if i >= len(section3):
                 break
 
-            byte0, value, bytes3_13 = section3[i]
+            byte0, value, bytes11 = section3[i]
 
-            # Get Turkish word from Section 4 reference
-            turkish_word = None
-            if value < len(turkish_words):
-                turkish_word = turkish_words.get(value)
-
+            turkish_word = turkish_words.get(value) if value < len(turkish_words) else None
             if not turkish_word:
                 continue
 
-            # Parse English translation from bytes3_13
-            # Format appears to be: [length_byte] [text_bytes...] or similar
-            english = ""
+            # Decode English text from 11-byte block
+            english = DecodeEnglishText(bytes11)
 
-            # Try different formats for the 11-byte block
-            # Format 1: First byte is length
-            if byte0 > 0 and byte0 <= 11:
-                try:
-                    english_bytes = bytes3_13[:byte0]
-                    # Try CP857 encoding
-                    english = english_bytes.decode("cp857", errors="ignore").strip()
-                    if not english:
-                        # Try custom alphabet
-                        english = ""
-                        for b in english_bytes:
-                            if b < len(alphabet):
-                                english += alphabet[b]
-                except:
-                    pass
-
-            # Format 2: bytes3_13 contains direct text
-            if not english:
-                try:
-                    # Find null terminator
-                    null_pos = bytes3_13.find(b'\x00')
-                    if null_pos > 0:
-                        english_bytes = bytes3_13[:null_pos]
-                    else:
-                        english_bytes = bytes3_13
-
-                    # Skip leading zeros
-                    while len(english_bytes) > 0 and english_bytes[0] == 0:
-                        english_bytes = english_bytes[1:]
-
-                    if len(english_bytes) > 0:
-                        # Try CP857
-                        english = english_bytes.decode("cp857", errors="ignore").strip()
-                        if not english:
-                            # Try latin-1
-                            english = english_bytes.decode("latin-1", errors="ignore").strip()
-                except:
-                    pass
-
-            if english and english not in ["", "#", "-", "—"]:
-                # Replace separators
+            if english and len(english) > 1:
                 english = english.replace('#', '; ')
-                dictionary.append((turkish_word, english))
+                if synonyms_dict is not None:
+                    synonyms_dict[turkish_word] = english
+                else:
+                    dictionary.append((turkish_word, english))
+
+def GetDataPath(filename):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(script_dir, "..", "data", filename)
+
+def GetOutputPath(filename):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(script_dir, "..", "output", filename)
 
 def main():
-    # MTU.TUR has multiple uses:
-    # 1. Turkish-English dictionary (Section 3) - now implemented
-    # 2. Turkish Synonyms dictionary (Section 3) - needs more analysis
-    # 3. Turkish Leb Demeden (Section 4) - current implementation
+    data_path = GetDataPath("MTU.TUR")
 
     # Export Leb Demeden entries (Section 4)
     dictionary_lebdemeden = []
-    Import(dictionary_lebdemeden, os.path.join("..", "data", "MTU.TUR"))
-    Export(dictionary_lebdemeden, os.path.join("..", "output", "MTU.TUR.TXT"))
+    Import(dictionary_lebdemeden, data_path)
+    Export(dictionary_lebdemeden, GetOutputPath("MTU.TUR.TXT"))
     print("Exported", len(dictionary_lebdemeden), "Leb Demeden entries.")
 
     # Export Turkish-English dictionary from Section 3
     dictionary_tr_en = []
-    ImportTurkishEnglishDictionary(dictionary_tr_en, os.path.join("..", "data", "MTU.TUR"))
-    with open(os.path.join("..", "output", "MTU.TUR_TR_EN.TXT"), "w", encoding="utf-8") as file:
+    ImportTurkishEnglishDictionary(dictionary_tr_en, data_path)
+    with open(GetOutputPath("MTU.TUR_TR_EN.TXT"), "w", encoding="utf-8") as file:
         for turkish, english in dictionary_tr_en:
             file.write(f"{turkish:<30} {english}\n")
     print("Exported", len(dictionary_tr_en), "Turkish-English dictionary entries.")
+
+    # Export Turkish synonyms (Section 3, entries with byte0 indicating synonyms)
+    # Synonyms are stored alongside Turkish-English entries in Section 3
+    synonyms = {}
+    ImportTurkishEnglishDictionary([], data_path, synonyms_dict=synonyms)
+    if synonyms:
+        with open(GetOutputPath("MTU.TUR_ES_ANLAM.TXT"), "w", encoding="utf-8") as file:
+            for turkish, english in sorted(synonyms.items()):
+                file.write(f"{turkish:<30} {english}\n")
+        print("Exported", len(synonyms), "Turkish synonyms entries.")
 
 if __name__ == "__main__":
     main()
