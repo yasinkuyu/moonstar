@@ -462,12 +462,48 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
 
     def get_hangman_word(self, params):
         import random
+        import re
         topic = int(params.get("topic", [0])[0])
-        pool = [q for q in QUIZ_DATA if q["topic_idx"] == topic and q["en"]]
+        # Hangman uses Turkish alphabet keys → word must be Turkish.
+        # ING slots map to TRK pairs; take a clean single Turkish lemma from definitions.
+        letters = set("ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZabcçdefgğhıijklmnoöprsştuüvyz")
+
+        def hangman_candidates(tr_text):
+            cands = []
+            if not tr_text:
+                return cands
+            for part in re.split(r'[|/#]', tr_text):
+                part = part.strip()
+                if not part:
+                    continue
+                # drop parenthetical noise, keep letter runs
+                part = re.sub(r'\([^)]*\)', ' ', part)
+                for token in re.split(r'[\s,;:]+', part):
+                    token = token.strip(".-'")
+                    if 3 <= len(token) <= 14 and all(ch in letters for ch in token):
+                        cands.append(token)
+            return cands
+
+        pool = []
+        for q in QUIZ_DATA:
+            if q["topic_idx"] != topic:
+                continue
+            if not q.get("en") or q["en"] in ("???", "?"):
+                continue
+            for w in hangman_candidates(q.get("tr") or ""):
+                pool.append((w, q))
+                break  # one candidate per quiz entry
         if not pool:
             return {"error": "Bu konuda kelime yok"}
-        q = random.choice(pool)
-        return {"en": q["en"], "tr": q["tr"], "topic": q["topic"], "topic_idx": q["topic_idx"]}
+        word, q = random.choice(pool)
+        return {
+            "word": word,
+            "en": q["en"],
+            "tr": q["tr"],
+            "hint": q["en"],
+            "topic": q["topic"],
+            "topic_idx": q["topic_idx"],
+        }
 
 
 # ─── HTML Page ──────────────────────────────────────────────────────────────
@@ -1081,49 +1117,61 @@ body {
 .flag-normal { color: #080; }
 .flag-variant { color: #800; }
 
-/* Quiz topic selection */
+/* Quiz topic selection — Klavye Seçimi style: list left, buttons right */
 .quiz-topic-panel {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  align-items: stretch;
+  min-height: 0;
   height: 100%;
+}
+.quiz-topic-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
+.quiz-topic-prompt {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  flex-shrink: 0;
+}
 .quiz-topic-list {
   flex: 1;
-  min-height: 0;
+  min-height: 180px;
+  max-height: 280px;
   overflow-y: auto;
   background: #fff;
   border: 2px solid;
   border-color: #808080 #fff #fff #808080;
-  padding: 2px;
+  box-shadow: inset 1px 1px 0 #000;
+  padding: 1px;
   outline: none;
 }
 .quiz-topic-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 4px;
+  padding: 1px 4px;
   font-size: 13px;
-  line-height: 18px;
+  line-height: 16px;
   cursor: default;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .quiz-topic-row.selected {
   background: #000080;
   color: #fff;
 }
-.quiz-topic-count {
-  color: #666;
-  font-size: 12px;
-}
-.quiz-topic-row.selected .quiz-topic-count {
-  color: #fff;
-}
 .quiz-topic-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
   line-height: 0;
+  padding-top: 18px;
 }
 .quiz-topic-btn {
   width: 63px;
@@ -1135,6 +1183,18 @@ body {
   cursor: pointer;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
+  display: block;
+}
+.quiz-topic-btn:active {
+  filter: brightness(0.92);
+}
+#quizTopicDialog .win-window {
+  width: 340px;
+  height: auto;
+  position: relative;
+  top: auto;
+  left: auto;
+  transform: none;
 }
 
 /* Dropdown menu */
@@ -1311,6 +1371,28 @@ body {
   </div>
 </div>
 
+<!-- Kelime Oyunu topic picker (EXE-style listbox + Tamam/İptal) -->
+<div class="dialog-overlay" id="quizTopicDialog">
+  <div class="win-window">
+    <div class="win-title inactive"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Kelime Oyunu</span>
+      <div class="win-title-btns"><button onclick="closeQuizTopicDialog()">✕</button></div>
+    </div>
+    <div class="win-body" style="padding:8px;height:320px;">
+      <div class="quiz-topic-panel">
+        <div class="quiz-topic-main">
+          <div class="quiz-topic-prompt">Kelime Oyunu oynamak için bir konu seçin.</div>
+          <div class="quiz-topic-list" id="quizTopicList" tabindex="0"
+               onkeydown="quizTopicKeydown(event)"></div>
+        </div>
+        <div class="quiz-topic-actions">
+          <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_tamam.png" alt="Tamam" title="Tamam" onclick="confirmQuizTopic()">
+          <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_iptal.png" alt="İptal" title="İptal" onclick="closeQuizTopicDialog()">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // ─── State ────────────────────────────────────────────────────────────────
 let state = {
@@ -1366,6 +1448,7 @@ document.addEventListener('click', function(e) {
 
 // ─── Windows System ──────────────────────────────────────────────────────
 function closeAllWindows() {
+  closeQuizTopicDialog();
   Object.keys(state.windows).forEach(k => {
     const el = document.getElementById(k);
     if (el) el.remove();
@@ -1375,6 +1458,10 @@ function closeAllWindows() {
 
 function openWindow(type) {
   closeAllMenus();
+  if (type === 'quiz') {
+    openHangman();
+    return;
+  }
   closeAllWindows();
   const id = 'win-' + (state.nextWindowId++);
   const workArea = document.getElementById('workArea');
@@ -1393,9 +1480,6 @@ function openWindow(type) {
       break;
     case 'tr-tr':
       config = { title: 'Türkçe Leb Demeden', type: 'tur', w: 480, h: 380 };
-      break;
-    case 'quiz':
-      config = { title: 'Kelime Oyunu - Konular', type: 'quiz-topics', w: 520, h: 380 };
       break;
     case 'stats':
       config = { title: 'Metin İstatistik', type: 'stats', w: 480, h: 340 };
@@ -1465,9 +1549,6 @@ function openWindow(type) {
       </div>
       <div class="win-status" id="${id}-status" style="flex-shrink:0;"></div>
     </div>`;
-  } else if (config.type === 'quiz-topics') {
-    html += `<div class="win-body" style="padding:4px;flex:1;display:flex;flex-direction:column;min-height:0;overflow:auto;">`;
-    html += `<div id="${id}-body" style="flex:1;display:flex;flex-direction:column;min-height:0;"><div class="loading">Yükleniyor...</div></div></div>`;
   } else if (config.type === 'stats') {
     html += `<div class="win-body" id="${id}-body" style="padding:4px;flex:1;display:flex;flex-direction:column;min-height:0;overflow:auto;"><div class="loading">Yükleniyor...</div></div>`;
   }
@@ -1485,7 +1566,6 @@ function openWindow(type) {
     case 'rev': loadWindowDict(id, 'rev', '/api/rev'); break;
     case 'syn': loadWindowDict(id, 'syn', '/api/syn'); break;
     case 'tur': loadWindowDict(id, 'tur', '/api/tur'); break;
-    case 'quiz-topics': loadQuizTopics(id); break;
     case 'stats': loadWindowStats(id); break;
   }
 }
@@ -1651,19 +1731,107 @@ function dictSearchDebounced(winId) {
   _searchTimer[winId] = setTimeout(() => dictSearch(winId), 150);
 }
 
-// ─── Quiz Topics Window ──────────────────────────────────────────────────
-function loadQuizTopics(winId) {
+// ─── Quiz Topics Dialog (EXE listbox: select → Tamam / İptal) ─────────────
+let quizTopicState = { topics: [], selected: null, hostId: null, typePrefix: '' };
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showQuizTopicDialog(hostId) {
+  quizTopicState.hostId = hostId;
+  const dlg = document.getElementById('quizTopicDialog');
+  const list = document.getElementById('quizTopicList');
+  list.innerHTML = '<div style="padding:8px;color:#666;">Yükleniyor...</div>';
+  dlg.classList.add('open');
+
   fetch('/api/quiz/topics').then(r=>r.json()).then(d=>{
-    let html = `<div style="padding:4px;"><p style="margin-bottom:8px;font-size:13px;color:#444;">Kelime Oyunu oynamak için bir konu seçin.</p>`;
-    html += `<div class="topics-grid">`;
-    d.topics.forEach(t => {
-      html += `<div class="topic-tile" onclick="openHangman(${t.idx},'${t.name}')">
-        <b>${t.name}</b><br><span class="count">${t.count} kelime</span>
-      </div>`;
+    const topics = d.topics || [];
+    quizTopicState.topics = topics;
+    quizTopicState.selected = topics.length ? topics[0].idx : null;
+    quizTopicState.typePrefix = '';
+    list.innerHTML = '';
+    topics.forEach((t, i) => {
+      const row = document.createElement('div');
+      row.className = 'quiz-topic-row' + (i === 0 ? ' selected' : '');
+      row.dataset.idx = String(t.idx);
+      row.dataset.name = t.name;
+      row.textContent = t.name;
+      row.onclick = () => selectQuizTopic(t.idx);
+      row.ondblclick = () => confirmQuizTopic();
+      list.appendChild(row);
     });
-    html += `</div></div>`;
-    document.getElementById(winId + '-body').innerHTML = html;
+    list.focus();
   });
+}
+
+function closeQuizTopicDialog() {
+  document.getElementById('quizTopicDialog').classList.remove('open');
+  quizTopicState.typePrefix = '';
+}
+
+function selectQuizTopic(idx) {
+  quizTopicState.selected = idx;
+  const list = document.getElementById('quizTopicList');
+  list.querySelectorAll('.quiz-topic-row').forEach(row => {
+    const on = Number(row.dataset.idx) === idx;
+    row.classList.toggle('selected', on);
+    if (on) row.scrollIntoView({ block: 'nearest' });
+  });
+}
+
+function confirmQuizTopic() {
+  const hostId = quizTopicState.hostId;
+  const idx = quizTopicState.selected;
+  if (idx == null || !hostId) return;
+  const topic = (quizTopicState.topics || []).find(t => t.idx === idx);
+  closeQuizTopicDialog();
+  startHangmanRound(hostId, idx, topic ? topic.name : '');
+}
+
+function quizTopicKeydown(ev) {
+  const topics = quizTopicState.topics || [];
+  if (!topics.length) return;
+  let i = topics.findIndex(t => t.idx === quizTopicState.selected);
+  if (i < 0) i = 0;
+
+  if (ev.key === 'ArrowDown') {
+    ev.preventDefault();
+    selectQuizTopic(topics[Math.min(i + 1, topics.length - 1)].idx);
+  } else if (ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    selectQuizTopic(topics[Math.max(i - 1, 0)].idx);
+  } else if (ev.key === 'Home') {
+    ev.preventDefault();
+    selectQuizTopic(topics[0].idx);
+  } else if (ev.key === 'End') {
+    ev.preventDefault();
+    selectQuizTopic(topics[topics.length - 1].idx);
+  } else if (ev.key === 'PageDown') {
+    ev.preventDefault();
+    selectQuizTopic(topics[Math.min(i + 10, topics.length - 1)].idx);
+  } else if (ev.key === 'PageUp') {
+    ev.preventDefault();
+    selectQuizTopic(topics[Math.max(i - 10, 0)].idx);
+  } else if (ev.key === 'Enter') {
+    ev.preventDefault();
+    confirmQuizTopic();
+  } else if (ev.key === 'Escape') {
+    ev.preventDefault();
+    closeQuizTopicDialog();
+  } else if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+    // Win16 listbox type-ahead
+    ev.preventDefault();
+    const now = Date.now();
+    if (!quizTopicState._typeAt || now - quizTopicState._typeAt > 900) {
+      quizTopicState.typePrefix = '';
+    }
+    quizTopicState._typeAt = now;
+    quizTopicState.typePrefix += ev.key;
+    const qn = normalizeSearch(quizTopicState.typePrefix);
+    const hit = topics.find(t => normalizeSearch(t.name).startsWith(qn));
+    if (hit) selectQuizTopic(hit.idx);
+  }
 }
 
 // ─── Hangman (Kelime Oyunu) ─────────────────────────────────────────────
@@ -1674,13 +1842,15 @@ const HM_KEYS = [
   ['E', 'R'], ['F', 'S'], ['G', 'Ş'], ['Ğ', 'T'], ['H', 'U'],
   ['I', 'Ü'], ['İ', 'V'], ['J', 'Y'], ['K', 'Z'], ['L', '?'],
 ];
+const HM_START_SCORE = 10000;
 
 function hmKeyIndex(letter) {
   return HM_LETTERS.indexOf(letter);
 }
 
-function openHangman(topicIdx, topicName) {
+function openHangman() {
   closeAllWindows();
+  closeQuizTopicDialog();
   const id = 'win-hm-' + (state.nextWindowId++);
   const workArea = document.getElementById('workArea');
 
@@ -1688,40 +1858,85 @@ function openHangman(topicIdx, topicName) {
   html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Kelime Oyunu</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
   html += `<div class="win-body" style="padding:0;display:block;background:#c0c0c0;">`;
-  html += `<div class="hm-main" id="${id}-game"><div class="loading">Kelime seçiliyor...</div></div>`;
+  html += `<div class="hm-main" id="${id}-game"></div>`;
   html += `</div></div>`;
 
   workArea.insertAdjacentHTML('afterbegin', html);
-  state.windows[id] = { type: 'hangman', id: id, topicIdx: topicIdx, topicName: topicName || '' };
+  state.windows[id] = {
+    type: 'hangman', id: id, topicIdx: null, topicName: '',
+    hangman: {
+      word: '', hint: '', topicIdx: null,
+      guessed: [], wrong: 0, maxWrong: 9, done: false, id: id,
+      score: HM_START_SCORE, started: false
+    }
+  };
+  renderHangman(id);
+}
+
+function hangmanBasla(id) {
+  // EXE: Başla opens topic / word-source dialog, then starts a round
+  showQuizTopicDialog(id);
+}
+
+function toTrUpper(s) {
+  return String(s || '')
+    .replace(/i/g, 'İ')
+    .replace(/ı/g, 'I')
+    .toLocaleUpperCase('tr-TR');
+}
+
+function startHangmanRound(id, topicIdx, topicName) {
+  const win = state.windows[id];
+  if (!win) return;
+  win.topicIdx = topicIdx;
+  win.topicName = topicName || '';
+  const game = document.getElementById(id + '-game');
+  if (game) game.innerHTML = '<div class="loading" style="padding:8px;">Kelime seçiliyor...</div>';
 
   fetch('/api/hangman/word?topic=' + topicIdx)
     .then(r => r.json()).then(d => {
-      if (d.error) { document.getElementById(id+'-game').innerHTML = '<p style="color:#800;padding:8px;">'+d.error+'</p>'; return; }
-      initHangmanGame(id, d.en, d.tr, topicIdx);
+      if (!state.windows[id]) return;
+      if (d.error) {
+        document.getElementById(id + '-game').innerHTML =
+          '<p style="color:#800;padding:8px;">' + escHtml(d.error) + '</p>';
+        // keep board playable — reopen empty state
+        if (win.hangman) {
+          win.hangman.started = false;
+          win.hangman.word = '';
+          renderHangman(id);
+        }
+        return;
+      }
+      const word = toTrUpper(d.word || '');
+      initHangmanGame(id, word, d.hint || d.en || '', topicIdx);
     });
 }
 
 function initHangmanGame(id, word, hint, topicIdx) {
-  const wordUpper = word.toUpperCase();
+  const wordUpper = toTrUpper(word);
+  const prev = (state.windows[id] && state.windows[id].hangman) || {};
   const info = {
     word: wordUpper, hint: hint, topicIdx: topicIdx,
-    guessed: [], wrong: 0, maxWrong: 9, done: false, id: id, score: 0
+    guessed: [], wrong: 0, maxWrong: 9, done: false, id: id,
+    score: (typeof prev.score === 'number' ? prev.score : HM_START_SCORE),
+    started: true
   };
   state.windows[id].hangman = info;
   renderHangman(id);
 }
 
 function renderHangman(id) {
-  const info = state.windows[id].hangman;
+  const info = state.windows[id] && state.windows[id].hangman;
   if (!info) return;
-  const displayWord = info.word.split('').map(c =>
-    info.guessed.includes(c) ? c : '_'
-  ).join(' ');
-  const won = !displayWord.includes('_');
-  const lost = info.wrong >= info.maxWrong;
+  const started = !!info.started && !!info.word;
+  const displayWord = started
+    ? info.word.split('').map(c => info.guessed.includes(c) ? c : '_').join(' ')
+    : '';
+  const won = started && !displayWord.includes('_');
+  const lost = started && info.wrong >= info.maxWrong;
   if (won || lost) info.done = true;
 
-  const stage = Math.min(info.wrong, 9);
+  const stage = started ? Math.min(info.wrong, 9) : 0;
 
   let html = `<div class="hm-main">`;
 
@@ -1734,10 +1949,10 @@ function renderHangman(id) {
     for (let c = 0; c < 2; c++) {
       const letter = HM_KEYS[r][c];
       const idx = hmKeyIndex(letter);
-      const used = info.guessed.includes(letter);
+      const used = started && info.guessed.includes(letter);
       const prefix = used ? 'p' : 'n';
-      const onClick = (used || info.done) ? '' : `guessLetter('${id}','${letter}')`;
-      const cls = used || info.done ? ' used' : '';
+      const onClick = (!started || used || info.done) ? '' : `guessLetter('${id}','${letter}')`;
+      const cls = (!started || used || info.done) ? ' used' : '';
       html += `<img class="hm-key${cls}" width="25" height="25" src="/assets/keys/${prefix}_${String(idx).padStart(2,'0')}.png?v=8" ` +
         `alt="${letter}" title="${letter}" onclick="${onClick}">`;
     }
@@ -1766,7 +1981,7 @@ function renderHangman(id) {
   }
   html += `<div class="hm-btns">`;
   html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_sozluk.png" alt="Sözlük" title="Sözlük" onclick="openWindow('ing-tr')">`;
-  html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_basla.png" alt="Başla" title="Başla" onclick="openHangman(${info.topicIdx},'')">`;
+  html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_basla.png" alt="Başla" title="Başla" onclick="hangmanBasla('${id}')">`;
   html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_iptal.png" alt="İptal" title="İptal" onclick="closeWindow('${id}')">`;
   html += `</div>`;
   html += `</div>`; // hm-right
@@ -1778,8 +1993,8 @@ function renderHangman(id) {
 }
 
 function guessLetter(id, letter) {
-  const info = state.windows[id].hangman;
-  if (!info || info.done || info.guessed.includes(letter)) return;
+  const info = state.windows[id] && state.windows[id].hangman;
+  if (!info || !info.started || !info.word || info.done || info.guessed.includes(letter)) return;
   if (letter === '?') {
     // Hint: reveal one unrevealed letter (costs a wrong step)
     let revealed = false;
@@ -1798,6 +2013,7 @@ function guessLetter(id, letter) {
     info.guessed.push(letter);
     if (!info.word.includes(letter)) {
       info.wrong++;
+      info.score = Math.max(0, info.score - 10);
     } else {
       const hits = info.word.split('').filter(c => c === letter).length;
       info.score += hits * 10;
