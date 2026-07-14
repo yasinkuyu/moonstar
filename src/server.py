@@ -1022,7 +1022,7 @@ body {
   image-rendering: pixelated; image-rendering: crisp-edges;
 }
 .hm-wordbox {
-  width: 308px; height: 26px; box-sizing: border-box;
+  width: 250px; height: 26px; box-sizing: border-box;
   border: 2px solid; border-color: #808080 #fff #fff #808080;
   background: #c0c0c0; padding: 0 4px;
   font-size: 15px; font-weight: 700; letter-spacing: 3px;
@@ -1031,6 +1031,7 @@ body {
   white-space: nowrap; overflow: hidden; flex-shrink: 0;
 }
 .hm-result {
+  width: 250px;
   height: 14px; line-height: 14px;
   font-size: 11px; font-weight: 700; text-align: center;
 }
@@ -1677,7 +1678,7 @@ function renderHangman(id) {
       const prefix = used ? 'p' : 'n';
       const onClick = (used || info.done) ? '' : `guessLetter('${id}','${letter}')`;
       const cls = used || info.done ? ' used' : '';
-      html += `<img class="hm-key${cls}" width="25" height="25" src="/assets/keys/${prefix}_${String(idx).padStart(2,'0')}.png" ` +
+      html += `<img class="hm-key${cls}" width="25" height="25" src="/assets/keys/${prefix}_${String(idx).padStart(2,'0')}.png?v=7" ` +
         `alt="${letter}" title="${letter}" onclick="${onClick}">`;
     }
     html += `</div>`;
@@ -1694,13 +1695,8 @@ function renderHangman(id) {
   html += `<div class="hm-scorecol">`;
   html += `<div class="hm-scorelabel">Puan</div>`;
   html += `<div class="hm-scorebox" id="${id}-score">${info.score}</div>`;
-  html += `</div></div>`;
   html += `<div class="hm-ad"><img width="98" height="98" src="/assets/moonstar_banner.png" alt="Acer"></div>`;
-  html += `</div>`; // hm-right
-
-  html += `</div>`; // hm-upper
-
-  // Full-width word + buttons (like original EXE)
+  html += `</div></div>`;
   html += `<div class="hm-wordbox">${displayWord}</div>`;
   if (won || lost) {
     const msg = won ? 'Kazandın!' : ('Kaybettin!  ' + info.word);
@@ -1712,7 +1708,11 @@ function renderHangman(id) {
   html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_sozluk.png" alt="Sözlük" title="Sözlük" onclick="openWindow('ing-tr')">`;
   html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_basla.png" alt="Başla" title="Başla" onclick="openHangman(${info.topicIdx},'')">`;
   html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_iptal.png" alt="İptal" title="İptal" onclick="closeWindow('${id}')">`;
-  html += `</div></div>`;
+  html += `</div>`;
+  html += `</div>`; // hm-right
+
+  html += `</div>`; // hm-upper
+  html += `</div>`; // hm-main
 
   document.getElementById(id+'-game').innerHTML = html;
 }

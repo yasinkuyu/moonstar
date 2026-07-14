@@ -3,4 +3,8 @@ data/*
 output/
 temp/
 docs/
+__pycache__/
+*.pyc
+.DS_Store
+AGENTS.md
 src/__pycache__/
