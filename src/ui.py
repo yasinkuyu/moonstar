@@ -24,6 +24,55 @@ def normalize_tr(s):
     tr_to_ascii = str.maketrans('ıİşŞçÇöÖüÜğĞ', 'iIsScCoOuUgG')
     return s.lower().translate(tr_to_ascii)
 
+
+def turkish_sort_key(s):
+    """Map Turkish characters to weights for correct alphabetical sorting."""
+    mapping = {
+        'a': 'a0', 'A': 'a0',
+        'b': 'b0', 'B': 'b0',
+        'c': 'c0', 'C': 'c0',
+        'ç': 'c1', 'Ç': 'c1',
+        'd': 'd0', 'D': 'd0',
+        'e': 'e0', 'E': 'e0',
+        'f': 'f0', 'F': 'f0',
+        'g': 'g0', 'G': 'g0',
+        'ğ': 'g1', 'Ğ': 'g1',
+        'h': 'h0', 'H': 'h0',
+        'ı': 'i0', 'I': 'i0',
+        'i': 'i1', 'İ': 'i1',
+        'j': 'j0', 'J': 'j0',
+        'k': 'k0', 'K': 'k0',
+        'l': 'l0', 'L': 'l0',
+        'm': 'm0', 'M': 'm0',
+        'n': 'n0', 'N': 'n0',
+        'o': 'o0', 'O': 'o0',
+        'ö': 'o1', 'Ö': 'o1',
+        'p': 'p0', 'P': 'p0',
+        'r': 'r0', 'R': 'r0',
+        's': 's0', 'S': 's0',
+        'ş': 's1', 'Ş': 's1',
+        't': 't0', 'T': 't0',
+        'u': 'u0', 'U': 'u0',
+        'ü': 'u1', 'Ü': 'u1',
+        'v': 'v0', 'V': 'v0',
+        'y': 'y0', 'Y': 'y0',
+        'z': 'z0', 'Z': 'z0'
+    }
+    return [mapping.get(c, c) for c in s]
+
+
+def get_clean_turkish_word(s):
+    """Strip leading '#' and leading parenthetical prefixes (e.g. '(about ile)') for clean index keys."""
+    s = s.lstrip('#').strip()
+    while s.startswith('('):
+        end = s.find(')')
+        if end != -1:
+            s = s[end+1:].strip()
+        else:
+            break
+    return s
+
+
 PORT = 8080
 
 
@@ -56,7 +105,7 @@ def load_tur():
             word = line.strip()
             if word:
                 entries.append({"word": word})
-    return entries
+    return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
 
 
 def load_synonyms():
@@ -69,7 +118,6 @@ def load_synonyms():
     same English word.
     """
     entries = []
-    # Build from TRK: Turkish words that share the same English word are synonyms
     en_to_tr = {}
     tr_to_en = defaultdict(set)
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
@@ -82,17 +130,17 @@ def load_synonyms():
                     if len(parts) == 2:
                         en, tr = parts[0], parts[1]
                         for meaning in tr.split('|'):
-                            meaning = meaning.strip()
-                            if meaning:
+                            meaning_clean = get_clean_turkish_word(meaning)
+                            if meaning_clean:
                                 if en not in en_to_tr:
                                     en_to_tr[en] = set()
-                                en_to_tr[en].add(meaning)
-                                tr_to_en[meaning].add(en)
+                                en_to_tr[en].add(meaning_clean)
+                                tr_to_en[meaning_clean].add(en)
         # Group by English word: all Turkish meanings sharing the same English word
         seen = set()
         for en, tr_words in en_to_tr.items():
             if len(tr_words) >= 2:
-                sorted_words = sorted(tr_words)
+                sorted_words = sorted(tr_words, key=turkish_sort_key)
                 key = ' | '.join(sorted_words)
                 if key not in seen:
                     seen.add(key)
@@ -114,7 +162,7 @@ def load_synonyms():
             merged[w]["groups"] = " | ".join(sorted(existing))
         else:
             merged[w] = dict(e)
-    return list(merged.values())
+    return sorted(merged.values(), key=lambda x: turkish_sort_key(x["word"]))
 
 
 def load_trk_reverse():
@@ -122,11 +170,6 @@ def load_trk_reverse():
     Load Turkish→English (reverse of TRK).
     
     NOTE: Generated from MTU.TRK (clean) instead of MTU.TUR Section 3.
-    The EXE stores TR_EN data in TUR Section 3, but it's encoded as
-    morphological format instructions (table_A/table_B lookup via CP857),
-    NOT as readable English text. The decoded output contains control
-    characters (0x01, 0x02, 0x05, 0x09) mixed with CP857 glyphs.
-    
     Using TRK reverse gives clean, verified Turkish→English pairs.
     """
     entries = []
@@ -142,15 +185,15 @@ def load_trk_reverse():
                         en, tr = parts[0], parts[1]
                         # Split Turkish meanings on | and add each
                         for meaning in tr.split('|'):
-                            meaning = meaning.strip()
-                            if meaning:
-                                if meaning in pairs:
-                                    if en not in pairs[meaning]:
-                                        pairs[meaning].append(en)
+                            meaning_clean = get_clean_turkish_word(meaning)
+                            if meaning_clean:
+                                if meaning_clean in pairs:
+                                    if en not in pairs[meaning_clean]:
+                                        pairs[meaning_clean].append(en)
                                 else:
-                                    pairs[meaning] = [en]
-        for tr_word, en_list in sorted(pairs.items()):
-            entries.append({"tr": tr_word, "en": ', '.join(en_list)})
+                                    pairs[meaning_clean] = [en]
+        for tr_word, en_list in sorted(pairs.items(), key=lambda x: turkish_sort_key(x[0])):
+            entries.append({"tr": tr_word, "en": ', '.join(sorted(en_list))})
     return entries
 
 
