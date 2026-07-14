@@ -993,6 +993,9 @@ body {
 }
 .hm-key.used { cursor: default; opacity: 1; }
 .hm-key.idle { cursor: default; }
+.kbd-grid { display: grid; grid-template-columns: repeat(5,auto); gap: 4px; justify-content: center; }
+.kbd-key { cursor: pointer; width: 25px; height: 25px; padding: 0; margin: 0; border: 0; background: transparent; image-rendering: pixelated; image-rendering: crisp-edges; }
+.kbd-key:hover { filter: brightness(1.1); }
 .hm-right {
   width: 250px; display: flex; flex-direction: column;
   gap: 6px; flex-shrink: 0;
@@ -1035,7 +1038,7 @@ body {
 }
 .hm-status {
   display: flex; flex-direction: column;
-  gap: 4px; flex-shrink: 0;
+  gap: 0; flex-shrink: 0;
   width: 250px;
   margin-top: 8px;
 }
@@ -1046,6 +1049,7 @@ body {
 }
 .hm-gallows {
   width: 60px; height: 84px; box-sizing: border-box;
+  margin-top: 4px;
   border: 2px solid; border-color: #808080 #fff #fff #808080;
   background: #c0c0c0; padding: 2px; line-height: 0; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
@@ -1059,14 +1063,13 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex-shrink: 0;
-  align-items: stretch;
   margin-left: auto;
 }
 .hm-scorelabel {
   height: 16px; line-height: 16px;
   font-size: 13px; font-weight: 700;
   font-family: 'MS Sans Serif', Tahoma, sans-serif;
+  margin-left: 4px;
 }
 .hm-scorebox {
   width: 100%; box-sizing: border-box;
@@ -1304,7 +1307,7 @@ body {
       </div>
       <div class="dropdown" id="optionsMenu">
         <div class="dropdown-item" onclick="winAlert('Bu özellik sadece veri görüntüleme amaçlıdır.')">Karakter Listesi</div>
-        <div class="dropdown-item" onclick="showKeyboardDialog()">Klavye Seçimi</div>
+        <div class="dropdown-item" onclick="showKeyboardModule()">Klavye Seçimi</div>
         <div class="dropdown-item" onclick="winAlert('Bu özellik sadece veri görüntüleme amaçlıdır.')">Genel tanımlar</div>
       </div>
       <div class="dropdown" id="helpMenu">
@@ -1741,7 +1744,7 @@ function dictSearchDebounced(winId) {
 }
 
 // ─── Quiz Topics Dialog (EXE listbox: select → Tamam / İptal) ─────────────
-let quizTopicState = { topics: [], selected: null, hostId: null, typePrefix: '' };
+let quizTopicState = { topics: [], selected: null, hostId: null, typePrefix: '', lastTopicIdx: null };
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -1757,12 +1760,15 @@ function showQuizTopicDialog(hostId) {
   fetch('/api/quiz/topics').then(r=>r.json()).then(d=>{
     const topics = d.topics || [];
     quizTopicState.topics = topics;
-    quizTopicState.selected = topics.length ? topics[0].idx : null;
+    const prevIdx = quizTopicState.lastTopicIdx;
+    const hasPrev = prevIdx != null && topics.some(t => t.idx === prevIdx);
+    quizTopicState.selected = hasPrev ? prevIdx : (topics.length ? topics[0].idx : null);
     quizTopicState.typePrefix = '';
     list.innerHTML = '';
     topics.forEach((t, i) => {
       const row = document.createElement('div');
-      row.className = 'quiz-topic-row' + (i === 0 ? ' selected' : '');
+      const sel = t.idx === quizTopicState.selected;
+      row.className = 'quiz-topic-row' + (sel ? ' selected' : '');
       row.dataset.idx = String(t.idx);
       row.dataset.name = t.name;
       row.textContent = t.name;
@@ -1793,6 +1799,7 @@ function confirmQuizTopic() {
   const hostId = quizTopicState.hostId;
   const idx = quizTopicState.selected;
   if (idx == null || !hostId) return;
+  quizTopicState.lastTopicIdx = idx;
   const topic = (quizTopicState.topics || []).find(t => t.idx === idx);
   closeQuizTopicDialog();
   startHangmanRound(hostId, idx, topic ? topic.name : '');
@@ -2059,14 +2066,14 @@ function renderHangman(id) {
   } else {
     html += `<div class="hm-result"></div>`;
   }
+  html += `</div>`; // hm-right
+
+  html += `</div>`; // hm-upper
   html += `<div class="hm-btns">`;
   html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_sozluk.png" alt="Sözlük" title="Sözlük" onclick="hangmanSozluk('${id}')">`;
   html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_basla.png" alt="Başla" title="Başla" onclick="hangmanBasla('${id}')">`;
   html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_iptal.png" alt="İptal" title="İptal" onclick="closeWindow('${id}')">`;
   html += `</div>`;
-  html += `</div>`; // hm-right
-
-  html += `</div>`; // hm-upper
   html += `</div>`; // hm-main
 
   document.getElementById(id+'-game').innerHTML = html;
@@ -2139,7 +2146,7 @@ function showWelcomeWindow() {
     { label: 'Türkçe Denetim', base: 'btn_denetim', action: 'showCheckOptions()' },
     { label: 'Türkçe / İngilizce', base: 'btn_tr_en', action: "openWindow('tr-ing')" },
     { label: 'Türkçe Eş Anlamlılar', base: 'btn_esanlam', action: "openWindow('synonyms')" },
-    { label: 'Klavye', base: 'btn_klavye', action: 'showKeyboardDialog()' },
+    { label: 'Klavye', base: 'btn_klavye', action: 'showKeyboardModule()' },
     { label: 'İngilizce / Türkçe', base: 'btn_en_tr', action: "openWindow('ing-tr')" },
     { label: 'Adam Asma', base: 'btn_adam_asma', action: "openWindow('quiz')" },
   ];
@@ -2175,24 +2182,41 @@ function showWelcomeWindow() {
   workArea.insertAdjacentHTML('afterbegin', html);
 }
 
-function showKeyboardDialog() {
+function showKeyboardModule() {
+  closeAllWindows();
   const id = 'win-kbd';
   if (document.getElementById(id)) return;
-  openRawWindow(id, 'Klavye Seçimi', 320, 280, `
-    <div style="padding:8px;font-size:13px;line-height:1.6;">
-      <p><b>Türkçe Karakter Girişi</b></p>
-      <p>Şu tuş kombinasyonlarını kullanın:</p>
-      <table style="width:100%;border-collapse:collapse;">
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><b>ü</b></td><td style="padding:4px 8px;border:1px solid #999;">u + çift nokta</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><b>ö</b></td><td style="padding:4px 8px;border:1px solid #999;">o + çift nokta</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><b>ı</b></td><td style="padding:4px 8px;border:1px solid #999;">noktasız i</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><b>ş</b></td><td style="padding:4px 8px;border:1px solid #999;">s + sedil</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><b>ç</b></td><td style="padding:4px 8px;border:1px solid #999;">c + sedil</td></tr>
-        <tr><td style="padding:4px 8px;border:1px solid #999;"><b>ğ</b></td><td style="padding:4px 8px;border:1px solid #999;">g + yumuşatma</td></tr>
-      </table>
-      <p style="margin-top:8px;color:#666;">Ayrıca Al ve Bul iletişim kutusundan karakter listesine ulaşabilirsiniz.</p>
+  const letters = 'ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ?';
+  let keysHtml = '';
+  for (let i = 0; i < letters.length; i++) {
+    const p = String(i).padStart(2,'0');
+    const ch = letters[i];
+    keysHtml += `<img class="kbd-key" src="/assets/keys/n_${p}.png?v=3" ` +
+      `data-n="/assets/keys/n_${p}.png?v=3" data-p="/assets/keys/p_${p}.png?v=3" ` +
+      `alt="${ch}" title="${ch}" ` +
+      `onpointerdown="this.src=this.dataset.p" ` +
+      `onpointerup="this.src=this.dataset.n;selectKbdChar('${id}','${ch}')" ` +
+      `onpointerleave="this.src=this.dataset.n" ` +
+      `onpointercancel="this.src=this.dataset.n">`;
+  }
+  openRawWindow(id, 'Klavye', 250, 360, `
+    <div style="padding:8px;display:flex;flex-direction:column;gap:8px;height:100%;">
+      <div class="kbd-grid">${keysHtml}</div>
+      <div class="group-box"><legend>Seçilen</legend>
+        <input class="win-input" type="text" readonly id="${id}-char"
+          style="width:100%;font-size:28px;text-align:center;background:#fff;color:#000;border:2px inset #c0c0c0;font-weight:700;font-family:inherit;">
+      </div>
+      <div style="text-align:right;flex-shrink:0;">
+        <button class="win-btn primary" onclick="closeWindow('${id}')">Tamam</button>
+        <button class="win-btn" onclick="closeWindow('${id}')">İptal</button>
+      </div>
     </div>
   `);
+}
+
+function selectKbdChar(id, ch) {
+  const el = document.getElementById(id+'-char');
+  if (el) el.value = ch;
 }
 
 // ─── Stats Window ────────────────────────────────────────────────────────
@@ -2322,11 +2346,12 @@ function showCheckOptions() {
   const id = 'win-chk-' + (state.nextWindowId++);
   const workArea = document.getElementById('workArea');
   
-  let html = `<div class="win-window" id="${id}" style="width:360px;height:280px;">`;
+  let html = `<div class="win-window" id="${id}" style="width:360px;height:280px;overflow:hidden;">`;
   html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Denetim Opsiyonlar</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
-  html += `<div class="win-body" style="padding:6px;flex:1;display:flex;flex-direction:column;min-height:0;">`;
-  html += `<div class="group-box" style="flex:1;overflow-y:auto;margin-bottom:6px;"><legend>Denetim Seçenekleri</legend>`;
+  html += `<div class="win-body" style="padding:6px;flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;">`;
+  html += `<div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;margin:0 0 6px 0;"><legend>Denetim Seçenekleri</legend>`;
+  html += `<div style="flex:1;overflow-y:auto;min-height:0;padding-top:4px;">`;
   const opts = [
     'Paragraf başı kontrol',
     'Bileşik isim denetimi',
@@ -2339,7 +2364,7 @@ function showCheckOptions() {
   opts.forEach(o => {
     html += `<label style="display:block;margin:2px 0;font-size:13px;font-weight:600;"><input type="checkbox" checked> ${o}</label>`;
   });
-  html += `</div>`;
+  html += `</div></div>`;
   html += `<div style="text-align:right;flex-shrink:0;"><button class="win-btn primary" onclick="closeWindow('${id}')">Tamam</button></div>`;
   html += `</div></div>`;
   

@@ -2,5 +2,6 @@ data/*
 !data/README
 output/
 temp/
+AGENTS.md
 docs/
 src/__pycache__/
