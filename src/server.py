@@ -412,14 +412,18 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
 
     def get_quiz_topics(self):
         topic_counts = {}
+        topics_by_idx = {}
         for q in QUIZ_DATA:
             t = q["topic_idx"]
             topic_counts[t] = topic_counts.get(t, 0) + 1
+            if t not in topics_by_idx:
+                topics_by_idx[t] = q["topic"]
         result = []
         for idx in sorted(topic_counts.keys()):
-            name = q["topic"] if q["topic"] else ""
-            if idx < len(TOPIC_NAMES) and len(TOPIC_NAMES[idx]) > 1:
-                name = TOPIC_NAMES[idx]
+            name = topics_by_idx.get(idx, "")
+            topic_name_idx = idx + 2
+            if topic_name_idx < len(TOPIC_NAMES) and len(TOPIC_NAMES[topic_name_idx]) > 1:
+                name = TOPIC_NAMES[topic_name_idx]
             result.append({
                 "idx": idx,
                 "name": name,
@@ -475,7 +479,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/x-icon" href="/assets/moonstar.ico">
 <link rel="shortcut icon" type="image/x-icon" href="/assets/moonstar.ico">
-<title>MoonStar Türkçe Denetim Editörü</title>
+<title>MoonStar Türkçe Dil Kılavuzu</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 label { font-weight: 600; }
@@ -590,10 +594,14 @@ body {
 }
 .win-title-text { flex: 1; }
 .win-title-icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
+  display: block;
   flex-shrink: 0;
+  object-fit: contain;
+  background: url('/assets/moonstar_icon.png?v=2') center / 16px 16px no-repeat;
   image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 .win-title-btns { display: flex; gap: 2px; margin-left: auto; }
 .win-title-btns button {
@@ -915,28 +923,29 @@ body {
   margin: 0;
   padding: 0;
   color: #fff;
-  font-family: 'Brush Script MT', 'Segoe Script', 'Apple Chancery', Georgia, 'Times New Roman', cursive;
+  font-family: 'Times New Roman', 'MS Serif', serif;
   font-size: 18px;
   font-style: italic;
+  font-weight: 400;
   line-height: 1;
   white-space: nowrap;
   text-align: center;
-  letter-spacing: 0.2px;
+  letter-spacing: 0;
 }
 
 /* Hangman — pixel sizes match EXE assets: 25 / 52×76 / 98 / 63×39 */
 .hm-main {
   display: flex; flex-direction: column;
-  width: 316px; padding: 4px; gap: 4px;
+  width: 330px; padding: 6px 8px 6px; gap: 6px;
   background: #c0c0c0; box-sizing: border-box;
 }
 .hm-upper {
-  display: flex; flex-direction: row; gap: 4px;
+  display: flex; flex-direction: row; gap: 10px;
   align-items: flex-start;
 }
 .hm-left {
   display: flex; flex-direction: column; gap: 0;
-  width: 54px; padding: 0; line-height: 0;
+  width: 58px; padding: 1px 3px 1px 1px; line-height: 0;
   border: 2px solid; border-color: #808080 #fff #fff #808080;
   background: #c0c0c0; box-sizing: border-box; flex-shrink: 0;
 }
@@ -949,11 +958,11 @@ body {
 .hm-key.used { cursor: default; }
 .hm-right {
   width: 250px; display: flex; flex-direction: column;
-  gap: 4px; flex-shrink: 0;
+  gap: 6px; flex-shrink: 0;
 }
 .hm-brand {
   width: 250px;
-  height: 70px;
+  height: 86px;
   box-sizing: border-box;
   background: #800000;
   border: 2px solid;
@@ -962,14 +971,14 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 4px 8px 6px;
-  gap: 3px;
+  padding: 8px 10px 6px;
+  gap: 4px;
   flex-shrink: 0;
   overflow: hidden;
 }
 .hm-brand-svg {
   width: 100%;
-  height: 36px;
+  height: 48px;
   display: block;
   object-fit: contain;
   object-position: center;
@@ -978,55 +987,67 @@ body {
   margin: 0;
   padding: 0;
   color: #fff;
-  font-family: 'Brush Script MT', 'Segoe Script', 'Apple Chancery', Georgia, 'Times New Roman', cursive;
-  font-size: 14px;
+  font-family: 'Times New Roman', 'MS Serif', serif;
+  font-size: 18px;
   font-style: italic;
+  font-weight: 400;
   line-height: 1;
   white-space: nowrap;
   text-align: center;
-  letter-spacing: 0.2px;
+  letter-spacing: 0;
 }
 .hm-status {
   display: flex; flex-direction: row;
-  align-items: flex-start; gap: 4px; flex-shrink: 0;
+  align-items: flex-start; gap: 10px; flex-shrink: 0;
+  width: 250px;
+  margin-top: 8px;
 }
 .hm-gallows {
-  width: 56px; height: 80px; box-sizing: border-box;
+  width: 64px; height: 88px; box-sizing: border-box;
   border: 2px solid; border-color: #808080 #fff #fff #808080;
-  background: #c0c0c0; padding: 0; line-height: 0; flex-shrink: 0;
+  background: #c0c0c0; padding: 4px; line-height: 0; flex-shrink: 0;
 }
 .hm-gallows img {
   width: 52px; height: 76px; display: block;
   image-rendering: pixelated; image-rendering: crisp-edges;
 }
 .hm-scorecol {
-  width: 98px; display: flex; flex-direction: column;
-  gap: 2px; flex-shrink: 0;
+  margin-left: auto;
+  width: 110px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+  align-items: stretch;
 }
 .hm-scorelabel {
-  height: 14px; line-height: 14px;
-  font-size: 11px; font-weight: 700;
+  height: 16px; line-height: 16px;
+  font-size: 13px; font-weight: 700;
+  font-family: 'MS Sans Serif', Tahoma, sans-serif;
 }
 .hm-scorebox {
-  width: 48px; height: 20px; box-sizing: border-box;
+  width: 100%; height: 36px; box-sizing: border-box;
   border: 2px solid; border-color: #808080 #fff #fff #808080;
-  background: #c0c0c0; padding: 0;
-  font-size: 12px; font-weight: 700;
+  background: #c0c0c0; padding: 6px 10px;
+  font-size: 18px; font-weight: 700;
+  font-family: 'MS Sans Serif', Tahoma, sans-serif;
   display: flex; align-items: center; justify-content: center;
 }
 .hm-ad {
   width: 98px; height: 98px; line-height: 0; flex-shrink: 0;
+  align-self: flex-end;
 }
 .hm-ad img {
   width: 98px; height: 98px; display: block;
   image-rendering: pixelated; image-rendering: crisp-edges;
 }
 .hm-wordbox {
-  width: 250px; height: 26px; box-sizing: border-box;
+  width: 250px; min-height: 36px; box-sizing: border-box;
   border: 2px solid; border-color: #808080 #fff #fff #808080;
-  background: #c0c0c0; padding: 0 4px;
-  font-size: 15px; font-weight: 700; letter-spacing: 3px;
-  font-family: 'Courier New', Courier, monospace;
+  background: #c0c0c0; padding: 8px 12px;
+  font-size: 15px; font-weight: bold;
+  letter-spacing: 5px;
+  font-family: 'MS Sans Serif', 'Microsoft Sans Serif', Tahoma, sans-serif;
   display: flex; align-items: center; justify-content: center;
   white-space: nowrap; overflow: hidden; flex-shrink: 0;
 }
@@ -1036,8 +1057,10 @@ body {
   font-size: 11px; font-weight: 700; text-align: center;
 }
 .hm-btns {
-  display: flex; flex-direction: row; gap: 4px;
+  display: flex; flex-direction: row; gap: 8px;
   line-height: 0; flex-shrink: 0;
+  justify-content: center;
+  width: 250px;
 }
 .hm-btn {
   width: 63px; height: 39px; padding: 0; margin: 0; border: 0;
@@ -1058,22 +1081,61 @@ body {
 .flag-normal { color: #080; }
 .flag-variant { color: #800; }
 
-/* Topics grid */
-.topics-grid { display: flex; flex-wrap: wrap; gap: 4px; }
-.topic-tile {
-  background: #c0c0c0;
+/* Quiz topic selection */
+.quiz-topic-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.quiz-topic-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: #fff;
   border: 2px solid;
-  border-color: #fff #808080 #808080 #fff;
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
-  display: inline-block;
-}
-.topic-tile:active {
   border-color: #808080 #fff #fff #808080;
+  padding: 2px;
+  outline: none;
 }
-.topic-tile .count { font-size: 12px; color: #666; }
+.quiz-topic-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 4px;
+  font-size: 13px;
+  line-height: 18px;
+  cursor: default;
+  white-space: nowrap;
+}
+.quiz-topic-row.selected {
+  background: #000080;
+  color: #fff;
+}
+.quiz-topic-count {
+  color: #666;
+  font-size: 12px;
+}
+.quiz-topic-row.selected .quiz-topic-count {
+  color: #fff;
+}
+.quiz-topic-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  line-height: 0;
+}
+.quiz-topic-btn {
+  width: 63px;
+  height: 39px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
 
 /* Dropdown menu */
 .dropdown {
@@ -1126,9 +1188,7 @@ body {
 <div class="desktop">
   <!-- Main Application Window -->
   <div class="main-win" id="mainWin">
-    <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png"><span class="win-title-text">MoonStar Türkçe Denetim Editörü</span>
-      <div class="win-title-btns"><button>—</button><button>□</button><button>✕</button></div>
-    </div>
+    <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">MoonStar Türkçe Dil Kılavuzu</span></div>
     <div class="win-body" style="padding:0;">
       <!-- Menu Bar -->
       <div class="menu-bar" id="menuBar">
@@ -1202,13 +1262,13 @@ body {
 <!-- About Dialog -->
 <div class="dialog-overlay" id="aboutDialog">
   <div class="win-window" style="min-width:350px;">
-    <div class="win-title inactive"><img class="win-title-icon" src="/assets/moonstar_icon.png"><span class="win-title-text">MoonStar Hakkında</span>
+    <div class="win-title inactive"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">MoonStar Hakkında</span>
       <div class="win-title-btns"><button onclick="closeDialog('aboutDialog')">✕</button></div>
     </div>
     <div class="win-body" style="text-align:center;padding:20px;">
       <div style="font-size:36px;color:#000080;margin-bottom:8px;">★</div>
       <div style="font-size:16px;font-weight:bold;">MoonStar</div>
-      <div style="font-size:14px;margin:4px 0;">Türkçe Denetim Editörü</div>
+      <div style="font-size:14px;margin:4px 0;">Türkçe Dil Kılavuzu</div>
       <div style="font-size:13px;color:#666;margin:12px 0;">
         Veri Gezgini Sürümü<br>
         Tersine Mühendislik: yasinkuyu<br>
@@ -1227,7 +1287,7 @@ body {
 <!-- Find Dialog -->
 <div class="dialog-overlay" id="findDialog">
   <div class="win-window" style="min-width:350px;">
-    <div class="win-title inactive"><img class="win-title-icon" src="/assets/moonstar_icon.png"><span class="win-title-text">Al ve bul</span>
+    <div class="win-title inactive"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Al ve bul</span>
       <div class="win-title-btns"><button onclick="closeDialog('findDialog')">✕</button></div>
     </div>
     <div class="win-body" style="padding:12px;">
@@ -1266,7 +1326,7 @@ function winAlert(msg) {
   ov.className = 'dialog-overlay open';
   ov.id = id;
   ov.innerHTML = `<div class="win-window" style="min-width:300px;max-width:400px;">
-    <div class="win-title inactive"><img class="win-title-icon" src="/assets/moonstar_icon.png"><span class="win-title-text">MoonStar</span>
+    <div class="win-title inactive"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">MoonStar</span>
       <div class="win-title-btns"><button onclick="document.getElementById('${id}').remove()">✕</button></div>
     </div>
     <div class="win-body" style="padding:20px;text-align:center;">
@@ -1345,7 +1405,7 @@ function openWindow(type) {
   }
 
   let html = `<div class="win-window" id="${id}" style="width:${config.w}px;height:${config.h}px;">`;
-  html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png"><span class="win-title-text">${config.title}</span>`;
+  html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">${config.title}</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
   
   if (config.type === 'trk' || config.type === 'rev') {
@@ -1624,10 +1684,10 @@ function openHangman(topicIdx, topicName) {
   const id = 'win-hm-' + (state.nextWindowId++);
   const workArea = document.getElementById('workArea');
 
-  let html = `<div class="win-window" id="${id}" style="width:332px;height:532px;">`;
-  html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png"><span class="win-title-text">Kelime Oyunu</span>`;
+  let html = `<div class="win-window" id="${id}" style="width:360px;height:auto;top:10px;transform:translateX(-50%);">`;
+  html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Kelime Oyunu</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
-  html += `<div class="win-body" style="padding:0;flex:1;display:flex;flex-direction:column;min-height:0;background:#c0c0c0;overflow:hidden;">`;
+  html += `<div class="win-body" style="padding:0;display:block;background:#c0c0c0;">`;
   html += `<div class="hm-main" id="${id}-game"><div class="loading">Kelime seçiliyor...</div></div>`;
   html += `</div></div>`;
 
@@ -1678,7 +1738,7 @@ function renderHangman(id) {
       const prefix = used ? 'p' : 'n';
       const onClick = (used || info.done) ? '' : `guessLetter('${id}','${letter}')`;
       const cls = used || info.done ? ' used' : '';
-      html += `<img class="hm-key${cls}" width="25" height="25" src="/assets/keys/${prefix}_${String(idx).padStart(2,'0')}.png?v=7" ` +
+      html += `<img class="hm-key${cls}" width="25" height="25" src="/assets/keys/${prefix}_${String(idx).padStart(2,'0')}.png?v=8" ` +
         `alt="${letter}" title="${letter}" onclick="${onClick}">`;
     }
     html += `</div>`;
@@ -1695,7 +1755,7 @@ function renderHangman(id) {
   html += `<div class="hm-scorecol">`;
   html += `<div class="hm-scorelabel">Puan</div>`;
   html += `<div class="hm-scorebox" id="${id}-score">${info.score}</div>`;
-  html += `<div class="hm-ad"><img width="98" height="98" src="/assets/moonstar_banner.png" alt="Acer"></div>`;
+  html += `<div class="hm-ad"><img width="98" height="98" src="/assets/extracted/img_052800_98x98_8bpp.png?v=1" alt="Acer"></div>`;
   html += `</div></div>`;
   html += `<div class="hm-wordbox">${displayWord}</div>`;
   if (won || lost) {
@@ -1755,7 +1815,7 @@ function guessLetter(id, letter) {
 function openRawWindow(id, title, w, h, bodyHtml) {
   const workArea = document.getElementById('workArea');
   let html = `<div class="win-window" id="${id}" style="width:${w}px;height:${h}px;">`;
-  html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png"><span class="win-title-text">${title}</span>`;
+  html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">${title}</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
   html += `<div class="win-body" style="padding:4px;flex:1;display:flex;flex-direction:column;min-height:0;overflow:auto;">`;
   html += bodyHtml;
@@ -1789,7 +1849,7 @@ function showWelcomeWindow() {
   ];
 
   let html = `<div class="win-window" id="${id}" style="width:372px;height:auto;">`;
-  html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png"><span class="win-title-text">MoonStar Türkçe Denetim Editörü</span>`;
+  html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">MoonStar Türkçe Dil Kılavuzu</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
   html += `<div class="win-body welcome-body" style="padding:6px;">`;
   html += `<div class="welcome-panel">`;
@@ -1809,7 +1869,7 @@ function showWelcomeWindow() {
   html += `</div>`;
   html += `<div class="welcome-sep"></div>`;
   html += `<div class="welcome-banner">` +
-    `<img src="/assets/moonstar_banner.png?v=${v}" class="welcome-banner-logo" width="98" height="98" alt="Acer">` +
+    `<img src="/assets/extracted/img_052800_98x98_8bpp.png?v=${v}" class="welcome-banner-logo" width="98" height="98" alt="Acer">` +
     `<div class="welcome-banner-brand">` +
       `<img src="/assets/MoonStar.svg?v=${v}" class="welcome-banner-svg" alt="MoonStar">` +
       `<div class="welcome-banner-sub">“Özgün programlar yaratır”</div>` +
@@ -1967,7 +2027,7 @@ function showCheckOptions() {
   const workArea = document.getElementById('workArea');
   
   let html = `<div class="win-window" id="${id}" style="width:360px;height:280px;">`;
-  html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png"><span class="win-title-text">Denetim Opsiyonlar</span>`;
+  html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Denetim Opsiyonlar</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
   html += `<div class="win-body" style="padding:6px;flex:1;display:flex;flex-direction:column;min-height:0;">`;
   html += `<div class="group-box" style="flex:1;overflow-y:auto;margin-bottom:6px;"><legend>Denetim Seçenekleri</legend>`;
