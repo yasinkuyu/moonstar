@@ -9,8 +9,8 @@ The MoonStar dictionary consists of several binary files:
 - **MTU.TRK**: English-Turkish dictionary (17,988 entries) - ✅ Complete
 - **MTU.TUR**: Turkish-English dictionary, Turkish synonyms, and Türkçe Leb Demeden feature
   - Türkçe Leb Demeden (26,775 entries) - ✅ Complete
-  - Turkish-English dictionary (Section 3) - ⚠️ In progress
-  - Turkish synonyms (Section 3) - ⚠️ In progress
+  - Turkish-English dictionary (Section 3) - ⚠️ Decoder found, still garbled
+  - Turkish synonyms (Section 3) - ⚠️ Decoder found, still garbled
 - **MTU.ING**: İngilizce Leb Demeden feature - ⚠️ In progress
 - **MTU.TES**: Test/quiz data for İngilizce Leb Demeden - ⚠️ In progress
 - **MTU.SOZ**: Additional dictionary data - ⚠️ Needs analysis
@@ -193,8 +193,73 @@ MTU.SOZ has the same magic number as MTU.TUR (`MG2\x1a`) and similar structure:
 
 ## Notes
 
+## MTU.TUR Section 3 — TR_EN & ES_ANLAM Decode Algorithm
+
+### Section 3 Entry Structure (14 bytes each, 3,218 entries total)
+```
+[byte0:1] [val:2] [bytes11:11]
+```
+- **byte0** = type/control byte
+- **val** = u16 index into Section 4 (Turkish word suffix instructions)
+- **bytes11** = 11-byte data block
+
+### byte0 Control Field
+| Bits | Field | Description |
+|------|-------|-------------|
+| 0–6 | `count` | Number of bytes to decode (0–127) |
+| 7 | `double_lookup` | If set, last byte uses double indirection via table_A → table_B |
+
+### Data Source Selection
+| count | Data source for decoding |
+|-------|-------------------------|
+| 0–2 | From the 11-byte block itself (`entry[3:3+count]`) |
+| 3+ | From Section 4 at offset `val` (suffix instruction data) |
+
+### Character Decode Algorithm
+```
+for each byte b in source:
+    if (double_lookup && b is last_byte):
+        idx = table_A[b]         # 1st lookup
+        ch = table_B[idx]        # 2nd lookup
+    else:
+        ch = table_B[b]          # single lookup
+```
+Output byte `ch` should be decoded as CP857 for final text.
+
+### Lookup Tables in EXE (DGROUP / data segment)
+| Table | File offset | DGROUP offset | Size | Description |
+|-------|-------------|---------------|------|-------------|
+| table_A | `0x1B388` | `0x1588` | 256 bytes | Extra index for double-lookup |
+| table_B | `0x1A7CA` | `0x09CA` | 256 bytes | Main character lookup table |
+
+**table_A** (first 32 bytes):
+`0x0a 0x13 0x03 0x03 0x18 0x0b 0x0f 0x0d 0x0d 0x05 0x18 0x05 0x07 0x0f 0x10 0x10 0x18 0x00 0x11 0x0f 0x14 0x10 0x18 0x10 0x10 0x00 0x00 0x18 0x1c 0x1d 0x15 0x10`
+
+**table_B** decoded as CP857 (selected chars):
+- mapping: `0x00→c 0x01→c 0x02→j 0x03→é 0x04→f 0x05→d 0x06→o 0x07→b 0x08→Ñ 0x09→i 0x0a→ä 0x0b→l 0x0c→h 0x0d→j 0x0e→e 0x0f→h`
+- `0x10→l 0x11→n 0x12→Ø 0x13→u 0x14→s 0x15→s 0x16→z 0x17→Ü 0x18→v 0x19→t 0x1a→ê 0x1b→s 0x1c→u 0x1d→y 0x1e→p`
+- Contains many control chars (0x01, 0x02, 0x05, 0x09) mixed with CP857 glyphs
+- 113 unique byte values across 256 entries
+
+### Current Status
+- `DecodeEnglishText()` in `mtu_tur.py` was **WRONG** — used `alphabet[b]` instead of EXE's table_B → **FIXED** ✅
+- Even with correct table_B (EXE 0x1A7CA) + table_A (0x1B388), output contains control chars (0x01, 0x02, 0x05, 0x09) — Section 3 data is **morphological format instructions**, not English text
+- **Clean TR_EN + ES_ANLAM** now generated from TRK data instead:
+  - TR_EN: 37,043 entries (reversed from TRK English→Turkish pairs) ✅
+  - ES_ANLAM: 12,695 entries (Turkish words grouped by shared English translation) ✅
+- The EXE's Section 3 decoder is documented in `mtu_tur.py` as `DecodeSection3Entry()` for reference
+- `byte0` may still distinguish TR_EN from ES_ANLAM entries, but irrelevant since both are now generated from TRK
+
+### EXE Code Locations
+- Two decode functions found in **seg3** (file 0xA200):
+  - Function 1: file offset `0xC460` (seg3+0x1C60)
+  - Function 2: file offset `0xD158` (seg3+0x2F58)
+- Section 3 base pointer at DGROUP `[0x93DD:0x93DF]` (file 0x1A9DD)
+- Section 4 base pointer at DGROUP `[0x93E5:0x93E7]` (file 0x1A9E5)
+
+## MTU.TRK Notes
 - Some entries in MTU.TRK are corrupted even in the original application (14 entries total): aeze, auction, believe in, beneficial, blackmail, correlation, encore, Hebrew, hurricane, jut, march, orient, performance, rubbishy
 - Middle-endian byte ordering is used for Turkish entry offsets in MTU.TRK
 - Suffixes are stored in MTU.EXE and referenced via bytecode instructions to reduce file size
-- MTU.TUR uses a custom alphabet encoding that differs from CP 857
+- MTU.TUR uses a custom alphabet encoding for Turkish words (Leb Demeden), but Section 3 uses EXE table_B for character mapping
 

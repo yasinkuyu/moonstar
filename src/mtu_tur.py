@@ -22,6 +22,17 @@ import sys
 # is 'b' and so on.
 alphabet = "abcçdefgğhıijklmnoöpqrsştuüvwxyzâ..........î..............û"
 
+# EXE lookup tables for Section 3 decoding (MTU.EXE file offsets)
+# table_A: EXE 0x1B388 (DGROUP+0x1588) — extra index for double-lookup
+# table_B: EXE 0x1A7CA (DGROUP+0x09CA) — main character lookup (CP857)
+def LoadExeTables():
+    exe_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "MTU.EXE")
+    with open(exe_path, "rb") as f:
+        exe = f.read()
+    table_A = list(exe[0x1B388:0x1B388+256])
+    table_B = list(exe[0x1A7CA:0x1A7CA+256])
+    return table_A, table_B
+
 def GetSuffixLength(value):
     # 0x00-0x08: 0, 0x08-0x10: 1, 0x10-0x18: 2, (...), 0xb0-0xb8: 22
     if 0x00 <= value < 0xb8:
@@ -231,33 +242,88 @@ def Export(dictionary, path):
             file.write(entry)
             file.write('\n')
 
-def DecodeEnglishText(bytes11):
+# Cached EXE tables (loaded once)
+_EXE_TABLES = None
+
+def GetExeTables():
+    global _EXE_TABLES
+    if _EXE_TABLES is None:
+        _EXE_TABLES = LoadExeTables()
+    return _EXE_TABLES
+
+def DecodeSection3Entry(byte0, val, bytes11, section4_data, base_offset):
     """
-    Decodes English text from the 11-byte block in Section 3.
-    The text uses the MTU custom alphabet but values might be shifted or masked.
-    """
-    english_chars = []
-    for b in bytes11:
-        # Try treating byte as direct custom alphabet index
-        if b < len(alphabet):
-            english_chars.append(alphabet[b])
+    Decodes a Section 3 entry using the EXE's actual algorithm (seg3).
+    
+    === byte0 Control Field ===
+    bits 0-6: count (bytes to decode, 0-127)
+    bit 7:    double_lookup (last byte uses table_A -> table_B)
+    
+    === Data Source ===
+    count < 3: 11-byte block itself (bytes11[:count])
+    count >= 3: Section 4 suffix data at offset val
+    
+    === Character Decode ===
+    for each byte b:
+        if double_lookup and b is last_byte:
+            ch = table_B[table_A[b]]
         else:
-            # Try low 5 bits (0-31) mapping to first 32 alphabet letters
-            idx = b & 0x1f
-            if idx < 32:
-                english_chars.append(alphabet[idx])
-            else:
-                english_chars.append('')
-    return ''.join(english_chars).strip()
+            ch = table_B[b]
+    Output: CP857 bytes
+    
+    Tables in EXE:
+      table_A @ file 0x1B388 (DGROUP+0x1588)
+      table_B @ file 0x1A7CA (DGROUP+0x09CA)
+    """
+    table_A, table_B = GetExeTables()
+    
+    count = byte0 & 0x7F
+    use_double = bool(byte0 & 0x80)
+    
+    if count == 0:
+        return ''
+    
+    if count < 3:
+        src = bytes11[:count]
+    else:
+        # Data from Section 4 (suffix instruction data) at offset val
+        # val is an offset into section4 byte array
+        src = section4_data[val:val+count] if val < len(section4_data) else b''
+    
+    if not src:
+        return ''
+    
+    result = []
+    for i, b in enumerate(src):
+        if use_double and i == len(src) - 1:
+            idx = table_A[b]
+            ch = table_B[idx]
+        else:
+            ch = table_B[b]
+        result.append(ch)
+    
+    try:
+        return bytes(result).decode('cp857', errors='replace').strip()
+    except:
+        return ''
 
 def ImportTurkishEnglishDictionary(dictionary, path, synonyms_dict=None):
     """
     Imports Turkish-English dictionary entries from Section 3.
-    Section 1 provides index ranges for each starting letter in Section 3.
-    Section 3 entries reference Section 4 to build Turkish words.
-
-    The 11-byte block in Section 3 contains English translation data encoded
-    in the custom alphabet.
+    
+    MTU.TUR Section 3 layout:
+      Each entry = 14 bytes: [byte0:1] [val:2] [bytes11:11]
+      byte0 bits 0-6 = decode count, bit 7 = double_lookup flag
+      Section 1 maps starting letters to Section 3 index ranges
+    
+    The decoded output uses EXE table_B (CP857) for character mapping.
+    Data source for type < 3 = 11-byte block, type >= 3 = Section 4 at offset val.
+    
+    Note: byte0 may distinguish TR_EN entries from ES_ANLAM entries,
+    but the exact classification is not yet determined — both are currently
+    processed identically. The decoded output still contains control
+    characters, suggesting the data may be morphological/format instructions
+    rather than plain English text.
     """
     data = open(path, "rb").read()
     pos = 0
@@ -285,7 +351,7 @@ def ImportTurkishEnglishDictionary(dictionary, path, synonyms_dict=None):
         pos += 14
         section3.append((byte0, val, bytes11))
 
-    section4 = [data[pos + i*4:pos + (i+1)*4] for i in range(header[0])]
+    section4_entries = [data[pos + i*4:pos + (i+1)*4] for i in range(header[0])]
     pos += header[0] * 4
 
     base_offset = pos
@@ -294,7 +360,7 @@ def ImportTurkishEnglishDictionary(dictionary, path, synonyms_dict=None):
     section6 = [data[pos + i*4:pos + (i+1)*4] for i in range(header[3])]
     pos += header[3] * 4
 
-    # Build Turkish words from Section 4
+    # Build Turkish words from Section 4 (same algorithm as Leb Demeden)
     turkish_words = {}
     pos2 = section1_start + (letter_count + 1) * 2
     section2 = [struct.unpack("<H", data[pos2 + i*2:pos2 + (i+1)*2])[0] for i in range(letter_count**2 + 1)]
@@ -310,11 +376,11 @@ def ImportTurkishEnglishDictionary(dictionary, path, synonyms_dict=None):
         if count == 0:
             continue
         for i in range(item_index, item_index + count):
-            if i >= len(section4):
+            if i >= len(section4_entries):
                 break
             try:
-                suffix = GetSuffix(data, section4[i], base_offset)
-                section6_idx = section4[i][0]
+                suffix = GetSuffix(data, section4_entries[i], base_offset)
+                section6_idx = section4_entries[i][0]
                 if section6_idx < len(section6):
                     p, s = ApplyModifications(section6[section6_idx], prefix, suffix)
                     turkish_words[i] = p + s
@@ -324,7 +390,10 @@ def ImportTurkishEnglishDictionary(dictionary, path, synonyms_dict=None):
                 pass
         item_index += count
 
-    # Process Section 3
+    # Flatten Section 4 entries into a single byte array for data source lookup
+    section4_raw = b''.join(section4_entries)
+
+    # Process Section 3 using EXE decode algorithm
     for letter_idx in range(letter_count):
         start_idx = section1[letter_idx]
         end_idx = section1[letter_idx + 1]
@@ -341,15 +410,15 @@ def ImportTurkishEnglishDictionary(dictionary, path, synonyms_dict=None):
             if not turkish_word:
                 continue
 
-            # Decode English text from 11-byte block
-            english = DecodeEnglishText(bytes11)
+            # Decode using EXE's actual algorithm (table_A, table_B, CP857)
+            decoded = DecodeSection3Entry(byte0, value, bytes11, section4_raw, base_offset)
 
-            if english and len(english) > 1:
-                english = english.replace('#', '; ')
+            if decoded and len(decoded) > 1:
+                decoded = decoded.replace('#', '; ')
                 if synonyms_dict is not None:
-                    synonyms_dict[turkish_word] = english
+                    synonyms_dict[turkish_word] = decoded
                 else:
-                    dictionary.append((turkish_word, english))
+                    dictionary.append((turkish_word, decoded))
 
 def GetDataPath(filename):
     script_dir = os.path.dirname(os.path.abspath(__file__))
