@@ -981,7 +981,7 @@ body {
 }
 .hm-left {
   display: flex; flex-direction: column; gap: 0;
-  width: 58px; padding: 1px 3px 1px 1px; line-height: 0;
+  width: 57px; padding: 1px 2px 1px 1px; line-height: 0;
   border: 2px solid; border-color: #808080 #fff #fff #808080;
   background: #c0c0c0; box-sizing: border-box; flex-shrink: 0;
 }
@@ -991,7 +991,8 @@ body {
   background: transparent; cursor: pointer; display: block;
   image-rendering: pixelated; image-rendering: crisp-edges;
 }
-.hm-key.used { cursor: default; }
+.hm-key.used { cursor: default; opacity: 1; }
+.hm-key.idle { cursor: default; }
 .hm-right {
   width: 250px; display: flex; flex-direction: column;
   gap: 6px; flex-shrink: 0;
@@ -1033,28 +1034,34 @@ body {
   letter-spacing: 0;
 }
 .hm-status {
-  display: flex; flex-direction: row;
-  align-items: flex-start; gap: 10px; flex-shrink: 0;
+  display: flex; flex-direction: column;
+  gap: 4px; flex-shrink: 0;
   width: 250px;
   margin-top: 8px;
 }
+.hm-status-row {
+  display: flex; flex-direction: row;
+  align-items: flex-start; gap: 10px;
+  width: 100%;
+}
 .hm-gallows {
-  width: 64px; height: 88px; box-sizing: border-box;
+  width: 60px; height: 84px; box-sizing: border-box;
   border: 2px solid; border-color: #808080 #fff #fff #808080;
-  background: #c0c0c0; padding: 4px; line-height: 0; flex-shrink: 0;
+  background: #c0c0c0; padding: 2px; line-height: 0; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
 }
 .hm-gallows img {
   width: 52px; height: 76px; display: block;
   image-rendering: pixelated; image-rendering: crisp-edges;
 }
 .hm-scorecol {
-  margin-left: auto;
-  width: 110px;
+  width: 98px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   flex-shrink: 0;
   align-items: stretch;
+  margin-left: auto;
 }
 .hm-scorelabel {
   height: 16px; line-height: 16px;
@@ -1062,9 +1069,9 @@ body {
   font-family: 'MS Sans Serif', Tahoma, sans-serif;
 }
 .hm-scorebox {
-  width: 100%; height: 36px; box-sizing: border-box;
+  width: 100%; box-sizing: border-box;
   border: 2px solid; border-color: #808080 #fff #fff #808080;
-  background: #c0c0c0; padding: 6px 10px;
+  background: #c0c0c0; padding: 12px 8px;
   font-size: 18px; font-weight: 700;
   font-family: 'MS Sans Serif', Tahoma, sans-serif;
   display: flex; align-items: center; justify-content: center;
@@ -1456,13 +1463,14 @@ function closeAllWindows() {
   });
 }
 
-function openWindow(type) {
+function openWindow(type, opts) {
+  opts = opts || {};
   closeAllMenus();
   if (type === 'quiz') {
     openHangman();
     return;
   }
-  closeAllWindows();
+  if (!opts.keep) closeAllWindows();
   const id = 'win-' + (state.nextWindowId++);
   const workArea = document.getElementById('workArea');
   
@@ -1488,7 +1496,7 @@ function openWindow(type) {
       config = { title: 'Pencere', type: 'trk', w: 400, h: 300 };
   }
 
-  let html = `<div class="win-window" id="${id}" style="width:${config.w}px;height:${config.h}px;">`;
+  let html = `<div class="win-window" id="${id}" style="width:${config.w}px;height:${config.h}px;${opts.keep ? 'top:36px;left:48px;transform:none;' : ''}">`;
   html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">${config.title}</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
   
@@ -1499,15 +1507,15 @@ function openWindow(type) {
         <button class="win-btn small" onclick="dictSearch('${id}')">👌 Tamam</button>
       </div>
       <div style="display:flex;gap:4px;margin-bottom:4px;flex:1;min-height:0;">
-        <div class="group-box" style="flex:1;display:flex;flex-direction:column;"><legend>${type==='trk'?'İngilizce Sözcükler':'Türkçe Sözcükler'}</legend>
+        <div class="group-box" style="flex:1;display:flex;flex-direction:column;"><legend>${config.type==='trk'?'İngilizce Sözcükler':'Türkçe Sözcükler'}</legend>
           <div class="win-list" style="flex:1;overflow-y:auto;" id="${id}-list"></div>
         </div>
-        <div class="group-box" style="flex:1;display:flex;flex-direction:column;"><legend>${type==='trk'?'Türkçe Karşılıklar':'İngilizce Karşılıklar'}</legend>
+        <div class="group-box" style="flex:1;display:flex;flex-direction:column;"><legend>${config.type==='trk'?'Türkçe Karşılıklar':'İngilizce Karşılıklar'}</legend>
           <div class="win-list" style="flex:1;overflow-y:auto;" id="${id}-defn"></div>
         </div>
       </div>
       <div style="flex-shrink:0;margin-bottom:4px;">
-        <label style="font-weight:700;font-size:14px;">${type==='trk'?'Türkçe Karşılık':'İngilizce Karşılık'}</label><br>
+        <label style="font-weight:700;font-size:14px;">${config.type==='trk'?'Türkçe Karşılık':'İngilizce Karşılık'}</label><br>
         <input class="win-input" type="text" readonly style="width:100%;background:#fff;color:#000;border:2px inset #c0c0c0;" id="${id}-detail">
       </div>
       <div class="win-status" id="${id}-status" style="flex-shrink:0;"></div>
@@ -1574,6 +1582,7 @@ function closeWindow(id) {
   const win = document.getElementById(id);
   if (win) win.remove();
   delete state.windows[id];
+  if (state.activeHangmanId === id) state.activeHangmanId = null;
   if (Object.keys(state.windows).length === 0) {
     showWelcomeWindow();
   }
@@ -1870,6 +1879,7 @@ function openHangman() {
       score: HM_START_SCORE, started: false
     }
   };
+  state.activeHangmanId = id;
   renderHangman(id);
 }
 
@@ -1878,12 +1888,71 @@ function hangmanBasla(id) {
   showQuizTopicDialog(id);
 }
 
+function hangmanSozluk(id) {
+  // Keep hangman open; dictionary is a sibling window like Win16 MDI
+  state.activeHangmanId = id;
+  openWindow('ing-tr', { keep: true });
+}
+
 function toTrUpper(s) {
   return String(s || '')
     .replace(/i/g, 'İ')
     .replace(/ı/g, 'I')
     .toLocaleUpperCase('tr-TR');
 }
+
+function hangmanKeyFromEvent(ev) {
+  if (ev.key === '?' || (ev.key === '/' && ev.shiftKey)) return '?';
+  if (ev.key.length !== 1 || ev.ctrlKey || ev.metaKey || ev.altKey) return null;
+  // Preserve dotted / dotless I distinction from the physical key
+  if (ev.key === 'i') return 'İ';
+  if (ev.key === 'ı') return 'I';
+  if (ev.key === 'I') return 'I';
+  if (ev.key === 'İ') return 'İ';
+  const up = toTrUpper(ev.key);
+  return HM_LETTERS.includes(up) ? up : null;
+}
+
+function activeHangmanId() {
+  if (state.activeHangmanId && state.windows[state.activeHangmanId]) {
+    return state.activeHangmanId;
+  }
+  for (const id of Object.keys(state.windows)) {
+    if (state.windows[id].type === 'hangman') return id;
+  }
+  return null;
+}
+
+document.addEventListener('keydown', function(ev) {
+  if (document.getElementById('quizTopicDialog')?.classList.contains('open')) return;
+  if (document.querySelector('.dialog-overlay.open')) return;
+  const tag = (ev.target && ev.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || ev.target?.isContentEditable) return;
+
+  const id = activeHangmanId();
+  if (!id) return;
+  const info = state.windows[id].hangman;
+  if (!info) return;
+
+  if (!info.started || !info.word) {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      hangmanBasla(id);
+    }
+    return;
+  }
+  if (info.done) {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      hangmanBasla(id);
+    }
+    return;
+  }
+  const letter = hangmanKeyFromEvent(ev);
+  if (!letter) return;
+  ev.preventDefault();
+  guessLetter(id, letter);
+});
 
 function startHangmanRound(id, topicIdx, topicName) {
   const win = state.windows[id];
@@ -1922,6 +1991,7 @@ function initHangmanGame(id, word, hint, topicIdx) {
     started: true
   };
   state.windows[id].hangman = info;
+  state.activeHangmanId = id;
   renderHangman(id);
 }
 
@@ -1950,9 +2020,17 @@ function renderHangman(id) {
       const letter = HM_KEYS[r][c];
       const idx = hmKeyIndex(letter);
       const used = started && info.guessed.includes(letter);
+      // EXE idle board shows raised (normal) keys, not pressed
       const prefix = used ? 'p' : 'n';
-      const onClick = (!started || used || info.done) ? '' : `guessLetter('${id}','${letter}')`;
-      const cls = (!started || used || info.done) ? ' used' : '';
+      let onClick = '';
+      let cls = '';
+      if (!started) {
+        cls = ' idle';
+      } else if (used || info.done) {
+        cls = ' used';
+      } else {
+        onClick = `guessLetter('${id}','${letter}')`;
+      }
       html += `<img class="hm-key${cls}" width="25" height="25" src="/assets/keys/${prefix}_${String(idx).padStart(2,'0')}.png?v=8" ` +
         `alt="${letter}" title="${letter}" onclick="${onClick}">`;
     }
@@ -1966,12 +2044,14 @@ function renderHangman(id) {
   html += `<div class="hm-brand-sub">“Özgün programlar yaratır”</div>`;
   html += `</div>`;
   html += `<div class="hm-status">`;
+  html += `<div class="hm-status-row">`;
   html += `<div class="hm-gallows"><img width="52" height="76" src="/assets/hm_${stage}.png" alt=""></div>`;
   html += `<div class="hm-scorecol">`;
   html += `<div class="hm-scorelabel">Puan</div>`;
   html += `<div class="hm-scorebox" id="${id}-score">${info.score}</div>`;
-  html += `<div class="hm-ad"><img width="98" height="98" src="/assets/extracted/img_052800_98x98_8bpp.png?v=1" alt="Acer"></div>`;
   html += `</div></div>`;
+  html += `<div class="hm-ad"><img width="98" height="98" src="/assets/extracted/img_052800_98x98_8bpp.png?v=1" alt="Acer"></div>`;
+  html += `</div>`;
   html += `<div class="hm-wordbox">${displayWord}</div>`;
   if (won || lost) {
     const msg = won ? 'Kazandın!' : ('Kaybettin!  ' + info.word);
@@ -1980,7 +2060,7 @@ function renderHangman(id) {
     html += `<div class="hm-result"></div>`;
   }
   html += `<div class="hm-btns">`;
-  html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_sozluk.png" alt="Sözlük" title="Sözlük" onclick="openWindow('ing-tr')">`;
+  html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_sozluk.png" alt="Sözlük" title="Sözlük" onclick="hangmanSozluk('${id}')">`;
   html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_basla.png" alt="Başla" title="Başla" onclick="hangmanBasla('${id}')">`;
   html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_iptal.png" alt="İptal" title="İptal" onclick="closeWindow('${id}')">`;
   html += `</div>`;
