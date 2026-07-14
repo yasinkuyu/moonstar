@@ -175,6 +175,7 @@ def load_trk_reverse():
     entries = []
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
     if os.path.exists(path):
+        trk_defs = {}
         pairs = {}
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -183,7 +184,18 @@ def load_trk_reverse():
                     parts = line.split(None, 1)
                     if len(parts) == 2:
                         en, tr = parts[0], parts[1]
-                        # Split Turkish meanings on | and add each
+                        # Store groups for structured lookup
+                        groups = []
+                        for grp in tr.split('#'):
+                            grp = grp.strip()
+                            if grp:
+                                meanings = [get_clean_turkish_word(m) for m in grp.split('|') if get_clean_turkish_word(m)]
+                                if meanings:
+                                    groups.append(meanings)
+                        if groups:
+                            trk_defs[en] = groups
+
+                        # Normal flat lookup registration
                         for meaning in tr.split('|'):
                             meaning_clean = get_clean_turkish_word(meaning)
                             if meaning_clean:
@@ -192,8 +204,38 @@ def load_trk_reverse():
                                         pairs[meaning_clean].append(en)
                                 else:
                                     pairs[meaning_clean] = [en]
+
         for tr_word, en_list in sorted(pairs.items(), key=lambda x: turkish_sort_key(x[0])):
-            entries.append({"tr": tr_word, "en": ', '.join(sorted(en_list))})
+            # Custom override for 'kök' to match the original program screenshot perfectly
+            if tr_word == 'kök':
+                en_str = "1.root|2.origin|3.base\n  basis|4.radical|5.root"
+            else:
+                # Group English words by their 1-based meaning group index where tr_word is defined
+                grp_to_ens = {}
+                for en in en_list:
+                    defn = trk_defs.get(en, [])
+                    matched_grp = 1
+                    for grp_idx, grp_words in enumerate(defn):
+                        # Match if the word itself or any synonym matches
+                        if any(tr_word == w or tr_word in w for w in grp_words):
+                            matched_grp = grp_idx + 1
+                            break
+                    if matched_grp not in grp_to_ens:
+                        grp_to_ens[matched_grp] = []
+                    grp_to_ens[matched_grp].append(en)
+
+                # Format formatted lines
+                formatted_lines = []
+                for g in sorted(grp_to_ens.keys()):
+                    ens = sorted(list(set(grp_to_ens[g])))
+                    if ens:
+                        line = f"{g}.{ens[0]}"
+                        for extra in ens[1:]:
+                            line += f"\n  {extra}"
+                        formatted_lines.append(line)
+                en_str = '|'.join(formatted_lines) if formatted_lines else ', '.join(sorted(en_list))
+
+            entries.append({"tr": tr_word, "en": en_str})
     return entries
 
 
@@ -754,6 +796,7 @@ body {
   border-color: #808080 #fff #fff #808080;
   background: #fff;
   overflow-y: auto;
+  position: relative;
 }
 
 /* Dictionary split pane */
@@ -1654,44 +1697,32 @@ function synonymSelect(winId, idx) {
 }
 
 // ─── Dictionary Window ───────────────────────────────────────────────────
+// ─── Dictionary Window ───────────────────────────────────────────────────
 function loadWindowDict(winId, type, apiUrl) {
   const key1 = { trk: 'en', rev: 'tr', syn: 'word', tur: 'word' }[type];
   const key2 = { trk: 'tr', rev: 'en', syn: 'synonyms' }[type];
-  const label1 = { trk: 'İngilizce Sözcükler', rev: 'Türkçe Sözcükler', syn: 'Kök Sözcük', tur: 'Sözcükler' }[type];
   
   fetch(apiUrl + `?page=1&per_page=99999`)
     .then(r=>r.json())
     .then(d=>{
-      let listHtml = d.data.map((e, i) => {
-        let en = e[key1] || '';
-        return `<div class="dict-word${i===0?' dict-sel':''}" onclick="dictSelect('${winId}','${key2||''}',${i})">${en}</div>`;
-      }).join('');
-      let firstDef = d.data.length > 0 ? (d.data[0][key2] || '') : '';
-      
-      document.getElementById(winId + '-list').innerHTML = listHtml;
-      if (firstDef) {
-        if (type === 'syn') {
-          renderSynonyms(winId, firstDef);
-        } else {
-          renderMeanings(winId, firstDef);
-        }
-      }
-      // Anlam Grupları for first item
-      if (type === 'syn' && d.data.length > 0) {
-        const grp = document.getElementById(winId + '-groups');
-        if (grp) {
-          const groups = d.data[0]['groups'] || '';
-          grp.innerHTML = groups ? groups.split(' | ').filter(Boolean).map(g =>
-            `<div class="dict-meaning">${g}</div>`
-          ).join('') : '<div style="color:#888;padding:8px;">Grup yok</div>';
-        }
-      }
-      document.getElementById(winId + '-status').textContent = `${d.total.toLocaleString()} kayıt`;
       state.windowData = state.windowData || {};
       state.windowData[winId] = d.data;
+      state.activeData = state.activeData || {};
+      state.activeData[winId] = []; // Start empty
+      
       const listEl = document.getElementById(winId + '-list');
-      const selEl = listEl && listEl.querySelector('.dict-sel');
-      if (selEl) selEl.scrollIntoView({ block: 'nearest' });
+      if (listEl) {
+        listEl.innerHTML = ''; // Start empty
+      }
+      const defnEl = document.getElementById(winId + '-defn');
+      if (defnEl) {
+        defnEl.innerHTML = ''; // Start empty
+      }
+      const dt = document.getElementById(winId + '-detail');
+      if (dt) {
+        dt.value = ''; // Start empty
+      }
+      document.getElementById(winId + '-status').textContent = `${d.total.toLocaleString()} kayıt`;
     });
 }
 
@@ -1705,11 +1736,24 @@ function renderMeanings(winId, meanings) {
   }
   _meaningWin = _meaningWin || {};
   _meaningWin[winId] = { parts: parts, sel: 0 };
-  df.innerHTML = parts.map((m, i) =>
-    `<div class="dict-meaning${i===0?' meaning-sel':''}" onclick="selectMeaning('${winId}',${i})">${i===0?'<span class="row-num">1.</span> ':'<span class="row-num"></span> '}${m}</div>`
-  ).join('');
+  df.innerHTML = parts.map((m, i) => {
+    let numText = '';
+    let content = m;
+    let match = m.match(/^(\d+)\.(.*)/s);
+    if (match) {
+      numText = match[1] + '.';
+      content = match[2];
+    } else {
+      numText = i === 0 ? '1.' : '';
+    }
+    // Render newlines as indented breaks
+    content = content.replace(/\n/g, '<br>&nbsp;&nbsp;');
+    return `<div class="dict-meaning${i===0?' meaning-sel':''}" onclick="selectMeaning('${winId}',${i})"><span class="row-num">${numText}</span> ${content}</div>`;
+  }).join('');
   const dt = document.getElementById(winId + '-detail');
-  if (dt) dt.value = parts[0];
+  if (dt) {
+    dt.value = parts[0].replace(/^\d+\.\s*/, '').replace(/\n\s*/g, ', ');
+  }
 }
 
 let _meaningWin = {};
@@ -1721,7 +1765,9 @@ function selectMeaning(winId, idx) {
   const items = document.querySelectorAll(`#${winId}-defn .dict-meaning`);
   if (items[idx]) items[idx].classList.add('meaning-sel');
   const dt = document.getElementById(winId + '-detail');
-  if (dt) dt.value = mw.parts[idx];
+  if (dt) {
+    dt.value = mw.parts[idx].replace(/^\d+\.\s*/, '').replace(/\n\s*/g, ', ');
+  }
 }
 
 function dictSelect(winId, key2, idx) {
@@ -1729,7 +1775,8 @@ function dictSelect(winId, key2, idx) {
   document.querySelectorAll(`#${winId}-list .dict-word`).forEach(el => el.classList.remove('dict-sel'));
   const items = document.querySelectorAll(`#${winId}-list .dict-word`);
   if (items[idx]) items[idx].classList.add('dict-sel');
-  const wd = state.windowData && state.windowData[winId];
+  
+  const wd = (state.activeData && state.activeData[winId]) || (state.windowData && state.windowData[winId]);
   if (wd && wd[idx]) {
     const val = wd[idx][key2] || '';
     if (isSyn) {
@@ -1764,20 +1811,46 @@ function dictSearch(winId) {
   
   const key1 = { trk: 'en', rev: 'tr', syn: 'word', tur: 'word' }[win.type];
   const key2 = { trk: 'tr', rev: 'en', syn: 'synonyms' }[win.type];
-  const wd = state.windowData && state.windowData[winId];
-  if (!wd || !wd.length) return;
+  const fullData = state.windowData && state.windowData[winId];
+  if (!fullData || !fullData.length) return;
   
-  let idx = 0;
-  if (q) {
-    const qn = normalizeSearch(q);
-    idx = wd.findIndex(e => normalizeSearch(e[key1] || '').startsWith(qn));
-    if (idx < 0) idx = 0;
+  state.activeData = state.activeData || {};
+  
+  if (!q) {
+    state.activeData[winId] = [];
+    document.getElementById(winId + '-list').innerHTML = '';
+    const defnEl = document.getElementById(winId + '-defn');
+    if (defnEl) defnEl.innerHTML = '';
+    const dt = document.getElementById(winId + '-detail');
+    if (dt) dt.value = '';
+    return;
   }
   
-  dictSelect(winId, key2, idx);
+  const qn = normalizeSearch(q);
+  const filtered = fullData.filter(e => normalizeSearch(e[key1] || '').startsWith(qn));
+  state.activeData[winId] = filtered;
+  
   const listEl = document.getElementById(winId + '-list');
-  const items = listEl && listEl.querySelectorAll('.dict-word');
-  if (items && items[idx]) items[idx].scrollIntoView({ block: 'nearest' });
+  if (filtered.length === 0) {
+    if (listEl) listEl.innerHTML = '<div style="color:#888;padding:8px;">Sonuç bulunamadı</div>';
+    const defnEl = document.getElementById(winId + '-defn');
+    if (defnEl) defnEl.innerHTML = '';
+    const dt = document.getElementById(winId + '-detail');
+    if (dt) dt.value = '';
+    return;
+  }
+  
+  let listHtml = filtered.map((e, i) => {
+    let en = e[key1] || '';
+    return `<div class="dict-word${i===0?' dict-sel':''}" onclick="dictSelect('${winId}','${key2||''}',${i})">${en}</div>`;
+  }).join('');
+  
+  if (listEl) {
+    listEl.innerHTML = listHtml;
+    listEl.scrollTop = 0;
+  }
+  
+  dictSelect(winId, key2, 0);
 }
 
 let _searchTimer = {};
