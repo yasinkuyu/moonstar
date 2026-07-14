@@ -1,84 +1,226 @@
-# Moonstar
+# MoonStar — Reverse Engineering
 
-This project intends to revive one of the most popular Turkish software ever written, namely "MoonStar Türkçe Dil Kılavuzu", otherwise known as "MTU Sözlük".
+**MoonStar Türkçe Denetim Editörü** — 1995 tarihli Borland C++ Win16 uygulamasının
+veri dosyalarının tersine mühendislik belgesi.
 
-MoonStar was an easy-to-use application that included Turkish-English, English-Turkish and Turkish synonyms dictionaries, a spell checker, and a Hangman game. However, being a 16-bit application programmed in 1994, it's not possible to run it under a 64-bit OS without using some kind of emulation.
+---
 
-Driven by curiosity, this project sets out to provide a free, open source, multi-platform interface to MoonStar.
+## Dosya Mimarisi
 
-## Status
+```
+MTU.TRK  ──▶  İngilizce→Türkçe sözlük (doğrudan)
+          └──▶ Türkçe→İngilizce sözlük (bellekte ters çevrilerek)
+          └──▶ Eş Anlamlılar (ortak İngilizce'ye göre gruplandırılarak)
+          └──▶ Kelime Oyunu'nda kelime çiftleri
 
-- **MTU.TRK**: English-Turkish dictionary (17,988 entries) - ✅ Complete
-- **MTU.TUR**:
-  - Türkçe Leb Demeden (26,775 words) - ✅ Complete
-  - Turkish-English dictionary (2,571 entries) - ⚠️ English text encoding needs further analysis
-  - Turkish synonyms (1,339 entries) - ⚠️ Needs format verification
-- **MTU.ING**: İngilizce Leb Demeden (329 words extracted) - ⚠️ Format differs from MTU.TRK; uses vocabulary index structure
-- **MTU.TES**: Test/quiz data (417 entries extracted) - ⚠️ Same format as MTU.ING
-- **MTU.SOZ**: Additional dictionary data (12,891 entries) - ✅ Complete
+MTU.TUR  ──▶  Türkçe Leb Demeden kelime listesi (26,775 kelime)
+          └──▶ Türkçe çekim eki soyutlama tablosu (yazım denetimi)
 
-## Usage
-
-Run the extractors from the project root or `src/` directory:
-
-```bash
-python3 src/mtu_trk.py    # Extract English-Turkish dictionary
-python3 src/mtu_tur.py    # Extract Turkish-English dictionary and Leb Demeden
-python3 src/mtu_ing.py    # Extract İngilizce Leb Demeden words
-python3 src/mtu_tes.py    # Extract test/quiz data
-python3 src/mtu_soz.py    # Extract additional dictionary data
-python3 src/mtu_exe_suffixes.py  # Extract suffix list from MTU.EXE
+MTU.ING  ──▶  Kelime Oyunu quiz FORMAT TALİMATLARI (sözlük değil)
+MTU.TES  ──▶  Test modu format talimatları (MTU.ING ile aynı yapı)
+MTU.SOZ  ──▶  Yazım denetimi ek sözlük dosyaları (yer adları vb.)
+MTU.EXE  ──▶  Win16 NE yürütülebilir — tüm decode mantığı burada
 ```
 
-Output files are written to the `output/` directory.
+> **Not:** Türkçe→İngilizce için **ayrı bir dosya yoktur**.
+> EXE, MTU.TRK'yı belleğe yükler ve F8 tuşunda ters index oluşturur.
 
-## Output Files
+---
 
-| File | Description | Entries |
-|------|-------------|---------|
-| `MTU.TRK.TXT` | English-Turkish dictionary | 17,988 |
-| `MTU.TUR.TXT` | Türkçe Leb Demeden (idioms) | 26,775 |
-| `MTU.TUR_TR_EN.TXT` | Turkish-English dictionary | 2,571 |
-| `MTU.TUR_ES_ANLAM.TXT` | Turkish synonyms | 1,339 |
-| `MTU.ING.TXT` | İngilizce Leb Demeden | 329 |
-| `MTU.SOZ.TXT` | Additional dictionary data | 12,891 |
-| `MTU.TES.TXT` | Test/quiz word data | 417 |
-| `MTU.EXE.SUFFIXES.TXT` | Suffix list from MTU.EXE | 195 |
+## MTU.TRK — İngilizce→Türkçe Sözlük ✅
 
-## File Formats
+**Boyut:** 831,798 byte | **Giriş:** 17,988 kelime
 
-### MTU.TRK (Complete)
-Simple format: 3-byte header + 676×3 byte offset table + word data. Uses CP 857 encoding with morpheme expansion and suffix attachment via bytecode. Suffixes stored in MTU.EXE.
+### Format
 
-### MTU.TUR (Partial)
-MG2 format with 7 sections. Custom alphabet encoding (0x00='a'..0x1f='z'). Section 4 contains word formation instructions (26,775 entries). Section 3 contains dictionary/synonym data (3,218 entries) with English text encoded in an 11-byte block that needs further analysis.
+```
+[3B header] + [676×3B prefix-offset table (A-Z×26)] +
+[morpheme-encoded İngilizce kelimeler] + [Türkçe tanımlar]
+```
 
-### MTU.ING / MTU.TES (In Progress)
-These files have a different structure than MTU.TRK. The offset table starts at byte 0, and the data uses a vocabulary index + prefix data structure. The morpheme expansion format differs from MTU.TRK, requiring further reverse engineering.
+- İngilizce kelimeler: 2 harfli prefix + morpheme gövde + EXE'deki suffix talimatı
+- EXE `0x1B8B8`'de **195 girişli suffix tablosu** var (`-ing`, `-ed`, `-tion`, `to make`…)
+- Türkçe tanımlar: `|` ayraçlı, `#` prefix = bağlamsal açıklama
 
-### MTU.SOZ (Complete)
-MG2 format similar to MTU.TUR. Contains 12,891 entries using custom alphabet encoding.
+### Çıktı
 
-## Roadmap
+```
+output/MTU.TRK.TXT
+  abandon    terk etmek|bırakmak|vazgeçmek
+  ability    yetenek|kabiliyet|güç
+```
 
-- [x] Reverse engineer MTU.TRK format
-- [x] Reverse engineer MTU.TUR Leb Demeden format
-- [x] Reverse engineer MTU.SOZ format
-- [ ] Complete MTU.TUR Turkish-English dictionary English text decoding
-- [ ] Complete MTU.TUR Turkish synonyms verification
-- [ ] Reverse engineer MTU.ING format (vocabulary index structure)
-- [ ] Reverse engineer MTU.TES format
-- [ ] Build a GUI that emulates the original application
+### Script
 
-## Notes
+```bash
+python3 src/mtu_trk.py
+```
 
-- MTU.TRK uses CP 857 encoding with morpheme expansion and suffix attachment via bytecode instructions.
-- MTU.TUR uses a custom alphabet encoding where 0x00='a', 0x01='b', etc.
-- Some entries in MTU.TRK are corrupted even in the original application (14 entries total).
-- Suffixes are stored in MTU.EXE and referenced via bytecode instructions to reduce file size.
+---
 
-For detailed reverse engineering notes, see [REVERSE_ENGINEERING.md](REVERSE_ENGINEERING.md).
+## MTU.TUR — Türkçe Sözlük / Leb Demeden ✅
 
-## License
+**Boyut:** 220,720 byte | **Kelime:** 26,775
 
-This project is a reverse engineering effort to revive the MoonStar dictionary. The original software was released in 1994 with free license
+### Format
+
+```
+MG2\x1a (4B) + header [26775, 3218, 62800, 910] + 6 section
+```
+
+### Section 3 — Çekim Eki Tablosu (suffix stripping)
+
+Section 3 **İngilizce metin değildir**. Leb Demeden'in morfoloji analizinde
+kullandığı **Türkçe çekim eki soyutlama tablosudur**.
+
+```
+Her giriş (14 byte):
+  byte0 bits 0-6 = ek uzunluğu
+  val (u16)      = Section5 offset
+  Section5[val:val+count] → 'acak', 'mak', 'ımdan'...
+  bytes11[2]     = gramer sınıf kodu (3=geniş, 5=gelecek)
+```
+
+### TR_EN ve Eş Anlamlılar
+
+MTU.TUR içinde İngilizce metin **yoktur**. Her iki sözlük de MTU.TRK'dan üretilir:
+
+- **TR_EN:** TRK'daki `english → turkish` çiftleri ters çevrilir → 31,821 giriş
+- **ES_ANLAM:** Aynı İngilizce'yi paylaşan Türkçe kelimeler → 28,266 grup
+
+### Çıktılar
+
+```
+output/MTU.TUR.TXT           → 26,775 Türkçe kelime
+output/MTU.TUR_TR_EN.TXT     → 31,821 Türkçe→İngilizce çifti
+output/MTU.TUR_ES_ANLAM.TXT  → 28,266 eş anlamlı grubu
+```
+
+### Script
+
+```bash
+python3 src/mtu_trk.py   # önce çalıştırılmalı
+python3 src/mtu_tur.py
+```
+
+---
+
+## MTU.ING — Kelime Oyunu Quiz Metadata ✅
+
+**Boyut:** 654,684 byte | **Geçerli slot:** 12,437 / 32,000
+
+### MTU.ING bir sözlük değildir
+
+İçindeki byte'lar **quiz UI format talimatlarıdır** — düz metin değil.
+Gerçek İngilizce/Türkçe metin MTU.TRK'dan gelir.
+`MTU.ING.TXT` okunaksız görünür çünkü zaten metin içermiyor.
+
+### Format
+
+```
+[32,000 × 3B offset tablosu] + [slot verileri]
+
+Her slot header (3B):
+  byte0 = 0x00 (geçerli) / 0xFF (alias) / 0x10 / 0x20
+  byte1 = (trk_idx + 1) % 256
+  byte2 = flag (konu + quiz modu)
+```
+
+### Flag Byte Decode
+
+```python
+flag_low   = flag & 0x7F        # variant bitini sil
+topic_idx  = flag_low % 36      # konu 0-35
+quiz_mode  = flag_low // 36     # mod 0, 1 veya 2
+is_variant = bool(flag & 0x80)  # variant mi?
+```
+
+> ⚠️ `flag % 36` YANLIŞ — flag ≥ 128 için hatalı konu atar.
+> ✅ `(flag & 0x7F) % 36` DOĞRU.
+
+### 36 Konu
+
+Mecaz · Argo · Renk · Türemiş · Anatomi · Askerlik · Bitkibilim · Biyoloji ·
+Coğrafya · Denizcilik · Dilbilgisi · Dinsel · Ekonomi · Elektrik · Felsefe ·
+Fizik · Gökbilim · Hayvanbilim · Hekimlik · Hukuk · İskambil · Kimya · Mantık ·
+Matematik · Meteoroloji · Mimarlık · Müzik · Otomobil · Ruhbilim · Sinema ·
+Spor · Teknik · Ticaret · Tiyatro · Yazın · Yerbilim
+
+### Çıktı
+
+```
+output/MTU.ING.BY_TOPIC.TXT  → Konuya göre gruplandırılmış quiz girişleri
+```
+
+### Script
+
+```bash
+python3 src/mtu_ing.py
+```
+
+---
+
+## MTU.EXE — Win16 NE Analizi ✅
+
+**Boyut:** 401,920 byte | **NE header:** 0x250 | **Derleyici:** Borland C++
+
+### Menü Kısayolları (EXE'den çıkarılan)
+
+| Kısayol | Fonksiyon | Veri Kaynağı |
+|---------|-----------|--------------|
+| `F6` | Türkçe Leb Demeden | MTU.TUR |
+| `Sft+F6` | İngilizce Leb Demeden | MTU.TRK |
+| `F7` | Eş Anlamlı Kelimeler | MTU.TRK (gruplandırılmış) |
+| `F8` | Türkçe → İngilizce | MTU.TRK (ters index) |
+| `Sft+F8` | İngilizce → Türkçe | MTU.TRK (doğrudan) |
+| `F9` | Metin İstatistik | — |
+
+### Önemli Adresler (DGROUP)
+
+| Dosya Offset | İçerik |
+|-------------|--------|
+| 0x1A7CA | `table_B` — ING karakter lookup tablosu (256B) |
+| 0x1B388 | `table_A` — double-lookup index (256B) |
+| 0x1B61D | `TURTESINGTRK` — dosya tipi kodları |
+| 0x1B62C | `TESING1.Anlam` — quiz tipi etiketi |
+| 0x1B63A | 36 konu adı listesi (CP857, null-terminated) |
+| 0x1B8B8 | İngilizce suffix tablosu (195 giriş) |
+
+---
+
+## Açık Sorular
+
+| # | Konu | Öncelik |
+|---|------|---------|
+| 1 | MTU.SOZ tam decode — Section3 yapısı MTU.TUR'dan farklı | MEDIUM |
+| 2 | MTU.TUR Section3 `bytes11` gramer sınıfları — tam anlam bilinmiyor | MEDIUM |
+| 3 | ING `0x0E` handler — `format_sub` yerine harici fonksiyon, ne üretiyor? | LOW |
+| 4 | ING `0xFF/0x10/0x20` prefix slotlar — 2,027 non-standard giriş | LOW |
+| 5 | KONTROL.SOZ — 12 byte, amaç belirsiz | LOW |
+
+---
+
+## Kurulum
+
+```bash
+# 1. data/ klasörüne veri dosyalarını kopyala
+cp MTU.* data/
+
+# 2. Sözlükleri decode et
+python3 src/mtu_trk.py
+python3 src/mtu_tur.py
+python3 src/mtu_ing.py
+
+# 3. Web arayüzünü başlat → http://localhost:8080
+python3 src/ui.py
+```
+
+## API
+
+| Endpoint | Veri |
+|----------|------|
+| `/api/trk` | İngilizce→Türkçe (17,988) |
+| `/api/rev` | Türkçe→İngilizce (37,043) |
+| `/api/tur` | Leb Demeden (26,775) |
+| `/api/syn` | Eş Anlamlılar |
+| `/api/quiz` | Kelime Oyunu (12,437) |

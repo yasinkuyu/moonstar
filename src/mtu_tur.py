@@ -307,153 +307,115 @@ def DecodeSection3Entry(byte0, val, bytes11, section4_data, base_offset):
     except:
         return ''
 
-def ImportTurkishEnglishDictionary(dictionary, path, synonyms_dict=None):
+def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
     """
-    Imports Turkish-English dictionary entries from Section 3.
-    
-    MTU.TUR Section 3 layout:
-      Each entry = 14 bytes: [byte0:1] [val:2] [bytes11:11]
-      byte0 bits 0-6 = decode count, bit 7 = double_lookup flag
-      Section 1 maps starting letters to Section 3 index ranges
-    
-    The decoded output uses EXE table_B (CP857) for character mapping.
-    Data source for type < 3 = 11-byte block, type >= 3 = Section 4 at offset val.
-    
-    Note: byte0 may distinguish TR_EN entries from ES_ANLAM entries,
-    but the exact classification is not yet determined — both are currently
-    processed identically. The decoded output still contains control
-    characters, suggesting the data may be morphological/format instructions
-    rather than plain English text.
+    Build Türkçe→İngilizce dictionary by reversing the TRK (İngilizce→Türkçe) file.
+
+    MTU.TUR Section 3 is a SUFFIX STRIPPING TABLE for Leb Demeden (NOT TR_EN data):
+      - Each entry = [byte0: count][val: Section5 offset][bytes11: morphological class]
+      - Section5[val:val+count] = Turkish suffix string (e.g. 'acak', 'mak', 'ımdan')
+      - Section1 = fast lookup index by first letter of suffix
+      - bytes11[2] = grammatical class code (3=aorist, 5=future/ability stems, etc.)
+      - DecodeSection3Entry() using table_A/table_B produces garbled output because
+        Section3 stores suffix morphology instructions, NOT English character data.
+
+    Correct TR_EN source: reverse the TRK file (İngilizce→Türkçe pairs).
+    Each Turkish definition in TRK maps back to its English headword.
+
+    For synonyms (ES_ANLAM): Turkish words sharing the same English translation
+    are considered synonyms of each other.
+
+    Coverage: ~25% of TUR words have a direct TR_EN match via TRK.
+    Remaining 75% are proper nouns, compounds, or forms not in TRK.
     """
-    data = open(path, "rb").read()
-    pos = 0
+    if not os.path.exists(trk_path):
+        return
 
-    if data[pos:pos+4] != b'MG2\x1a':
-        raise ValueError("Invalid magic number")
-    pos += 4
+    tr_to_en = {}   # turkish_meaning → [english_headword, ...]
+    en_to_tr = {}   # english → set of turkish meanings (for synonyms)
 
-    header = [struct.unpack("<H", data[pos + i*2:pos + i*2 + 2])[0] for i in range(4)]
-    pos += 8
-
-    letter_count = 32
-
-    section1_start = pos
-    section1 = [struct.unpack("<H", data[pos + i*2:pos + i*2 + 2])[0] for i in range(letter_count + 1)]
-    pos += (letter_count + 1) * 2
-
-    pos += (letter_count**2 + 1) * 2
-
-    section3 = []
-    for i in range(header[1]):
-        byte0 = data[pos]
-        val = struct.unpack("<H", data[pos + 1:pos + 3])[0]
-        bytes11 = data[pos + 3:pos + 14]
-        pos += 14
-        section3.append((byte0, val, bytes11))
-
-    section4_entries = [data[pos + i*4:pos + (i+1)*4] for i in range(header[0])]
-    pos += header[0] * 4
-
-    base_offset = pos
-    pos += header[2]
-
-    section6 = [data[pos + i*4:pos + (i+1)*4] for i in range(header[3])]
-    pos += header[3] * 4
-
-    # Build Turkish words from Section 4 (same algorithm as Leb Demeden)
-    turkish_words = {}
-    pos2 = section1_start + (letter_count + 1) * 2
-    section2 = [struct.unpack("<H", data[pos2 + i*2:pos2 + (i+1)*2])[0] for i in range(letter_count**2 + 1)]
-
-    prefixes = []
-    for prefix_index in range(len(section2) - 1):
-        prefix = alphabet[prefix_index // letter_count] + alphabet[prefix_index % letter_count]
-        count = section2[prefix_index + 1] - section2[prefix_index]
-        prefixes.append((prefix, count))
-
-    item_index = 0
-    for prefix, count in prefixes:
-        if count == 0:
-            continue
-        for i in range(item_index, item_index + count):
-            if i >= len(section4_entries):
-                break
-            try:
-                suffix = GetSuffix(data, section4_entries[i], base_offset)
-                section6_idx = section4_entries[i][0]
-                if section6_idx < len(section6):
-                    p, s = ApplyModifications(section6[section6_idx], prefix, suffix)
-                    turkish_words[i] = p + s
-                else:
-                    turkish_words[i] = prefix + suffix
-            except (IndexError, ValueError):
-                pass
-        item_index += count
-
-    # Flatten Section 4 entries into a single byte array for data source lookup
-    section4_raw = b''.join(section4_entries)
-
-    # Process Section 3 using EXE decode algorithm
-    for letter_idx in range(letter_count):
-        start_idx = section1[letter_idx]
-        end_idx = section1[letter_idx + 1]
-        if start_idx >= end_idx:
-            continue
-
-        for i in range(start_idx, end_idx):
-            if i >= len(section3):
-                break
-
-            byte0, value, bytes11 = section3[i]
-
-            turkish_word = turkish_words.get(value) if value < len(turkish_words) else None
-            if not turkish_word:
+    with open(trk_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
                 continue
+            parts = line.split(None, 1)
+            if len(parts) != 2:
+                continue
+            english, meanings = parts[0], parts[1]
+            en_to_tr[english] = set()
+            for meaning in meanings.split('|'):
+                meaning = meaning.strip().lstrip('#').strip()
+                if not meaning:
+                    continue
+                en_to_tr[english].add(meaning)
+                if meaning not in tr_to_en:
+                    tr_to_en[meaning] = []
+                if english not in tr_to_en[meaning]:
+                    tr_to_en[meaning].append(english)
 
-            # Decode using EXE's actual algorithm (table_A, table_B, CP857)
-            decoded = DecodeSection3Entry(byte0, value, bytes11, section4_raw, base_offset)
-
-            if decoded and len(decoded) > 1:
-                decoded = decoded.replace('#', '; ')
-                if synonyms_dict is not None:
-                    synonyms_dict[turkish_word] = decoded
+    if synonyms_dict is not None:
+        # ES_ANLAM: Turkish words sharing the same English headword are synonyms
+        seen = set()
+        for english, tr_words in en_to_tr.items():
+            if len(tr_words) < 2:
+                continue
+            sorted_words = sorted(tr_words)
+            key = '|'.join(sorted_words)
+            if key in seen:
+                continue
+            seen.add(key)
+            for i, tw in enumerate(sorted_words):
+                others = [w for j, w in enumerate(sorted_words) if j != i]
+                if tw not in synonyms_dict:
+                    synonyms_dict[tw] = {'synonyms': others, 'via': english}
                 else:
-                    dictionary.append((turkish_word, decoded))
+                    synonyms_dict[tw]['synonyms'] = list(
+                        set(synonyms_dict[tw]['synonyms']) | set(others))
+    else:
+        # TR_EN: sorted by Turkish word
+        for turkish, english_list in sorted(tr_to_en.items()):
+            dictionary.append((turkish, ', '.join(english_list)))
+
 
 def GetDataPath(filename):
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(script_dir, "..", "data", filename)
+    return os.path.join(script_dir, '..', 'data', filename)
 
 def GetOutputPath(filename):
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(script_dir, "..", "output", filename)
+    return os.path.join(script_dir, '..', 'output', filename)
 
 def main():
-    data_path = GetDataPath("MTU.TUR")
+    data_path = GetDataPath('MTU.TUR')
+    trk_path  = GetOutputPath('MTU.TRK.TXT')
 
-    # Export Leb Demeden entries (Section 4)
+    # 1) Export Leb Demeden entries (Turkish word list from Section 4)
     dictionary_lebdemeden = []
     Import(dictionary_lebdemeden, data_path)
-    Export(dictionary_lebdemeden, GetOutputPath("MTU.TUR.TXT"))
-    print("Exported", len(dictionary_lebdemeden), "Leb Demeden entries.")
+    Export(dictionary_lebdemeden, GetOutputPath('MTU.TUR.TXT'))
+    print(f'Exported {len(dictionary_lebdemeden)} Leb Demeden (Türkçe) entries.')
 
-    # Export Turkish-English dictionary from Section 3
+    if not os.path.exists(trk_path):
+        print('MTU.TRK.TXT not found — run mtu_trk.py first to generate TR_EN/ES_ANLAM.')
+        return
+
+    # 2) Export TR_EN: Türkçe → İngilizce (from TRK reverse lookup)
     dictionary_tr_en = []
-    ImportTurkishEnglishDictionary(dictionary_tr_en, data_path)
-    with open(GetOutputPath("MTU.TUR_TR_EN.TXT"), "w", encoding="utf-8") as file:
+    ImportTurkishEnglishFromTRK(dictionary_tr_en, trk_path)
+    with open(GetOutputPath('MTU.TUR_TR_EN.TXT'), 'w', encoding='utf-8') as f:
         for turkish, english in dictionary_tr_en:
-            file.write(f"{turkish:<30} {english}\n")
-    print("Exported", len(dictionary_tr_en), "Turkish-English dictionary entries.")
+            f.write(f'{turkish:<30} {english}\n')
+    print(f'Exported {len(dictionary_tr_en)} Türkçe→İngilizce entries.')
 
-    # Export Turkish synonyms (Section 3, entries with byte0 indicating synonyms)
-    # Synonyms are stored alongside Turkish-English entries in Section 3
+    # 3) Export ES_ANLAM: Turkish synonym groups (from TRK)
     synonyms = {}
-    ImportTurkishEnglishDictionary([], data_path, synonyms_dict=synonyms)
-    if synonyms:
-        with open(GetOutputPath("MTU.TUR_ES_ANLAM.TXT"), "w", encoding="utf-8") as file:
-            for turkish, english in sorted(synonyms.items()):
-                file.write(f"{turkish:<30} {english}\n")
-        print("Exported", len(synonyms), "Turkish synonyms entries.")
+    ImportTurkishEnglishFromTRK([], trk_path, synonyms_dict=synonyms)
+    with open(GetOutputPath('MTU.TUR_ES_ANLAM.TXT'), 'w', encoding='utf-8') as f:
+        for turkish, data in sorted(synonyms.items()):
+            syns = ' | '.join(sorted(data['synonyms']))
+            f.write(f'{turkish:<30} {syns}  [{data["via"]}]\n')
+    print(f'Exported {len(synonyms)} eş anlamlılar entries.')
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

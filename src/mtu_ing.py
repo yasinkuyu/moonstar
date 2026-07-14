@@ -93,10 +93,17 @@ def Import(entries, path):
         body = data[start + 3:end]
         trk_idx = si if header_idx == (si + 1) % 256 else (header_idx - 1) % 256
 
+        # topic_idx: bit7 = variant flag, lower 7 bits encode (topic * 3 modes)
+        # Correct formula: (flag & 0x7F) % 36  (NOT flag % 36 which breaks for flag >= 128)
+        # quiz_mode: (flag & 0x7F) // 36  → 0=mode0, 1=mode1, 2=mode2
+        flag_low = header_flag & 0x7F
         entry = {
             'slot_pos': si,
             'header_idx': header_idx,
             'header_flag': header_flag,
+            'is_variant': bool(header_flag & 0x80),
+            'quiz_mode': flag_low // 36,
+            'topic_idx': flag_low % 36,
             'trk_idx': trk_idx,
             'body_len': len(body),
         }
@@ -106,11 +113,7 @@ def export_by_topic(entries, trk_words, trk_dict, path):
     """Export ING data organized by topic, showing English→Turkic word pairs."""
     topic_entries = {}
     for entry in entries:
-        flag = entry['header_flag']
-        # Topic index = flag % 36 (category byte modulo 36 maps to 36 topic names)
-        topic_idx = flag % 36
-        if topic_idx >= 36:
-            topic_idx = 0
+        topic_idx = entry['topic_idx']
         if topic_idx not in topic_entries:
             topic_entries[topic_idx] = []
         topic_entries[topic_idx].append(entry)
@@ -124,9 +127,9 @@ def export_by_topic(entries, trk_words, trk_dict, path):
             t_entries = topic_entries[topic_idx]
             t_entries.sort(key=lambda e: e['slot_pos'])
 
-            # Count mode variants (bit 7)
-            normal = sum(1 for e in t_entries if e['header_flag'] < 0x80)
-            variant = sum(1 for e in t_entries if e['header_flag'] >= 0x80)
+            # Count mode variants (bit 7) and quiz modes (0/1/2)
+            normal  = sum(1 for e in t_entries if not e['is_variant'])
+            variant = sum(1 for e in t_entries if     e['is_variant'])
 
             f.write(f"\n{'='*60}\n")
             f.write(f"{topic_name.upper()} ({len(t_entries)} entries, {normal} normal + {variant} variant)\n")
@@ -137,12 +140,14 @@ def export_by_topic(entries, trk_words, trk_dict, path):
                 english = trk_words[trk_idx] if 0 <= trk_idx < len(trk_words) else '???'
                 turkish = trk_dict.get(trk_idx, '')
 
-                flag_str = f"variant" if entry['header_flag'] >= 0x80 else "normal"
+                mode_str = f"m{entry['quiz_mode']}"
+                var_str  = "V" if entry['is_variant'] else "N"
+                tag = f"{var_str}{mode_str}"
 
                 if turkish:
-                    f.write(f"  Slot {entry['slot_pos']:>5} [{flag_str:>7}] {english:<30s} → {turkish}\n")
+                    f.write(f"  Slot {entry['slot_pos']:>5} [{tag:>3}] {english:<30s} → {turkish}\n")
                 else:
-                    f.write(f"  Slot {entry['slot_pos']:>5} [{flag_str:>7}] {english}\n")
+                    f.write(f"  Slot {entry['slot_pos']:>5} [{tag:>3}] {english}\n")
 
 def export_debug(entries, trk_words, path):
     """Debug export with format markers (for technical analysis)."""
@@ -208,9 +213,7 @@ def main():
     # Print summary
     topic_counts = {}
     for e in entries:
-        t = e['header_flag'] % 36
-        if t >= 36:
-            t = 0
+        t = e['topic_idx']
         topic_counts[t] = topic_counts.get(t, 0) + 1
 
     print(f"\n=== Summary ===")
