@@ -15,6 +15,8 @@ import http.server
 import urllib.parse
 from collections import defaultdict
 
+from spell_check import TurkishSpellChecker
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR, "..", "data")
 OUTPUT_DIR = os.path.join(SCRIPT_DIR, "..", "output")
@@ -435,6 +437,8 @@ SYN_DATA = load_synonyms()
 REV_DATA = load_trk_reverse()
 QUIZ_DATA, TOPIC_NAMES = load_ing_with_trk()
 
+CHECKER = TurkishSpellChecker()
+
 print(f"  TRK: {len(TRK_DATA)} entries")
 print(f"  TUR: {len(TUR_DATA)} entries")
 print(f"  SYN: {len(SYN_DATA)} entries")
@@ -451,38 +455,46 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
         params = urllib.parse.parse_qs(parsed.query)
         path = parsed.path
 
-        if path == "/":
-            self.serve_html()
-        elif path == "/api/stats":
-            self.json_response(self.get_stats())
-        elif path == "/api/trk":
-            self.json_response(self.paginate(TRK_DATA, params))
-        elif path == "/api/trk/search":
-            self.json_response(self.search_trk(params))
-        elif path == "/api/tur":
-            self.json_response(self.paginate(TUR_DATA, params))
-        elif path == "/api/tur/search":
-            self.json_response(self.search_tur(params))
-        elif path == "/api/syn":
-            self.json_response(self.paginate(SYN_DATA, params))
-        elif path == "/api/syn/search":
-            self.json_response(self.search_syn(params))
-        elif path == "/api/rev":
-            self.json_response(self.paginate(REV_DATA, params))
-        elif path == "/api/rev/search":
-            self.json_response(self.search_rev(params))
-        elif path == "/api/quiz/topics":
-            self.json_response(self.get_quiz_topics())
-        elif path == "/api/quiz":
-            self.json_response(self.get_quiz_entries(params))
-        elif path == "/api/quiz/search":
-            self.json_response(self.search_quiz(params))
-        elif path == "/api/hangman/word":
-            self.json_response(self.get_hangman_word(params))
-        elif path.startswith("/assets/"):
-            self.serve_asset(path)
-        else:
-            self.send_error(404)
+        try:
+            if path == "/":
+                self.serve_html()
+            elif path == "/api/stats":
+                self.json_response(self.get_stats())
+            elif path == "/api/trk":
+                self.json_response(self.paginate(TRK_DATA, params))
+            elif path == "/api/trk/search":
+                self.json_response(self.search_trk(params))
+            elif path == "/api/tur":
+                self.json_response(self.paginate(TUR_DATA, params))
+            elif path == "/api/tur/search":
+                self.json_response(self.search_tur(params))
+            elif path == "/api/syn":
+                self.json_response(self.paginate(SYN_DATA, params))
+            elif path == "/api/syn/search":
+                self.json_response(self.search_syn(params))
+            elif path == "/api/rev":
+                self.json_response(self.paginate(REV_DATA, params))
+            elif path == "/api/rev/search":
+                self.json_response(self.search_rev(params))
+            elif path == "/api/quiz/topics":
+                self.json_response(self.get_quiz_topics())
+            elif path == "/api/quiz":
+                self.json_response(self.get_quiz_entries(params))
+            elif path == "/api/quiz/search":
+                self.json_response(self.search_quiz(params))
+            elif path == "/api/hangman/word":
+                self.json_response(self.get_hangman_word(params))
+            elif path == "/api/check":
+                self.json_response(self.search_check(params))
+            elif path.startswith("/assets/"):
+                self.serve_asset(path)
+            else:
+                self.send_error(404)
+        except Exception as e:
+            import traceback
+            print(f"Error handling path {path}: {e}")
+            traceback.print_exc()
+            self.send_error(500, message=str(e))
 
     ASSETS_DIR = os.path.join(SCRIPT_DIR, "..", "assets")
 
@@ -568,6 +580,17 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
         qn = normalize_tr(q)
         results = [e for e in SYN_DATA if normalize_tr(e["word"]).startswith(qn)]
         return {"data": results[:100], "total": len(results)}
+
+    def search_check(self, params):
+        q = params.get("q", [""])[0]
+        if not q:
+            return {"valid": False, "word": "", "suggestions": []}
+        result = CHECKER.check(q)
+        result["dictionary"] = {
+            "total": len(CHECKER.word_set),
+            "suffix_count": len(CHECKER.all_suffixes),
+        }
+        return result
 
     def get_stats(self):
         # Topic distribution
@@ -1479,6 +1502,8 @@ body {
         <div class="dropdown-item" onclick="showReplaceDialog()">Değiştir</div>
       </div>
       <div class="dropdown" id="checkMenu">
+        <div class="dropdown-item" onclick="openSpellCheck()">Yazım Denetimi</div>
+        <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="showCheckOptions()">Denetim Opsiyonlar</div>
       </div>
       <div class="dropdown" id="dictMenu">
@@ -1521,24 +1546,63 @@ body {
 
 <!-- About Dialog -->
 <div class="dialog-overlay" id="aboutDialog">
-  <div class="win-window" style="min-width:350px;">
-    <div class="win-title inactive"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">MoonStar Hakkında</span>
+  <div class="win-window" style="width:380px;">
+    <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">MoonStar Hakkında</span>
       <div class="win-title-btns"><button onclick="closeDialog('aboutDialog')">✕</button></div>
     </div>
-    <div class="win-body" style="text-align:center;padding:20px;">
-      <div style="font-size:36px;color:#000080;margin-bottom:8px;">★</div>
-      <div style="font-size:16px;font-weight:bold;">MoonStar</div>
-      <div style="font-size:14px;margin:4px 0;">Türkçe Dil Kılavuzu</div>
-      <div style="font-size:13px;color:#666;margin:12px 0;">
-        Veri Gezgini Sürümü<br>
-        Tersine Mühendislik: yasinkuyu<br>
-        2026
+    <div class="win-body" style="padding:16px 12px;background:#c0c0c0;color:#000;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;font-size:12px;display:flex;flex-direction:column;gap:12px;box-sizing:border-box;">
+      <!-- Row 1: MoonStar info -->
+      <div style="display:flex;gap:12px;align-items:center;">
+        <!-- Left column container aligned with Row 2's Acer logo width -->
+        <div style="width:102px;display:flex;justify-content:center;align-items:center;flex-shrink:0;">
+          <div style="border: 2px solid; border-color: #808080 #fff #fff #808080; padding: 4px; background: #c0c0c0; display: inline-block;">
+            <img src="/assets/moonstar_icon.png?v=2" width="32" height="32" style="image-rendering: pixelated; display: block;">
+          </div>
+        </div>
+        <div style="line-height:1.3;font-weight:bold;">
+          <div style="font-weight:bold;font-size:13px;margin-bottom:2px;">MoonStar Türkçe Dil Kılavuzu</div>
+          <div>CopyRight &copy; 1994-1995 MoonStar</div>
+          <div>Tel : (0212) 230 21 95 - 231 96 24</div>
+          <div>Fax : (0212) 231 59 34</div>
+        </div>
       </div>
-      <div style="font-size:13px;color:#888;">
-        TRK: 17.975 | TUR: 26.775 | SYN: 10.640 | REV: 37.043 | QUIZ: 12.437
+      
+      <!-- Row 2: İhlas / Acer info -->
+      <div style="display:flex;gap:12px;align-items:flex-start;">
+        <div style="width:102px;flex-shrink:0;display:flex;justify-content:flex-start;">
+          <div style="border: 2px solid; border-color: #808080 #fff #fff #808080; background: #c0c0c0; display: inline-block;">
+            <img src="/assets/moonstar_banner.png?v=2" width="98" height="98" style="image-rendering: pixelated; display: block;">
+          </div>
+        </div>
+        <div style="line-height:1.3;font-weight:bold;margin-top:4px;">
+          <div style="font-weight:bold;font-size:13px;margin-bottom:2px;">İHLAS Bilgi İşlem ve Ticaret A.Ş.</div>
+          <div>Tel : (0212) 552 45 41</div>
+          <div>Fax : (0212) 652 87 45</div>
+        </div>
       </div>
-      <div style="margin-top:16px;">
-        <button class="win-btn" onclick="closeDialog('aboutDialog')">Tamam</button>
+      
+      <!-- Box 3: Dikkat warning -->
+      <div style="border: 2px solid; border-color: #808080 #fff #fff #808080; padding: 10px 8px; font-size: 11px; line-height: 1.4; background: #c0c0c0; text-align: center; font-weight:bold;">
+        <div style="font-weight:bold; font-size:12px; margin-bottom: 8px; letter-spacing: 4px;">D İ K K A T</div>
+        <div style="margin-bottom: 6px;">
+          Bu ürün MoonStar A.Ş. tarafından üretilmiş olup, sadece İHLAS A.Ş.'nin pazarladığı bilgisayarlar üzerinde profesyonel olmayan amaçlar için kullanılabilir.
+        </div>
+        <div>
+          Aksi 5846 sayılı Fikir ve Sanat Eserleri kanunu göre suç teşkil edecektir.
+        </div>
+      </div>
+      
+      <!-- Bottom row: Tamam button -->
+      <div style="display:flex; justify-content:center; margin-top: 4px;">
+        <img class="quiz-topic-btn" width="63" height="39" 
+             src="/assets/extracted/img_02ae00_63x39_4bpp.png" 
+             data-normal="/assets/extracted/img_02ae00_63x39_4bpp.png" 
+             data-pressed="/assets/extracted/img_039800_63x39_4bpp.png"
+             onmousedown="this.src=this.dataset.pressed" 
+             onmouseup="this.src=this.dataset.normal" 
+             onmouseleave="this.src=this.dataset.normal"
+             onclick="closeDialog('aboutDialog')"
+             style="cursor:pointer; image-rendering:pixelated; flex-shrink: 0;">
       </div>
     </div>
   </div>
@@ -1727,31 +1791,63 @@ function openWindow(type, opts) {
       <div class="win-status" id="${id}-status" style="flex-shrink:0;padding:2px 4px;border-top:1px solid #808080;font-size:11px;"></div>
     </div>`;
   } else if (config.type === 'syn') {
-    html += `<div class="win-body" style="padding:4px;flex:1;display:flex;flex-direction:column;min-height:0;">
-      <div style="display:flex;gap:4px;flex:1;min-height:0;margin-bottom:4px;">
-        <div style="flex:1;display:flex;flex-direction:column;gap:4px;min-height:0;">
-          <div class="group-box" style="flex-shrink:0;"><legend>Sözcük</legend>
-            <div style="display:flex;gap:4px;">
-              <input class="win-input" type="text" style="flex:1;" id="${id}-search" placeholder="" oninput="dictSearchDebounced('${id}')">
-              <button class="win-btn small" onclick="dictSearch('${id}')">Tamam</button>
-            </div>
+    html += `<div class="win-body" style="padding:10px;flex:1;display:flex;flex-direction:column;min-height:0;background:#c0c0c0;color:#000;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;gap:8px;">
+      
+      <div style="display:flex;gap:12px;flex:1;min-height:0;">
+        <!-- Left Column -->
+        <div style="width:230px;display:flex;flex-direction:column;gap:8px;flex-shrink:0;min-height:0;">
+          <!-- Sözcük Row -->
+          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
+            <div style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">Sözcük</div>
+            <input class="win-input" type="text" style="width:100%;background:#c0c0c0;" id="${id}-search" onkeydown="if(event.key==='Enter') synTriggerSearch('${id}')">
           </div>
-          <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;"><legend>Kök Sözcük</legend>
-            <div class="win-list" style="flex:1;overflow-y:auto;" id="${id}-list"></div>
+          
+          <!-- Kök Sözcük Row -->
+          <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
+            <div style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">Kök Sözcük</div>
+            <input class="win-input" type="text" readonly style="width:100%;background:#c0c0c0;color:#000;" id="${id}-stem">
           </div>
-          <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;"><legend>Anlam Grupları</legend>
-            <div class="win-list" style="flex:1;overflow-y:auto;" id="${id}-groups"></div>
+          
+          <!-- Anlam Grupları Group Box -->
+          <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;margin-top:4px;"><legend>Anlam Grupları</legend>
+            <div class="win-list" style="flex:1;overflow-y:auto;background:#fff;" id="${id}-groups"></div>
+          </div>
+          
+          <!-- Bottom Buttons Row -->
+          <div style="display:flex;gap:8px;flex-shrink:0;padding-top:4px;align-items:center;">
+            <!-- Tamam Button using original asset -->
+            <img class="quiz-topic-btn" id="${id}-btn-tamam" width="63" height="39" 
+                 src="/assets/extracted/img_02ae00_63x39_4bpp.png" 
+                 data-normal="/assets/extracted/img_02ae00_63x39_4bpp.png" 
+                 data-pressed="/assets/extracted/img_039800_63x39_4bpp.png"
+                 onmousedown="this.src=this.dataset.pressed" 
+                 onmouseup="this.src=this.dataset.normal" 
+                 onmouseleave="this.src=this.dataset.normal"
+                 onclick="synTriggerSearch('${id}')"
+                 style="cursor:pointer; image-rendering:pixelated; flex-shrink:0;">
+                 
+            <!-- Değiştir Button using original asset (initially disabled) -->
+            <img class="quiz-topic-btn disabled" id="${id}-btn-degistir" width="63" height="39" 
+                 src="/assets/extracted/img_04d600_63x39_4bpp.png" 
+                 data-normal="/assets/extracted/img_030200_63x39_4bpp.png" 
+                 data-pressed="/assets/extracted/img_03ec00_63x39_4bpp.png"
+                 data-disabled="/assets/extracted/img_04d600_63x39_4bpp.png"
+                 onmousedown="if(!this.classList.contains('disabled'))this.src=this.dataset.pressed" 
+                 onmouseup="if(!this.classList.contains('disabled'))this.src=this.dataset.normal" 
+                 onmouseleave="if(!this.classList.contains('disabled'))this.src=this.dataset.normal"
+                 onclick="synTriggerReplace('${id}')"
+                 style="cursor:not-allowed; image-rendering:pixelated; flex-shrink:0;">
           </div>
         </div>
-        <div class="group-box" style="flex:1;display:flex;flex-direction:column;"><legend>Eş Anlamları</legend>
-          <div class="win-list" style="flex:1;overflow-y:auto;" id="${id}-defn"></div>
+        
+        <!-- Right Column (Eş Anlamları Group Box) -->
+        <div class="group-box" style="flex:1;display:flex;flex-direction:column;margin-top:0;"><legend>Eş Anlamları</legend>
+          <div class="win-list" style="flex:1;overflow-y:auto;background:#fff;" id="${id}-defn"></div>
         </div>
       </div>
-      <div style="text-align:right;flex-shrink:0;padding:2px 0;display:flex;gap:4px;justify-content:flex-end;">
-        <button class="win-btn primary" onclick="dictSearch('${id}')">Tamam</button>
-        <button class="win-btn" onclick="closeWindow('${id}')">İptal</button>
-      </div>
-      <div class="win-status" id="${id}-status" style="flex-shrink:0;"></div>
+      
+      <!-- Status bar -->
+      <div class="win-status" id="${id}-status" style="flex-shrink:0;padding:2px 4px;border-top:1px solid #808080;font-size:11px;"></div>
     </div>`;
   } else if (config.type === 'tur') {
     html += `<div class="win-body" style="padding:4px;flex:1;display:flex;flex-direction:column;min-height:0;">
@@ -1794,23 +1890,95 @@ function closeWindow(id) {
   }
 }
 
-// ─── Synonyms List Render ────────────────────────────────────────────────
-function renderSynonyms(winId, synonyms) {
-  const parts = synonyms.split(' | ').filter(Boolean);
-  const df = document.getElementById(winId + '-defn');
-  if (!df) return;
-  if (!parts.length) {
-    df.innerHTML = '<div style="color:#888;padding:8px;">Eş anlamlı yok</div>';
-    return;
+// ─── Turkish Stemming Helper ──────────────────────────────────────────────
+function getTurkishStem(word) {
+  word = word.trim().replace(/^#/, '').toLowerCase();
+  const suffixes = [
+    'lerindeki', 'larındaki',
+    'lerinde', 'larında', 'lerinden', 'larından',
+    'leriyle', 'larıyla',
+    'leri', 'ları',
+    'iniz', 'ınız', 'umuz', 'ümüz',
+    'nin', 'nın', 'nun', 'nün',
+    'in', 'ın', 'un', 'ün',
+    'im', 'ım', 'um', 'üm',
+    'ye', 'ya', 'yi', 'yı', 'yu', 'yü',
+    'de', 'da', 'te', 'ta',
+    'den', 'dan', 'ten', 'tan',
+    'le', 'la',
+    'ce', 'ca',
+    'se', 'sa',
+    'i', 'ı', 'u', 'ü', 'e', 'a'
+  ];
+  if (word.length <= 3) return word;
+  for (let suf of suffixes) {
+    if (word.endsWith(suf)) {
+      const stem = word.slice(0, -suf.length);
+      if (stem.length >= 3) return stem;
+    }
   }
-  df.innerHTML = parts.map((m, i) =>
-    `<div class="dict-word${i===0?' dict-sel':''}" onclick="synonymSelect('${winId}',${i})">${m}</div>`
-  ).join('');
+  return word;
 }
-function synonymSelect(winId, idx) {
-  document.querySelectorAll(`#${winId}-defn .dict-word`).forEach(el => el.classList.remove('dict-sel'));
-  const items = document.querySelectorAll(`#${winId}-defn .dict-word`);
-  if (items[idx]) items[idx].classList.add('dict-sel');
+
+// ─── Synonyms Trigger & Search Logic ──────────────────────────────────────
+function synTriggerSearch(winId) {
+  const input = document.getElementById(winId + '-search');
+  const q = input ? input.value.trim() : '';
+  if (!q) return;
+  
+  const fullData = state.windowData && state.windowData[winId];
+  if (!fullData || !fullData.length) return;
+  
+  const qnNorm = normalizeSearch(q);
+  // Exact match first, then prefix match
+  let match = fullData.find(e => normalizeSearch(e.word) === qnNorm);
+  if (!match) {
+    match = fullData.find(e => normalizeSearch(e.word).startsWith(qnNorm));
+  }
+  
+  if (match) {
+    // Update inputs
+    document.getElementById(winId + '-search').value = match.word;
+    document.getElementById(winId + '-stem').value = getTurkishStem(match.word);
+    
+    // Populate Anlam Grupları
+    const grp = document.getElementById(winId + '-groups');
+    const groups = match.groups || '';
+    if (groups) {
+      const parts = groups.split(' | ').filter(Boolean);
+      const clusters = parts.map(p => {
+        const sep = p.indexOf('::');
+        if (sep === -1) return null;
+        const enWord = p.substring(0, sep);
+        const trWords = p.substring(sep + 2).split(',').filter(Boolean);
+        return { en: enWord, tr: trWords };
+      }).filter(Boolean);
+      
+      state.synClusters = state.synClusters || {};
+      state.synClusters[winId] = clusters;
+      
+      if (clusters.length === 0) {
+        grp.innerHTML = '<div style="color:#888;padding:8px;">Grup yok</div>';
+      } else {
+        grp.innerHTML = clusters.map((c, ci) =>
+          `<div class="dict-meaning${ci===0?' meaning-sel':''}" title="${c.en}" style="cursor:pointer"
+            onclick="synFilterGroup('${winId}', ${ci}, this)">${c.tr.join(' · ')}</div>`
+        ).join('');
+        // Show first cluster's synonyms by default
+        synFilterGroup(winId, 0, grp.querySelector('.dict-meaning'));
+      }
+    } else {
+      grp.innerHTML = '<div style="color:#888;padding:8px;">Grup yok</div>';
+      document.getElementById(winId + '-defn').innerHTML = '<div style="color:#888;padding:8px;">Eş anlamlı yok</div>';
+      synSetReplaceEnabled(winId, false);
+    }
+  } else {
+    // Not found
+    document.getElementById(winId + '-stem').value = '';
+    document.getElementById(winId + '-groups').innerHTML = '<div style="color:#888;padding:8px;">Sonuç bulunamadı</div>';
+    document.getElementById(winId + '-defn').innerHTML = '<div style="color:#888;padding:8px;">Sonuç bulunamadı</div>';
+    synSetReplaceEnabled(winId, false);
+  }
 }
 
 // Called when user clicks an Anlam Grubu — filters Eş Anlamları to that cluster
@@ -1831,11 +1999,58 @@ function synFilterGroup(winId, clusterIdx, el) {
   const trWords = clusters[clusterIdx].tr;
   if (!trWords || !trWords.length) {
     df.innerHTML = '<div style="color:#888;padding:8px;">Eş anlamlı yok</div>';
+    synSetReplaceEnabled(winId, false);
     return;
   }
-  df.innerHTML = trWords.map((m, i) =>
-    `<div class="dict-word${i===0?' dict-sel':''}" onclick="synonymSelect('${winId}',${i})">${m}</div>`
-  ).join('');
+  
+  const currentWord = document.getElementById(winId + '-search').value;
+  df.innerHTML = trWords.map((m, i) => {
+    const isCurrent = m === currentWord;
+    return `<div class="dict-word${isCurrent?' dict-sel':''}" onclick="synonymSelect('${winId}',${i},'${m}')">${m}</div>`;
+  }).join('');
+  
+  // Set default selected word to the first one in the cluster
+  state.synSelectedWord = state.synSelectedWord || {};
+  state.synSelectedWord[winId] = trWords[0];
+  synSetReplaceEnabled(winId, true);
+}
+
+function synonymSelect(winId, idx, word) {
+  document.querySelectorAll(`#${winId}-defn .dict-word`).forEach(el => el.classList.remove('dict-sel'));
+  const items = document.querySelectorAll(`#${winId}-defn .dict-word`);
+  if (items[idx]) items[idx].classList.add('dict-sel');
+  
+  state.synSelectedWord = state.synSelectedWord || {};
+  state.synSelectedWord[winId] = word;
+  synSetReplaceEnabled(winId, true);
+}
+
+function synSetReplaceEnabled(winId, enabled) {
+  const btn = document.getElementById(winId + '-btn-degistir');
+  if (!btn) return;
+  if (enabled) {
+    btn.classList.remove('disabled');
+    btn.src = btn.dataset.normal;
+    btn.style.cursor = 'pointer';
+  } else {
+    btn.classList.add('disabled');
+    btn.src = btn.dataset.disabled;
+    btn.style.cursor = 'not-allowed';
+    if (state.synSelectedWord) {
+      delete state.synSelectedWord[winId];
+    }
+  }
+}
+
+function synTriggerReplace(winId) {
+  const btn = document.getElementById(winId + '-btn-degistir');
+  if (btn && btn.classList.contains('disabled')) return;
+  
+  const word = state.synSelectedWord && state.synSelectedWord[winId];
+  if (word) {
+    document.getElementById(winId + '-search').value = word;
+    synTriggerSearch(winId);
+  }
 }
 
 // ─── Dictionary Window ───────────────────────────────────────────────────
@@ -1864,6 +2079,20 @@ function loadWindowDict(winId, type, apiUrl) {
       if (dt) {
         dt.value = ''; // Start empty
       }
+      
+      // Synonym window specific initialization
+      if (type === 'syn') {
+        const stemEl = document.getElementById(winId + '-stem');
+        if (stemEl) {
+          stemEl.value = '';
+        }
+        const groupsEl = document.getElementById(winId + '-groups');
+        if (groupsEl) {
+          groupsEl.innerHTML = '';
+        }
+        synSetReplaceEnabled(winId, false);
+      }
+      
       document.getElementById(winId + '-status').textContent = `${d.total.toLocaleString()} kayıt`;
     });
 }
@@ -2475,7 +2704,7 @@ function showWelcomeWindow() {
   });
   html += `</div>`;
   html += `<div class="welcome-sep"></div>`;
-  html += `<div class="welcome-banner">` +
+  html += `<div class="welcome-banner" onclick="showAbout()" style="cursor:pointer;">` +
     `<img src="/assets/logo_acer.png?v=${v}" class="welcome-banner-logo" width="98" height="98" alt="Acer">` +
     `<div class="welcome-banner-brand">` +
       `<img src="/assets/MoonStar.svg?v=${v}" class="welcome-banner-svg" alt="MoonStar">` +
@@ -2645,6 +2874,80 @@ function closeDialog(id) {
 }
 
 // ─── Check Options Dialog ─────────────────────────────────────────────────
+function openSpellCheck() {
+  closeAllMenus();
+  closeAllWindows();
+  const id = 'win-chk-' + (state.nextWindowId++);
+  const workArea = document.getElementById('workArea');
+  let html = `<div class="win-window" id="${id}" style="width:500px;height:400px;overflow:hidden;">`;
+  html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Yazım Denetimi</span>`;
+  html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
+  html += `<div class="win-body" style="padding:6px;flex:1;display:flex;flex-direction:column;min-height:0;">`;
+  html += `<label style="font-size:13px;font-weight:600;margin-bottom:4px;">Metin:</label>`;
+  html += `<textarea id="${id}-text" style="flex:1;resize:none;font-size:14px;padding:6px;font-family:'Segoe UI',sans-serif;" placeholder="Denetlenecek metni yazın…"></textarea>`;
+  html += `<div style="margin:4px 0;display:flex;gap:6px;align-items:center;">`;
+  html += `<button class="win-btn primary" onclick="runSpellCheck('${id}')">Denetle</button>`;
+  html += `<span id="${id}-status" style="font-size:12px;color:#666;"></span>`;
+  html += `</div>`;
+  html += `<div id="${id}-results" style="flex:0 0 auto;max-height:150px;overflow-y:auto;font-size:13px;"></div>`;
+  html += `</div></div>`;
+  workArea.insertAdjacentHTML('afterbegin', html);
+  state.windows[id] = { type: 'spellcheck', id: id };
+}
+
+function runSpellCheck(winId) {
+  const textEl = document.getElementById(winId + '-text');
+  const resultsEl = document.getElementById(winId + '-results');
+  const statusEl = document.getElementById(winId + '-status');
+  const text = textEl.value.trim();
+  if (!text) { statusEl.textContent = 'Lütfen metin girin.'; return; }
+
+  statusEl.textContent = 'Denetleniyor…';
+  resultsEl.innerHTML = '';
+
+  const words = text.match(/[a-zA-ZçÇğĞışİöÖşŞüÜâîû]+/g) || [];
+  if (words.length === 0) {
+    statusEl.textContent = 'Denetlenecek kelime bulunamadı.';
+    return;
+  }
+
+  let checked = 0;
+  let errors = [];
+
+  words.forEach((w, idx) => {
+    fetch(`/api/check?q=${encodeURIComponent(w)}`)
+      .then(r => r.json())
+      .then(data => {
+        checked++;
+        statusEl.textContent = `${checked}/${words.length} denetlendi`;
+        if (!data.valid) {
+          let sug = '';
+          if (data.suggestions && data.suggestions.length > 0) {
+            sug = ' → ' + data.suggestions.slice(0, 5).map(s => s.word).join(', ');
+          }
+          errors.push({ word: data.word, suggestions: data.suggestions });
+          const div = document.createElement('div');
+          div.style.cssText = 'padding:2px 0;color:#c33;';
+          div.textContent = data.word + sug;
+          resultsEl.appendChild(div);
+        }
+        if (checked === words.length) {
+          statusEl.textContent = errors.length > 0
+            ? `${errors.length} hatalı kelime bulundu.`
+            : '✓ Hiçbir hata bulunamadı.';
+        }
+      })
+      .catch(() => {
+        checked++;
+        if (checked === words.length) {
+          statusEl.textContent = errors.length > 0
+            ? `${errors.length} hatalı kelime bulundu.`
+            : '✓ Hiçbir hata bulunamadı.';
+        }
+      });
+  });
+}
+
 function showCheckOptions() {
   closeAllWindows();
   const id = 'win-chk-' + (state.nextWindowId++);
@@ -2740,10 +3043,13 @@ def start_with_reload():
 
 def main():
     import subprocess
-    pid = subprocess.run(['lsof', '-ti', str(PORT)], capture_output=True, text=True).stdout.strip()
+    pid = subprocess.run(['lsof', '-ti', f":{PORT}"], capture_output=True, text=True).stdout.strip()
     if pid:
-        print(f"  ⚠ Port {PORT} kullanımda (PID:{pid}), eski process sonlandırılıyor…")
-        subprocess.run(['kill', '-9', pid], capture_output=True)
+        # If multiple PIDs are returned, split and kill each
+        pids = pid.split()
+        print(f"  ⚠ Port {PORT} kullanımda (PID:{', '.join(pids)}), eski process sonlandırılıyor…")
+        for p in pids:
+            subprocess.run(['kill', '-9', p], capture_output=True)
         time.sleep(0.3)
 
     http.server.HTTPServer.allow_reuse_address = True

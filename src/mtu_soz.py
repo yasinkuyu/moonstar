@@ -116,66 +116,59 @@ def Import(dictionary, path):
         pos += 2
         header.append(length)
 
-    letter_count = 32
+    # In MTU.SOZ, Section 4 starts directly after the header (offset 12)
+    # Section 1 (66 bytes) and Section 2 (2050 bytes) are present in the file size layout
+    # but contain dummy/unused index data.
+    # The actual word rules start at offset 2128 (12 + 66 + 2050).
+    sec4_start = 12 + 66 + 2050
+    sec4_count = header[0]  # 2193 entries
 
-    # Section 1 - skip
-    pos += (letter_count + 1) * 2
+    sec5_start = sec4_start + sec4_count * 4
+    sec5_size = header[2]  # 6415 bytes
 
-    # Section 2 - read as byte0=start, byte1=count
-    section2 = []
-    for i in range(letter_count**2):
-        start = data[pos]
-        count = data[pos + 1]
-        pos += 2
-        section2.append((start, count))
+    alphabet32 = 'abcçdefgğhıijklmnoöpqrsştuüvwxyz'
 
-    # Skip last Section 2 entry
-    pos += 2
+    # Read all rules
+    rules = []
+    for i in range(sec4_count):
+        entry_pos = sec4_start + i * 4
+        entry = data[entry_pos:entry_pos + 4]
+        
+        p1, p2 = entry[0], entry[1]
+        prefix = (alphabet32[p1] if p1 < 32 else '') + (alphabet32[p2] if p2 < 32 else '')
+        
+        offset = entry[2] + entry[3] * 256
+        rules.append({
+            'index': i,
+            'prefix': prefix,
+            'offset': offset
+        })
 
-    # MTU.SOZ has no Section 3 (header[1] = 14227 is not an entry count here;
-    # the file is only 23 KB and cannot hold 14227 × 14 byte entries).
-    # Section 4 starts right after Section 2.
-    # See ImportBridgeTable() below for the optional bridge-table reader —
-    # it may work with a different/larger version of MTU.SOZ.
+    # Sort rules by offset to determine suffix boundaries (suffix compaction)
+    sorted_rules = sorted(rules, key=lambda x: x['offset'])
+    for i in range(len(sorted_rules)):
+        curr = sorted_rules[i]
+        next_offset = sec5_size
+        for j in range(i + 1, len(sorted_rules)):
+            if sorted_rules[j]['offset'] > curr['offset']:
+                next_offset = sorted_rules[j]['offset']
+                break
+        curr['suffix_len'] = next_offset - curr['offset']
 
-    section4_start = pos
-    section4_count = header[0]  # 2193 entries
-
-    section5_start = section4_start + section4_count * 4
-    section5_size = header[2]  # byte count for suffix data
-
-    section6_start = section5_start + section5_size
-    section6_available = (len(data) - section6_start) // 4
-    section6_count = min(header[3], section6_available)
-    section6 = []
-    for i in range(section6_count):
-        section6.append(data[section6_start + i * 4:section6_start + i * 4 + 4])
-
-    # Process each prefix
-    for prefix_idx in range(letter_count**2):
-        start, count = section2[prefix_idx]
-
-        if count == 0:
-            continue
-
-        prefix = alphabet[prefix_idx // letter_count] + alphabet[prefix_idx % letter_count]
-
-        # Read entries for this prefix
-        for i in range(start, min(start + count, section4_count)):
-            entry_pos = section4_start + i * 4
-            entry = data[entry_pos:entry_pos + 4]
-
-            # Decode suffix
-            suffix = GetSuffix(data, entry, section5_start)
-
-            # Apply modifications from Section 6
-            section6_idx = entry[0]
-            if section6_idx < len(section6):
-                prefix_mod, suffix_mod = ApplyModifications(section6[section6_idx], prefix, suffix)
-                word = prefix_mod + suffix_mod
-            else:
-                word = prefix + suffix
-
+    # Reconstruct words
+    for r in rules:
+        pos = sec5_start + r['offset']
+        slen = min(r['suffix_len'], 30)  # limit sanity check
+        suffix = ''
+        for k in range(slen):
+            if pos + k < len(data):
+                idx = data[pos + k]
+                suffix += alphabet32[idx] if idx < 32 else ''
+        
+        word = r['prefix'] + suffix
+        if word:
+            # Capitalize properly if it looks like a name
+            word = word[0].upper() + word[1:]
             dictionary.append(word)
 
 def ImportBridgeTable(bridge, path):
