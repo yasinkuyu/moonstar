@@ -1,5 +1,10 @@
-You need to place these files here:
-- MTU.ING
-- MTU.TES
-- MTU.TRK
-- MTU.TUR
+EXE'den Doğrulanmış Veri Dosyaları:
+- MTU.ING  → Kelime Oyunu format talimatları (EXE roster @0x1B61D)
+- MTU.TES  → Test metadata (EXE @0x1B62C)
+- MTU.TRK  → İngilizce→Türkçe sözlük (EXE suffix tablosu @0x1BC00)
+- MTU.TUR  → Türkçe Leb Demeden kelime listesi, MG2 format (EXE @0x1BC54)
+- MTU.SOZ  → Ek sözlük (yer adları), MG2 format (EXE @0x1B31F)
+- MTU.HLP  → Windows Yardım dosyası (EXE sınıf kaydı @0x1B23B)
+- MTU.INI  → Kullanıcı ayarları (EXE sınıf kaydı @0x1B23B)
+- MTU1.INI → Alternatif ayar profili
+- KONTROL.SOZ → 12B, MG2 magic, amaç bilinmiyor

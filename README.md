@@ -5,21 +5,35 @@ veri dosyalarının tersine mühendislik belgesi.
 
 ---
 
-## Dosya Mimarisi
+## Dosya Mimarisi (EXE'den Doğrulanmış)
+
+Aşağıdaki offset'ler, EXE binary'sinde yapılan doğrudan tarama ile tespit edilmiştir:
 
 ```
 MTU.TRK  ──▶  İngilizce→Türkçe sözlük (doğrudan)
           └──▶ Türkçe→İngilizce sözlük (bellekte ters çevrilerek)
           └──▶ Eş Anlamlılar (ortak İngilizce'ye göre gruplandırılarak)
           └──▶ Kelime Oyunu'nda kelime çiftleri
+           EXE: `TRK` roster @0x1B61D, suffix tablosu @0x1B8B8
 
 MTU.TUR  ──▶  Türkçe Leb Demeden kelime listesi (26,775 kelime)
           └──▶ Türkçe çekim eki soyutlama tablosu (yazım denetimi)
+          EXE: `TUR` dosya filtresi + roster @0x1BC54/0x1B61D
 
 MTU.ING  ──▶  Kelime Oyunu quiz FORMAT TALİMATLARI (sözlük değil)
+          EXE: `ING` roster @0x1B61D, `Kelime Oyunu` @0x5D80F
+
 MTU.TES  ──▶  Test modu format talimatları (MTU.ING ile aynı yapı)
-MTU.SOZ  ──▶  Yazım denetimi ek sözlük dosyaları (yer adları vb.)
-MTU.EXE  ──▶  Win16 NE yürütülebilir — tüm decode mantığı burada
+          EXE: `TES` roster + `TESING1.Anlam` @0x1B62C
+
+MTU.SOZ  ──▶  Yazım denetimi ek sözlük (yer adları vb.)
+          EXE: `*.SOZ` dialog filtresi @0x1B31F, `MG2\x1a` magic @0x1BC4F
+
+MTU.HLP  ──▶  Windows Yardım dosyası
+          EXE: `HLP` Windows sınıf kaydı @0x1B23B
+
+MTU.INI  ──▶  Kullanıcı ayarları + klavye düzeni
+          EXE: `INI` Windows sınıf kaydı @0x1B23B
 ```
 
 > **Not:** Türkçe→İngilizce için **ayrı bir dosya yoktur**.
@@ -162,7 +176,8 @@ python3 src/mtu_ing.py
 
 ## MTU.EXE — Win16 NE Analizi ✅
 
-**Boyut:** 401,920 byte | **NE header:** 0x250 | **Derleyici:** Borland C++
+**Boyut:** 401,920 byte | **NE header:** 0x250 | **Derleyici:** Borland C++ v5.10
+**Segment tablosu:** NE+0x40 (dosya 0x290) | **Alignment:** 2⁹ = 512B
 
 ### Menü Kısayolları (EXE'den çıkarılan)
 
