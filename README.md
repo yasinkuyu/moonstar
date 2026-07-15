@@ -188,6 +188,65 @@ python3 src/mtu_ing.py
 
 ---
 
+## Türkçe→İngilizce Ters Sözlük — Lookup Algoritması ✅
+
+Web arayüzündeki Türkçe→İngilizce sözlük (F8 penceresi) şu adımlarla üretilir:
+
+### 1. Doğrudan Eşleştirme
+
+MTU.TRK'daki her `english → turkish` çifti ters çevrilir:
+
+```
+root  →  kök
+base  →  temel
+```
+
+### 2. Türkçe Morfoloji — Suffix Stripping
+
+TRK tanımları çekimli form içerebilir (ör. `temeli`, `kökeni`).
+`get_turkish_stem()` fonksiyonu yaygın ekleri soyar:
+
+```python
+temeli  →  temel   (iyelik eki -i)
+kökeni  →  köken   (iyelik eki -i)
+```
+
+Bu sayede `root → temeli` ile `base → temel` çiftleri **temel** ortak kökünde buluşur.
+
+### 3. Hop-1 Eş Anlamlı Genişletme
+
+Her Türkçe kelimenin doğrudan İngilizce çevirilerinden hareketle Hop-1 eş anlamlı grafiği oluşturulur:
+
+```
+kök  →  root
+root → {temel, köken, kaynak, başlangıç, ...}
+temel → {base, basis, foundation, ...}
+```
+
+Bu grafik üzerinde TF-IDF benzeri özgüllük ağırlıklandırması uygulanır:
+
+```python
+spec = 1.0 / max(1, len(en_to_trs[en]))
+score = max(score, 10.0 * spec)
+```
+
+### 4. Sonuç Skoru (kök örneği)
+
+| İngilizce | Skor | Kaynak |
+|-----------|------|--------|
+| root | — | doğrudan eşleştirme |
+| onset, inception, outset | 10.0 | tekil çeviri → yüksek özgüllük |
+| basis | 5.0 | `temel` üzerinden Hop-1 |
+| origin | 2.0 | `köken` üzerinden Hop-1 |
+| base | 0.5 | `temel` üzerinden Hop-1 (çok anlamlı) |
+
+### Hardcode Yok
+
+Tüm eşleştirmeler **tamamen dinamik** — `kök`, `malak`, `sıpa` vb. için
+hiçbir `if tr_word == ...` kontrolü kullanılmaz.
+
+---
+
 ## Açık Sorular
 
 | # | Konu | Öncelik |
@@ -219,8 +278,8 @@ python3 src/ui.py
 
 | Endpoint | Veri |
 |----------|------|
-| `/api/trk` | İngilizce→Türkçe (17,988) |
-| `/api/rev` | Türkçe→İngilizce (37,043) |
-| `/api/tur` | Leb Demeden (26,775) |
-| `/api/syn` | Eş Anlamlılar |
-| `/api/quiz` | Kelime Oyunu (12,437) |
+| `/api/trk` | İngilizce→Türkçe (17,975 giriş) |
+| `/api/rev` | Türkçe→İngilizce (62,942 giriş — stem+eş anlamlı genişletmeli) |
+| `/api/tur` | Leb Demeden (26,775 kelime) |
+| `/api/syn` | Eş Anlamlılar (8,573 grup) |
+| `/api/quiz` | Kelime Oyunu (12,437 slot, 36 konu) |

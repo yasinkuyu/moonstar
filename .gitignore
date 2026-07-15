@@ -1,5 +1,6 @@
 data/*
 !data/README
+assets/extracted/
 output/
 temp/
 AGENTS.md
