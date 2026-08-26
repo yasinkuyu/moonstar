@@ -1237,7 +1237,8 @@ body {
 }
 .hm-key.used {
   cursor: default;
-  opacity: 1;
+  opacity: 0.65;
+  filter: contrast(0.85);
   outline: 1px dotted #808080;
   outline-offset: -2px;
 }
@@ -2499,6 +2500,8 @@ function closeOyunKelimeleriDialog() {
 
 function confirmOyunKelimeleri() {
   SoundFX.playClick();
+  const rad = document.querySelector('input[name="oyunKelimeKaynagi"]:checked');
+  state.hangmanSource = rad ? rad.value : 'main';
   closeOyunKelimeleriDialog();
 }
 
@@ -2753,7 +2756,11 @@ function startHangmanRound(id, topicIdx, topicName) {
   const game = document.getElementById(id + '-game');
   if (game) game.innerHTML = '<div class="loading" style="padding:8px;">Kelime seçiliyor...</div>';
 
-  const url = (topicIdx != null && topicIdx !== '') ? ('/api/hangman/word?topic=' + topicIdx) : '/api/hangman/word';
+  const src = state.hangmanSource || 'main';
+  let url = '/api/hangman/word?source=' + encodeURIComponent(src);
+  if (topicIdx != null && topicIdx !== '') {
+    url += '&topic=' + encodeURIComponent(topicIdx);
+  }
   fetch(url)
     .then(r => r.json()).then(d => {
       if (!state.windows[id]) return;
