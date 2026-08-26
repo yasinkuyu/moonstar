@@ -1302,7 +1302,7 @@ body {
 }
 .hm-gallows {
   width: 60px; height: 84px; box-sizing: border-box;
-  margin-top: 4px;
+  margin-top: 20px;
   border: 2px solid; border-color: #808080 #fff #fff #808080;
   background: #c0c0c0; padding: 2px; line-height: 0; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
@@ -2815,18 +2815,12 @@ function renderHangman(id) {
     for (let c = 0; c < 2; c++) {
       const letter = HM_KEYS[r][c];
       const idx = hmKeyIndex(letter);
-      const used = started && (info.guessed.includes(letter) || info.done);
-      // EXE idle board shows raised (normal) keys, not pressed
-      const prefix = used ? 'p' : 'n';
-      let onClick = '';
-      let cls = '';
-      if (!started) {
-        cls = ' idle';
-      } else if (used || info.done) {
-        cls = ' used';
-      } else {
-        onClick = `guessLetter('${id}','${letter}')`;
-      }
+      // Disabled if round not started yet, or game round is over, or letter was already guessed
+      const disabled = !started || info.done || info.guessed.includes(letter);
+      const prefix = disabled ? 'p' : 'n';
+      const cls = disabled ? ' used' : '';
+      const onClick = disabled ? '' : `guessLetter('${id}','${letter}')`;
+
       html += `<img class="hm-key${cls}" width="25" height="25" src="/assets/keys/${prefix}_${String(idx).padStart(2,'0')}.png?v=14" ` +
         `alt="${letter}" title="${letter}" onclick="${onClick}">`;
     }
