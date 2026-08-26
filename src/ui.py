@@ -807,8 +807,15 @@ body {
   background: #c0c0c0;
   padding: 1px 2px;
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 0;
   border-bottom: 1px solid #808080;
+}
+.menu-items-group {
+  display: flex;
+  align-items: center;
+  gap: 0;
 }
 .menu-bar .menu-item {
   padding: 3px 8px;
@@ -821,6 +828,40 @@ body {
   border-color: #fff #808080 #808080 #fff;
 }
 .menu-bar .menu-item.open {
+  background: #000080;
+  color: #fff;
+  border-color: #808080 #fff #fff #808080;
+}
+.retro-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding-right: 4px;
+}
+.retro-zoom-label {
+  font-size: 11px;
+  font-weight: bold;
+  color: #333;
+  margin-right: 2px;
+  font-family: 'MS Sans Serif', Tahoma, sans-serif;
+}
+.retro-zoom-btn {
+  background: #c0c0c0;
+  border: 2px solid;
+  border-color: #fff #808080 #808080 #fff;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: bold;
+  font-family: 'MS Sans Serif', Tahoma, sans-serif;
+  cursor: pointer;
+  line-height: 14px;
+  color: #000;
+}
+.retro-zoom-btn:active {
+  border-color: #808080 #fff #fff #808080;
+}
+.retro-zoom-btn.active {
   background: #000080;
   color: #fff;
   border-color: #808080 #fff #fff #808080;
@@ -1522,15 +1563,24 @@ body {
     <div class="win-body" style="padding:0;">
       <!-- Menu Bar -->
       <div class="menu-bar" id="menuBar">
-        <div class="menu-item" onclick="toggleMenu('fileMenu', event)">Dosya</div>
-        <div class="menu-item" onclick="toggleMenu('editMenu', event)">Düzen</div>
-        <div class="menu-item" onclick="toggleMenu('searchMenu', event)">Ara</div>
-        <div class="menu-item" onclick="toggleMenu('checkMenu', event)">Denetim</div>
-        <div class="menu-item" onclick="toggleMenu('dictMenu', event)">Sözlük</div>
-        <div class="menu-item" onclick="toggleMenu('gameMenu', event)">Oyun</div>
-        <div class="menu-item" onclick="toggleMenu('statsMenu', event)">İstatistik</div>
-        <div class="menu-item" onclick="toggleMenu('optionsMenu', event)">Seçenekler</div>
-        <div class="menu-item" onclick="toggleMenu('helpMenu', event)">Yardım</div>
+        <div class="menu-items-group">
+          <div class="menu-item" onclick="toggleMenu('fileMenu', event)">Dosya</div>
+          <div class="menu-item" onclick="toggleMenu('editMenu', event)">Düzen</div>
+          <div class="menu-item" onclick="toggleMenu('searchMenu', event)">Ara</div>
+          <div class="menu-item" onclick="toggleMenu('checkMenu', event)">Denetim</div>
+          <div class="menu-item" onclick="toggleMenu('dictMenu', event)">Sözlük</div>
+          <div class="menu-item" onclick="toggleMenu('gameMenu', event)">Oyun</div>
+          <div class="menu-item" onclick="toggleMenu('statsMenu', event)">İstatistik</div>
+          <div class="menu-item" onclick="toggleMenu('optionsMenu', event)">Seçenekler</div>
+          <div class="menu-item" onclick="toggleMenu('helpMenu', event)">Yardım</div>
+        </div>
+        <div class="retro-zoom-controls">
+          <span class="retro-zoom-label">🔍 Ölçek:</span>
+          <button class="retro-zoom-btn active" onclick="setUiScale(1.0)" id="zoomBtn-1_0" title="%100 Orijinal">1x</button>
+          <button class="retro-zoom-btn" onclick="setUiScale(1.25)" id="zoomBtn-1_25" title="%125 Orta">1.25x</button>
+          <button class="retro-zoom-btn" onclick="setUiScale(1.5)" id="zoomBtn-1_5" title="%150 Geniş">1.5x</button>
+          <button class="retro-zoom-btn" onclick="setUiScale(2.0)" id="zoomBtn-2_0" title="%200 Büyük">2x</button>
+        </div>
       </div>
 
       <!-- Dropdown Menus -->
@@ -1808,12 +1858,59 @@ body {
 </div>
 
 <script>
-// ─── State ────────────────────────────────────────────────────────────────
+// ─── State & UI Scaling ───────────────────────────────────────────────────
 let state = {
   windows: {},
   nextWindowId: 0,
   pageCache: {},
+  uiScale: 1.0
 };
+
+function setUiScale(scale) {
+  scale = Number(scale) || 1.0;
+  state.uiScale = scale;
+  try {
+    localStorage.setItem('moonstar_ui_scale', scale);
+  } catch(e) {}
+
+  document.body.style.zoom = scale;
+
+  document.querySelectorAll('.retro-zoom-btn').forEach(btn => btn.classList.remove('active'));
+  const btnId = 'zoomBtn-' + (scale === 1 ? '1_0' : (scale === 1.25 ? '1_25' : (scale === 1.5 ? '1_5' : '2_0')));
+  const btn = document.getElementById(btnId);
+  if (btn) btn.classList.add('active');
+}
+
+(function initUiScale() {
+  let scale = 1.0;
+  try {
+    const saved = localStorage.getItem('moonstar_ui_scale');
+    if (saved) scale = parseFloat(saved);
+  } catch(e) {}
+  setUiScale(scale || 1.0);
+})();
+
+// Keyboard shortcuts for zooming (Ctrl/Cmd + +, -, 0)
+window.addEventListener('keydown', function(ev) {
+  if (ev.ctrlKey || ev.metaKey) {
+    if (ev.key === '+' || ev.key === '=') {
+      ev.preventDefault();
+      const scales = [1.0, 1.25, 1.5, 2.0];
+      const cur = state.uiScale || 1.0;
+      const next = scales.find(s => s > cur) || 2.0;
+      setUiScale(next);
+    } else if (ev.key === '-' || ev.key === '_') {
+      ev.preventDefault();
+      const scales = [2.0, 1.5, 1.25, 1.0];
+      const cur = state.uiScale || 1.0;
+      const prev = scales.find(s => s < cur) || 1.0;
+      setUiScale(prev);
+    } else if (ev.key === '0') {
+      ev.preventDefault();
+      setUiScale(1.0);
+    }
+  }
+});
 
 // ─── Win16 Alert Dialog ──────────────────────────────────────────────────
 function winAlert(msg) {
@@ -2753,8 +2850,6 @@ function startHangmanRound(id, topicIdx, topicName) {
   if (!win) return;
   win.topicIdx = topicIdx;
   win.topicName = topicName || '';
-  const game = document.getElementById(id + '-game');
-  if (game) game.innerHTML = '<div class="loading" style="padding:8px;">Kelime seçiliyor...</div>';
 
   const src = state.hangmanSource || 'main';
   let url = '/api/hangman/word?source=' + encodeURIComponent(src);
