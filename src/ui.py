@@ -112,18 +112,32 @@ def load_tur():
 
 def load_synonyms():
     """
-    Load Turkish synonyms — one entry per Turkish word, each with its synonym group.
-    Source: MTU.TRK (English→Turkish pairs, reversed and grouped by shared English headword).
-    Original Win16 F7 (Eş Anlamlı Kelimeler) uses ONLY MTU.TRK — confirmed from EXE data.
-    MTU.TUR and .SOZ files are used only for spell checking (Leb Demeden), not for synonyms.
+    Load Turkish synonyms — each entry has clean meaning groups parsed by '#' delimiter in MTU.TRK.
+    Within each '#' meaning group, '|' separates true synonyms.
+    Also links compound nouns (e.g. 'el kitabı' -> root 'kitap') and solid variants (e.g. 'elkitabı').
     """
     entries = []
-    en_to_tr = {}   # english → set of turkish words
-    tr_to_en = defaultdict(set)  # turkish → set of english words
-
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
     if not os.path.exists(path):
         return entries
+
+    word_to_groups = defaultdict(list)
+    word_to_all_syns = defaultdict(set)
+
+    def extract_root_noun(phrase):
+        tokens = phrase.lower().split()
+        if len(tokens) >= 2:
+            last = tokens[-1]
+            for suf in ('ından', 'inden', 'ında', 'inde', 'ıyla', 'iyle', 'ını', 'ini', 'ına', 'ine', 'sı', 'si', 'su', 'sü', 'ı', 'i', 'u', 'ü'):
+                if last.endswith(suf) and len(last) - len(suf) >= 3:
+                    stem = last[:-len(suf)]
+                    if stem.endswith('b'): stem = stem[:-1] + 'p'
+                    elif stem.endswith('d'): stem = stem[:-1] + 't'
+                    elif stem.endswith('c'): stem = stem[:-1] + 'ç'
+                    elif stem.endswith('ğ'): stem = stem[:-1] + 'k'
+                    return stem
+            return last
+        return None
 
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -133,41 +147,59 @@ def load_synonyms():
             parts = line.split(None, 1)
             if len(parts) != 2:
                 continue
-            en, tr = parts[0], parts[1]
-            for meaning in tr.split('|'):
-                m = get_clean_turkish_word(meaning)
-                if m:
-                    if en not in en_to_tr:
-                        en_to_tr[en] = set()
-                    en_to_tr[en].add(m)
-                    tr_to_en[m].add(en)
+            en, tr_raw = parts[0], parts[1]
 
-    # For each Turkish word, find all co-grouped synonyms
-    # (words sharing at least one English headword)
-    word_to_syns = defaultdict(set)
-    word_to_groups = defaultdict(list)
+            meanings = tr_raw.split('#')
+            for m in meanings:
+                m = m.strip()
+                if not m:
+                    continue
+                items = []
+                for item in m.split('|'):
+                    w = get_clean_turkish_word(item)
+                    if w and len(w) >= 2:
+                        items.append(w)
+                if not items:
+                    continue
 
-    for en, tr_set in en_to_tr.items():
-        if len(tr_set) < 2:
-            continue
-        sorted_cluster = sorted(tr_set, key=turkish_sort_key)
-        for word in sorted_cluster:
-            # All other words in this English group are synonyms
-            syns = [w for w in sorted_cluster if w != word]
-            for s in syns:
-                word_to_syns[word].add(s)
-            # Record the cluster for Anlam Grupları (en_word::tr1,tr2,...)
-            cluster_str = en + '::' + ','.join(sorted_cluster)
-            if cluster_str not in word_to_groups[word]:
-                word_to_groups[word].append(cluster_str)
+                seen = set()
+                unique_items = []
+                for it in items:
+                    it_norm = it.lower()
+                    if it_norm not in seen:
+                        seen.add(it_norm)
+                        unique_items.append(it)
+
+                cluster_str = en + '::' + ','.join(unique_items)
+                for w in unique_items:
+                    w_key = w.lower()
+                    if cluster_str not in word_to_groups[w_key]:
+                        word_to_groups[w_key].append(cluster_str)
+
+                    # Solid-word variant (e.g. 'el kitabı' -> 'elkitabı')
+                    solid = w_key.replace(' ', '')
+                    if solid != w_key and cluster_str not in word_to_groups[solid]:
+                        word_to_groups[solid].append(cluster_str)
+
+                    # Compound root linkage (e.g. 'el kitabı' -> 'kitap')
+                    root = extract_root_noun(w)
+                    if root and len(root) >= 3 and root != w_key:
+                        if cluster_str not in word_to_groups[root]:
+                            word_to_groups[root].append(cluster_str)
+
+                    for s in unique_items:
+                        if s.lower() != w_key:
+                            word_to_all_syns[w_key].add(s)
 
     # Build entries — one per word, sorted by Turkish alphabet
-    for word in sorted(word_to_syns.keys(), key=turkish_sort_key):
-        syns = sorted(word_to_syns[word], key=turkish_sort_key)
-        groups = ' | '.join(word_to_groups[word])
-        entries.append({"word": word, "synonyms": ' | '.join(syns), "groups": groups})
+    for word_key, group_list in word_to_groups.items():
+        first_cluster = group_list[0].split('::', 1)[1].split(',')
+        rep_word = next((w for w in first_cluster if w.lower() == word_key), word_key)
+        syns = sorted(word_to_all_syns[word_key], key=turkish_sort_key)
+        groups = ' | '.join(group_list)
+        entries.append({"word": rep_word, "synonyms": ' | '.join(syns), "groups": groups})
 
-    return entries
+    return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
 
 
 def get_turkish_stem(word):
@@ -2209,7 +2241,7 @@ function synTriggerSearch(winId) {
       } else {
         grp.innerHTML = clusters.map((c, ci) =>
           `<div class="dict-meaning${ci===0?' meaning-sel':''}" title="${c.en}" style="cursor:pointer; border-bottom:none; font-weight:bold; font-family:inherit;"
-            onclick="synFilterGroup('${winId}', ${ci}, this)">${c.tr.join(' · ')}</div>`
+            onclick="synFilterGroup('${winId}', ${ci}, this)">${ci + 1}. Anlam</div>`
         ).join('');
         // Show first cluster's synonyms by default
         synFilterGroup(winId, 0, grp.querySelector('.dict-meaning'));
@@ -2250,16 +2282,18 @@ function synFilterGroup(winId, clusterIdx, el) {
     return;
   }
   
-  const currentWord = document.getElementById(winId + '-search').value;
-  df.innerHTML = trWords.map((m, i) => {
-    const isCurrent = m === currentWord;
-    return `<div class="dict-word${isCurrent?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit;" onclick="synonymSelect('${winId}',${i},'${m}')">${m}</div>`;
+  const currentWord = (document.getElementById(winId + '-search').value || '').trim();
+  const synList = trWords.filter(w => w.toLowerCase() !== currentWord.toLowerCase());
+  const displayWords = synList.length > 0 ? synList : trWords;
+
+  df.innerHTML = displayWords.map((m, i) => {
+    return `<div class="dict-word${i===0?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit;" onclick="synonymSelect('${winId}',${i},'${m}')">${m}</div>`;
   }).join('');
   
   // Set default selected word to the first one in the cluster
   state.synSelectedWord = state.synSelectedWord || {};
-  state.synSelectedWord[winId] = trWords[0];
-  synSetReplaceEnabled(winId, true);
+  state.synSelectedWord[winId] = displayWords[0] || '';
+  synSetReplaceEnabled(winId, displayWords.length > 0);
 }
 
 function synonymSelect(winId, idx, word) {
