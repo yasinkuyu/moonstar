@@ -112,9 +112,10 @@ def load_tur():
 
 def load_synonyms():
     """
-    Load Turkish synonyms — each entry has clean meaning groups parsed by '#' delimiter in MTU.TRK.
-    Within each '#' meaning group, '|' separates true synonyms.
-    Also links compound nouns (e.g. 'el kitabı' -> root 'kitap') and solid variants (e.g. 'elkitabı').
+    Load Turkish synonyms strictly from MTU.TRK.
+    Each meaning is delimited by '#' in MTU.TRK.
+    Within each '#' meaning group, '|' separates exact synonyms.
+    Only meaning groups with at least 2 distinct words form valid synonym groups.
     """
     entries = []
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
@@ -123,21 +124,6 @@ def load_synonyms():
 
     word_to_groups = defaultdict(list)
     word_to_all_syns = defaultdict(set)
-
-    def extract_root_noun(phrase):
-        tokens = phrase.lower().split()
-        if len(tokens) >= 2:
-            last = tokens[-1]
-            for suf in ('ından', 'inden', 'ında', 'inde', 'ıyla', 'iyle', 'ını', 'ini', 'ına', 'ine', 'sı', 'si', 'su', 'sü', 'ı', 'i', 'u', 'ü'):
-                if last.endswith(suf) and len(last) - len(suf) >= 3:
-                    stem = last[:-len(suf)]
-                    if stem.endswith('b'): stem = stem[:-1] + 'p'
-                    elif stem.endswith('d'): stem = stem[:-1] + 't'
-                    elif stem.endswith('c'): stem = stem[:-1] + 'ç'
-                    elif stem.endswith('ğ'): stem = stem[:-1] + 'k'
-                    return stem
-            return last
-        return None
 
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -159,7 +145,7 @@ def load_synonyms():
                     w = get_clean_turkish_word(item)
                     if w and len(w) >= 2:
                         items.append(w)
-                if not items:
+                if len(items) < 2:
                     continue
 
                 seen = set()
@@ -170,22 +156,14 @@ def load_synonyms():
                         seen.add(it_norm)
                         unique_items.append(it)
 
+                if len(unique_items) < 2:
+                    continue
+
                 cluster_str = en + '::' + ','.join(unique_items)
                 for w in unique_items:
                     w_key = w.lower()
                     if cluster_str not in word_to_groups[w_key]:
                         word_to_groups[w_key].append(cluster_str)
-
-                    # Solid-word variant (e.g. 'el kitabı' -> 'elkitabı')
-                    solid = w_key.replace(' ', '')
-                    if solid != w_key and cluster_str not in word_to_groups[solid]:
-                        word_to_groups[solid].append(cluster_str)
-
-                    # Compound root linkage (e.g. 'el kitabı' -> 'kitap')
-                    root = extract_root_noun(w)
-                    if root and len(root) >= 3 and root != w_key:
-                        if cluster_str not in word_to_groups[root]:
-                            word_to_groups[root].append(cluster_str)
 
                     for s in unique_items:
                         if s.lower() != w_key:
