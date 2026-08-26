@@ -526,7 +526,12 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(403)
             return
         ext = os.path.splitext(filepath)[1].lower()
-        mime = {".ico": "image/x-icon", ".png": "image/png", ".svg": "image/svg+xml"}.get(ext, "application/octet-stream")
+        mime = {
+            ".ico": "image/x-icon",
+            ".png": "image/png",
+            ".svg": "image/svg+xml",
+            ".wav": "audio/wav",
+        }.get(ext, "application/octet-stream")
         try:
             with open(filepath, "rb") as f:
                 data = f.read()
@@ -689,7 +694,7 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
     def get_hangman_word(self, params):
         import random
         import re
-        topic = int(params.get("topic", [0])[0])
+        topic_param = params.get("topic", [None])[0]
         # Hangman uses Turkish alphabet keys → word must be Turkish.
         # ING slots map to TRK pairs; take a clean single Turkish lemma from definitions.
         letters = set("ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZabcçdefgğhıijklmnoöprsştuüvyz")
@@ -710,9 +715,16 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
                         cands.append(token)
             return cands
 
+        topic = None
+        if topic_param is not None and topic_param != "" and topic_param != "-1":
+            try:
+                topic = int(topic_param)
+            except ValueError:
+                topic = None
+
         pool = []
         for q in QUIZ_DATA:
-            if q["topic_idx"] != topic:
+            if topic is not None and q["topic_idx"] != topic:
                 continue
             if not q.get("en") or q["en"] in ("???", "?"):
                 continue
@@ -720,15 +732,15 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
                 pool.append((w, q))
                 break  # one candidate per quiz entry
         if not pool:
-            return {"error": "Bu konuda kelime yok"}
+            return {"error": "Kelime bulunamadı"}
         word, q = random.choice(pool)
         return {
             "word": word,
             "en": q["en"],
             "tr": q["tr"],
             "hint": q["en"],
-            "topic": q["topic"],
-            "topic_idx": q["topic_idx"],
+            "topic": q.get("topic", ""),
+            "topic_idx": q.get("topic_idx", 0),
         }
 
 
@@ -1210,25 +1222,36 @@ body {
   align-items: flex-start;
 }
 .hm-left {
-  display: flex; flex-direction: column; gap: 0;
-  width: 57px; padding: 1px 2px 1px 1px; line-height: 0;
+  display: flex; flex-direction: column; gap: 1px;
+  width: 59px; padding: 2px; line-height: 0;
   border: 2px solid; border-color: #808080 #fff #fff #808080;
   background: #c0c0c0; box-sizing: border-box; flex-shrink: 0;
+  align-items: center;
 }
-.hm-keyrow { display: flex; gap: 0; line-height: 0; }
+.hm-keyrow { display: flex; gap: 1px; line-height: 0; justify-content: center; }
 .hm-key {
   width: 25px; height: 25px; padding: 0; margin: 0; border: 0;
+  box-sizing: border-box;
   background: transparent; cursor: pointer; display: block;
   image-rendering: pixelated; image-rendering: crisp-edges;
 }
-.hm-key.used { cursor: default; opacity: 1; }
+.hm-key.used {
+  cursor: default;
+  opacity: 1;
+  outline: 1px dotted #808080;
+  outline-offset: -2px;
+}
 .hm-key.idle { cursor: default; }
 .kbd-grid { display: grid; grid-template-columns: repeat(5,auto); gap: 4px; justify-content: center; }
 .kbd-key { cursor: pointer; width: 25px; height: 25px; padding: 0; margin: 0; border: 0; background: transparent; image-rendering: pixelated; image-rendering: crisp-edges; }
 .kbd-key:hover { filter: brightness(1.1); }
 .hm-right {
-  width: 250px; display: flex; flex-direction: column;
-  gap: 6px; flex-shrink: 0;
+  width: 250px;
+  height: 397px;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 .hm-brand {
   width: 250px;
@@ -1270,7 +1293,7 @@ body {
   display: flex; flex-direction: column;
   gap: 0; flex-shrink: 0;
   width: 250px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 .hm-status-row {
   display: flex; flex-direction: row;
@@ -1318,26 +1341,25 @@ body {
   image-rendering: pixelated; image-rendering: crisp-edges;
 }
 .hm-wordbox {
-  width: 250px; min-height: 36px; box-sizing: border-box;
+  width: 250px; height: 38px; box-sizing: border-box;
   border: 2px solid; border-color: #808080 #fff #fff #808080;
-  background: #c0c0c0; padding: 8px 12px;
-  font-size: 15px; font-weight: bold;
-  letter-spacing: 5px;
-  font-family: 'MS Sans Serif', 'Microsoft Sans Serif', Tahoma, sans-serif;
+  background: #c0c0c0; padding: 4px 6px;
+  font-size: 18px; font-weight: 800;
+  letter-spacing: 4px;
+  color: #000;
+  font-family: 'MS Sans Serif', 'Microsoft Sans Serif', Tahoma, 'Arial Black', sans-serif;
   display: flex; align-items: center; justify-content: center;
-  white-space: nowrap; overflow: hidden; flex-shrink: 0;
-}
-.hm-result {
-  width: 250px;
-  height: 14px; line-height: 14px;
-  font-size: 11px; font-weight: 700; text-align: center;
+  white-space: nowrap; overflow: hidden;
+  margin-top: auto;
+  flex-shrink: 0;
 }
 .hm-btns {
   display: flex; flex-direction: row; gap: 8px;
   line-height: 0; flex-shrink: 0;
   justify-content: center;
   width: 250px;
-  margin-top: -12px;
+  margin-top: 8px;
+  margin-bottom: 0;
 }
 .hm-btn {
   width: 63px; height: 39px; padding: 0; margin: 0; border: 0;
@@ -1345,6 +1367,12 @@ body {
   image-rendering: pixelated; image-rendering: crisp-edges;
 }
 .hm-btn:active { filter: brightness(0.92); }
+.hm-btn.disabled {
+  opacity: 0.45;
+  filter: grayscale(1) contrast(0.85);
+  cursor: default;
+  pointer-events: none;
+}
 
 /* Other */
 .hidden { display: none; }
@@ -1534,6 +1562,8 @@ body {
       </div>
       <div class="dropdown" id="gameMenu">
         <div class="dropdown-item" onclick="openWindow('quiz')">Kelime Oyunu</div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="showOyunKelimeleriDialog()">Oyun Kelimeleri...</div>
       </div>
       <div class="dropdown" id="statsMenu">
         <div class="dropdown-item" onclick="openStatsWindow()">Metin İstatistik</div>
@@ -1745,6 +1775,32 @@ body {
           <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_tamam.png" alt="Tamam" title="Tamam" onclick="confirmQuizTopic()">
           <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_iptal.png" alt="İptal" title="İptal" onclick="closeQuizTopicDialog()">
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Oyun Kelimeleri Dialog (EXE offset 0x5F400) -->
+<div class="dialog-overlay" id="oyunKelimeleriDialog">
+  <div class="win-window" style="width:280px;">
+    <div class="win-title inactive"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Oyun Kelimeleri</span>
+      <div class="win-title-btns"><button onclick="closeOyunKelimeleriDialog()">✕</button></div>
+    </div>
+    <div class="win-body" style="padding:12px;background:#c0c0c0;">
+      <div class="group-box" style="padding:10px 14px;margin-bottom:12px;">
+        <legend>Kelime Kaynağı</legend>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="oyunKelimeKaynagi" value="main" checked> Ana Sözlükten
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="oyunKelimeKaynagi" value="user"> Kullanıcı Sözlükten
+          </label>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:center;gap:12px;">
+        <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_tamam.png" alt="Tamam" title="Tamam" onclick="confirmOyunKelimeleri()">
+        <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_iptal.png" alt="İptal" title="İptal" onclick="closeOyunKelimeleriDialog()">
       </div>
     </div>
   </div>
@@ -2430,6 +2486,22 @@ function confirmQuizTopic() {
   startHangmanRound(hostId, idx, topic ? topic.name : '');
 }
 
+function showOyunKelimeleriDialog() {
+  closeAllMenus();
+  SoundFX.playClick();
+  document.getElementById('oyunKelimeleriDialog').classList.add('open');
+}
+
+function closeOyunKelimeleriDialog() {
+  SoundFX.playClick();
+  document.getElementById('oyunKelimeleriDialog').classList.remove('open');
+}
+
+function confirmOyunKelimeleri() {
+  SoundFX.playClick();
+  closeOyunKelimeleriDialog();
+}
+
 function quizTopicKeydown(ev) {
   const topics = quizTopicState.topics || [];
   if (!topics.length) return;
@@ -2475,6 +2547,95 @@ function quizTopicKeydown(ev) {
   }
 }
 
+// ─── Retro Sound Effects (Web Audio API) ──────────────────────────────────
+const SoundFX = (function() {
+  let ctx = null;
+  function getContext() {
+    if (!ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) ctx = new AudioCtx();
+    }
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume();
+    }
+    return ctx;
+  }
+
+  function playTone(freq, type, duration, gainVal, delay) {
+    try {
+      const ac = getContext();
+      if (!ac) return;
+      delay = delay || 0;
+      const now = ac.currentTime + delay;
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(gainVal || 0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      osc.connect(gain);
+      gain.connect(ac.destination);
+      osc.start(now);
+      osc.stop(now + duration + 0.05);
+    } catch(e) {}
+  }
+
+  return {
+    playClick: function() {
+      playTone(900, 'triangle', 0.03, 0.08);
+    },
+    playCorrect: function() {
+      // Pleasant double bell chime (E5 -> G5)
+      playTone(659.25, 'sine', 0.09, 0.16, 0);
+      playTone(783.99, 'sine', 0.18, 0.20, 0.07);
+    },
+    playWrong: function() {
+      // Retro low error buzz (sawtooth 160Hz -> 90Hz)
+      try {
+        const ac = getContext();
+        if (!ac) return;
+        const now = ac.currentTime;
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(160, now);
+        osc.frequency.linearRampToValueAtTime(80, now + 0.15);
+        gain.gain.setValueAtTime(0.16, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+        osc.connect(gain);
+        gain.connect(ac.destination);
+        osc.start(now);
+        osc.stop(now + 0.17);
+      } catch(e) {}
+    },
+    playHint: function() {
+      // Magic mystery shimmer
+      playTone(523.25, 'sine', 0.08, 0.14, 0);
+      playTone(659.25, 'sine', 0.08, 0.14, 0.06);
+      playTone(880.00, 'sine', 0.18, 0.18, 0.12);
+    },
+    playWin: function() {
+      // Classic Win3.1 victory fanfare (C5 -> E5 -> G5 -> C6)
+      playTone(523.25, 'triangle', 0.12, 0.20, 0);
+      playTone(659.25, 'triangle', 0.12, 0.20, 0.10);
+      playTone(783.99, 'triangle', 0.14, 0.24, 0.20);
+      playTone(1046.50, 'triangle', 0.35, 0.28, 0.32);
+    },
+    playLose: function() {
+      // Classic game over descending sad tones (G4 -> F4 -> D#4 -> C4)
+      playTone(392.00, 'sawtooth', 0.14, 0.16, 0);
+      playTone(349.23, 'sawtooth', 0.14, 0.16, 0.12);
+      playTone(311.13, 'sawtooth', 0.16, 0.18, 0.24);
+      playTone(261.63, 'sawtooth', 0.35, 0.20, 0.38);
+    },
+    playStart: function() {
+      // New round start chime
+      playTone(440, 'triangle', 0.08, 0.14, 0);
+      playTone(880, 'triangle', 0.14, 0.18, 0.08);
+    }
+  };
+})();
+
 // ─── Hangman (Kelime Oyunu) ─────────────────────────────────────────────
 // Original EXE: left col A…L, right col M…Z then ?
 const HM_LETTERS = 'ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ?';
@@ -2495,7 +2656,7 @@ function openHangman() {
   const id = 'win-hm-' + (state.nextWindowId++);
   const workArea = document.getElementById('workArea');
 
-  let html = `<div class="win-window" id="${id}" style="width:360px;height:auto;top:10px;transform:translateX(-50%);">`;
+  let html = `<div class="win-window" id="${id}" style="width:360px;height:auto;">`;
   html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Kelime Oyunu</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
   html += `<div class="win-body" style="padding:0;display:block;background:#c0c0c0;">`;
@@ -2516,14 +2677,12 @@ function openHangman() {
 }
 
 function hangmanBasla(id) {
-  // EXE: Başla opens topic / word-source dialog, then starts a round
-  showQuizTopicDialog(id);
+  SoundFX.playClick();
+  startHangmanRound(id);
 }
 
 function hangmanSozluk(id) {
-  // Keep hangman open; dictionary is a sibling window like Win16 MDI
-  state.activeHangmanId = id;
-  openWindow('ing-tr', { keep: true });
+  showOyunKelimeleriDialog();
 }
 
 function toTrUpper(s) {
@@ -2594,7 +2753,8 @@ function startHangmanRound(id, topicIdx, topicName) {
   const game = document.getElementById(id + '-game');
   if (game) game.innerHTML = '<div class="loading" style="padding:8px;">Kelime seçiliyor...</div>';
 
-  fetch('/api/hangman/word?topic=' + topicIdx)
+  const url = (topicIdx != null && topicIdx !== '') ? ('/api/hangman/word?topic=' + topicIdx) : '/api/hangman/word';
+  fetch(url)
     .then(r => r.json()).then(d => {
       if (!state.windows[id]) return;
       if (d.error) {
@@ -2610,6 +2770,7 @@ function startHangmanRound(id, topicIdx, topicName) {
       }
       const word = toTrUpper(d.word || '');
       initHangmanGame(id, word, d.hint || d.en || '', topicIdx);
+      SoundFX.playStart();
     });
 }
 
@@ -2631,12 +2792,15 @@ function renderHangman(id) {
   const info = state.windows[id] && state.windows[id].hangman;
   if (!info) return;
   const started = !!info.started && !!info.word;
-  const displayWord = started
-    ? info.word.split('').map(c => info.guessed.includes(c) ? c : '_').join(' ')
-    : '';
-  const won = started && !displayWord.includes('_');
+  const won = started && !info.word.split('').some(c => !info.guessed.includes(c));
   const lost = started && info.wrong >= info.maxWrong;
   if (won || lost) info.done = true;
+
+  const displayWord = started
+    ? (info.done
+        ? info.word.split('').join(' ')
+        : info.word.split('').map(c => info.guessed.includes(c) ? c : '_').join(' '))
+    : '';
 
   const stage = started ? Math.min(info.wrong, 9) : 0;
 
@@ -2651,7 +2815,7 @@ function renderHangman(id) {
     for (let c = 0; c < 2; c++) {
       const letter = HM_KEYS[r][c];
       const idx = hmKeyIndex(letter);
-      const used = started && info.guessed.includes(letter);
+      const used = started && (info.guessed.includes(letter) || info.done);
       // EXE idle board shows raised (normal) keys, not pressed
       const prefix = used ? 'p' : 'n';
       let onClick = '';
@@ -2663,7 +2827,7 @@ function renderHangman(id) {
       } else {
         onClick = `guessLetter('${id}','${letter}')`;
       }
-      html += `<img class="hm-key${cls}" width="25" height="25" src="/assets/keys/${prefix}_${String(idx).padStart(2,'0')}.png?v=8" ` +
+      html += `<img class="hm-key${cls}" width="25" height="25" src="/assets/keys/${prefix}_${String(idx).padStart(2,'0')}.png?v=14" ` +
         `alt="${letter}" title="${letter}" onclick="${onClick}">`;
     }
     html += `</div>`;
@@ -2684,18 +2848,19 @@ function renderHangman(id) {
   html += `</div></div>`;
   html += `<div class="hm-ad"><img width="98" height="98" src="/assets/logo_acer.png?v=1" alt="Acer"></div>`;
   html += `</div>`;
-  html += `<div class="hm-wordbox">${displayWord}</div>`;
-  if (won || lost) {
-    const msg = won ? 'Kazandın!' : ('Kaybettin!  ' + info.word);
-    html += `<div class="hm-result">${msg}</div>`;
-  } else {
-    html += `<div class="hm-result"></div>`;
-  }
   
+  html += `<div class="hm-wordbox">${displayWord}</div>`;
+  
+  const isPlaying = started && !info.done;
+  const sozlukCls = isPlaying ? 'hm-btn disabled' : 'hm-btn';
+  const sozlukClick = isPlaying ? '' : `onclick="hangmanSozluk('${id}')"`;
+  const baslaCls = isPlaying ? 'hm-btn disabled' : 'hm-btn';
+  const baslaClick = isPlaying ? '' : `onclick="hangmanBasla('${id}')"`;
+
   html += `<div class="hm-btns">`;
-  html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_sozluk.png" alt="Sözlük" title="Sözlük" onclick="hangmanSozluk('${id}')">`;
-  html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_basla.png" alt="Başla" title="Başla" onclick="hangmanBasla('${id}')">`;
-  html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_iptal.png" alt="İptal" title="İptal" onclick="closeWindow('${id}')">`;
+  html += `<img class="${sozlukCls}" width="63" height="39" src="/assets/btn_sozluk.png" alt="Sözlük" title="Sözlük" ${sozlukClick}>`;
+  html += `<img class="${baslaCls}" width="63" height="39" src="/assets/btn_basla.png" alt="Başla" title="Başla" ${baslaClick}>`;
+  html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_iptal.png" alt="İptal" title="İptal" onclick="SoundFX.playClick();closeWindow('${id}')">`;
   html += `</div>`;
   
   html += `</div>`; // hm-right
@@ -2709,7 +2874,7 @@ function guessLetter(id, letter) {
   const info = state.windows[id] && state.windows[id].hangman;
   if (!info || !info.started || !info.word || info.done || info.guessed.includes(letter)) return;
   if (letter === '?') {
-    // Hint: reveal one unrevealed letter (costs a wrong step)
+    // Hint: reveal one unrevealed letter (costs a wrong step and halves score)
     let revealed = false;
     for (const c of info.word) {
       if (!info.guessed.includes(c)) {
@@ -2720,22 +2885,28 @@ function guessLetter(id, letter) {
     }
     if (revealed) {
       info.wrong = Math.min(info.wrong + 1, info.maxWrong);
-      info.score = Math.max(0, info.score - 5);
+      info.score = Math.floor(info.score / 2);
+      SoundFX.playHint();
     }
   } else {
     info.guessed.push(letter);
     if (!info.word.includes(letter)) {
       info.wrong++;
-      info.score = Math.max(0, info.score - 10);
+      info.score = Math.floor(info.score / 2);
+      SoundFX.playWrong();
     } else {
-      const hits = info.word.split('').filter(c => c === letter).length;
-      info.score += hits * 10;
+      SoundFX.playCorrect();
     }
   }
-  if (info.wrong >= info.maxWrong || !info.word.split('').some(c => !info.guessed.includes(c))) {
+  const won = !info.word.split('').some(c => !info.guessed.includes(c));
+  const lost = info.wrong >= info.maxWrong;
+  if (won || lost) {
     info.done = true;
-    if (!info.word.split('').some(c => !info.guessed.includes(c))) {
-      info.score += 50;
+    if (lost) {
+      info.score = 0;
+      setTimeout(() => SoundFX.playLose(), 160);
+    } else if (won) {
+      setTimeout(() => SoundFX.playWin(), 160);
     }
   }
   renderHangman(id);
