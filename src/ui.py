@@ -2217,10 +2217,20 @@ function synTriggerSearch(winId) {
       if (clusters.length === 0) {
         grp.innerHTML = '<div style="color:#888;padding:8px;">Grup yok</div>';
       } else {
-        grp.innerHTML = clusters.map((c, ci) =>
-          `<div class="dict-meaning${ci===0?' meaning-sel':''}" title="${c.en}" style="cursor:pointer; border-bottom:none; font-weight:bold; font-family:inherit;"
-            onclick="synFilterGroup('${winId}', ${ci}, this)">${ci + 1}. Anlam</div>`
-        ).join('');
+        let anlamCount = 0;
+        grp.innerHTML = clusters.map((c, ci) => {
+          let label = '';
+          if (c.en.toLowerCase().includes('mecaz') || c.tag === 'Mecaz') {
+            label = 'Mecaz';
+          } else if (c.en.toLowerCase().includes('argo') || c.tag === 'Argo') {
+            label = 'Argo';
+          } else {
+            anlamCount++;
+            label = anlamCount + '.Anlam';
+          }
+          return `<div class="dict-meaning${ci===0?' meaning-sel':''}" title="${c.en}" style="cursor:pointer; border-bottom:none; font-weight:bold; font-family:inherit;"
+            onclick="synFilterGroup('${winId}', ${ci}, this)">${label}</div>`;
+        }).join('');
         // Show first cluster's synonyms by default
         synFilterGroup(winId, 0, grp.querySelector('.dict-meaning'));
       }
@@ -2262,7 +2272,7 @@ function synFilterGroup(winId, clusterIdx, el) {
   
   const currentWord = (document.getElementById(winId + '-search').value || '').trim();
   const synList = trWords.filter(w => w.toLowerCase() !== currentWord.toLowerCase());
-  const displayWords = synList.length > 0 ? synList : trWords;
+  const displayWords = (synList.length > 0 ? synList : trWords).slice().sort((a, b) => a.localeCompare(b, 'tr'));
 
   df.innerHTML = displayWords.map((m, i) => {
     return `<div class="dict-word${i===0?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit;" onclick="synonymSelect('${winId}',${i},'${m}')">${m}</div>`;
