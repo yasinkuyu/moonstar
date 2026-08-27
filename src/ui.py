@@ -110,6 +110,15 @@ def load_tur():
     return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
 
 
+def is_valid_turkish_word(w):
+    if not w or len(w) < 2 or len(w) > 30:
+        return False
+    if any(ch in w for ch in ["'", '"', '(', ')', '/', '\\', ':', ';', '.', '!', '?', '=']):
+        return False
+    allowed = set("abcçdefgğhıijklmnoöpqrsştuüvwxyzABCÇDEFGĞHIİJKLMNOÖPQRSŞTUÜVWXYZ -")
+    return all(c in allowed for c in w)
+
+
 def load_synonyms():
     """
     Load Turkish synonyms strictly from MTU.TRK.
@@ -140,10 +149,16 @@ def load_synonyms():
                 m = m.strip()
                 if not m:
                     continue
+                tag = '1.Anlam'
+                if '(mecaz)' in m.lower() or '(mec.)' in m.lower() or 'mec.' in m.lower():
+                    tag = 'Mecaz'
+                elif '(argo)' in m.lower() or '(arg.)' in m.lower() or 'arg.' in m.lower():
+                    tag = 'Argo'
+
                 items = []
                 for item in m.split('|'):
                     w = get_clean_turkish_word(item)
-                    if w and len(w) >= 2:
+                    if is_valid_turkish_word(w):
                         items.append(w)
                 if len(items) < 2:
                     continue
@@ -159,7 +174,7 @@ def load_synonyms():
                 if len(unique_items) < 2:
                     continue
 
-                cluster_str = en + '::' + ','.join(unique_items)
+                cluster_str = en + '::' + tag + '::' + ','.join(unique_items)
                 for w in unique_items:
                     w_key = w.lower()
                     if cluster_str not in word_to_groups[w_key]:
@@ -171,7 +186,7 @@ def load_synonyms():
 
     # Build entries — one per word, sorted by Turkish alphabet
     for word_key, group_list in word_to_groups.items():
-        first_cluster = group_list[0].split('::', 1)[1].split(',')
+        first_cluster = group_list[0].split('::', 2)[2].split(',')
         rep_word = next((w for w in first_cluster if w.lower() == word_key), word_key)
         syns = sorted(word_to_all_syns[word_key], key=turkish_sort_key)
         groups = ' | '.join(group_list)
@@ -2204,11 +2219,12 @@ function synTriggerSearch(winId) {
     if (groups) {
       const parts = groups.split(' | ').filter(Boolean);
       const clusters = parts.map(p => {
-        const sep = p.indexOf('::');
-        if (sep === -1) return null;
-        const enWord = p.substring(0, sep);
-        const trWords = p.substring(sep + 2).split(',').filter(Boolean);
-        return { en: enWord, tr: trWords };
+        const segs = p.split('::');
+        if (segs.length < 2) return null;
+        const enWord = segs[0];
+        const tag = segs.length >= 3 ? segs[1] : '1.Anlam';
+        const trWords = (segs.length >= 3 ? segs[2] : segs[1]).split(',').filter(Boolean);
+        return { en: enWord, tag: tag, tr: trWords };
       }).filter(Boolean);
       
       state.synClusters = state.synClusters || {};
@@ -2220,9 +2236,9 @@ function synTriggerSearch(winId) {
         let anlamCount = 0;
         grp.innerHTML = clusters.map((c, ci) => {
           let label = '';
-          if (c.en.toLowerCase().includes('mecaz') || c.tag === 'Mecaz') {
+          if (c.tag === 'Mecaz' || c.en.toLowerCase().includes('mecaz')) {
             label = 'Mecaz';
-          } else if (c.en.toLowerCase().includes('argo') || c.tag === 'Argo') {
+          } else if (c.tag === 'Argo' || c.en.toLowerCase().includes('argo')) {
             label = 'Argo';
           } else {
             anlamCount++;
@@ -2275,13 +2291,21 @@ function synFilterGroup(winId, clusterIdx, el) {
   const displayWords = (synList.length > 0 ? synList : trWords).slice().sort((a, b) => a.localeCompare(b, 'tr'));
 
   df.innerHTML = displayWords.map((m, i) => {
-    return `<div class="dict-word${i===0?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit;" onclick="synonymSelect('${winId}',${i},'${m}')">${m}</div>`;
+    return `<div class="dict-word${i===0?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit; cursor:pointer;" onclick="synonymSelect('${winId}',${i},'${m}')" ondblclick="synonymDblClick('${winId}','${m}')">${m}</div>`;
   }).join('');
   
   // Set default selected word to the first one in the cluster
   state.synSelectedWord = state.synSelectedWord || {};
   state.synSelectedWord[winId] = displayWords[0] || '';
-  synSetReplaceEnabled(winId, displayWords.length > 0);
+  synSetReplaceEnabled(winId, false);
+}
+
+function synonymDblClick(winId, word) {
+  const input = document.getElementById(winId + '-search');
+  if (input) {
+    input.value = word;
+    synTriggerSearch(winId);
+  }
 }
 
 function synonymSelect(winId, idx, word) {
@@ -2291,35 +2315,19 @@ function synonymSelect(winId, idx, word) {
   
   state.synSelectedWord = state.synSelectedWord || {};
   state.synSelectedWord[winId] = word;
-  synSetReplaceEnabled(winId, true);
+  synSetReplaceEnabled(winId, false);
 }
 
 function synSetReplaceEnabled(winId, enabled) {
   const btn = document.getElementById(winId + '-btn-degistir');
   if (!btn) return;
-  if (enabled) {
-    btn.classList.remove('disabled');
-    btn.src = btn.dataset.normal;
-    btn.style.cursor = 'pointer';
-  } else {
-    btn.classList.add('disabled');
-    btn.src = btn.dataset.disabled;
-    btn.style.cursor = 'not-allowed';
-    if (state.synSelectedWord) {
-      delete state.synSelectedWord[winId];
-    }
-  }
+  btn.classList.add('disabled');
+  btn.src = btn.dataset.disabled;
+  btn.style.cursor = 'not-allowed';
 }
 
 function synTriggerReplace(winId) {
-  const btn = document.getElementById(winId + '-btn-degistir');
-  if (btn && btn.classList.contains('disabled')) return;
-  
-  const word = state.synSelectedWord && state.synSelectedWord[winId];
-  if (word) {
-    document.getElementById(winId + '-search').value = word;
-    synTriggerSearch(winId);
-  }
+  // Değiştir is disabled
 }
 
 // ─── Dictionary Window ───────────────────────────────────────────────────
