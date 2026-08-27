@@ -1821,9 +1821,9 @@ body {
       <!-- Bottom row: Tamam button -->
       <div style="display:flex; justify-content:center; margin-top: 4px;">
         <img class="quiz-topic-btn" width="63" height="39" 
-             src="/assets/extracted/img_02ae00_63x39_4bpp.png" 
-             data-normal="/assets/extracted/img_02ae00_63x39_4bpp.png" 
-             data-pressed="/assets/extracted/img_039800_63x39_4bpp.png"
+             src="/assets/btn_tamam.png" 
+             data-normal="/assets/btn_tamam.png" 
+             data-pressed="/assets/btn_tamam_p.png"
              onmousedown="this.src=this.dataset.pressed" 
              onmouseup="this.src=this.dataset.normal" 
              onmouseleave="this.src=this.dataset.normal"
@@ -1980,9 +1980,9 @@ body {
         
         <!-- Tamam Button using original thumbs-up asset -->
         <img class="quiz-topic-btn" id="char-btn-tamam" width="63" height="39" 
-             src="/assets/extracted/img_02ae00_63x39_4bpp.png" 
-             data-normal="/assets/extracted/img_02ae00_63x39_4bpp.png" 
-             data-pressed="/assets/extracted/img_039800_63x39_4bpp.png"
+             src="/assets/btn_tamam.png" 
+             data-normal="/assets/btn_tamam.png" 
+             data-pressed="/assets/btn_tamam_p.png"
              onmousedown="this.src=this.dataset.pressed" 
              onmouseup="this.src=this.dataset.normal" 
              onmouseleave="this.src=this.dataset.normal"
@@ -2354,9 +2354,9 @@ function openWindow(type, opts) {
           <div style="display:flex;gap:20px;flex-shrink:0;margin-top:-2px;margin-bottom:2px;justify-content:center;align-items:center;width:100%;">
             <!-- Tamam Button using original asset - closes window -->
             <img class="quiz-topic-btn" id="${id}-btn-tamam" width="63" height="39" 
-                 src="/assets/extracted/img_02ae00_63x39_4bpp.png" 
-                 data-normal="/assets/extracted/img_02ae00_63x39_4bpp.png" 
-                 data-pressed="/assets/extracted/img_039800_63x39_4bpp.png"
+                 src="/assets/btn_tamam.png" 
+                 data-normal="/assets/btn_tamam.png" 
+                 data-pressed="/assets/btn_tamam_p.png"
                  onmousedown="this.src=this.dataset.pressed" 
                  onmouseup="this.src=this.dataset.normal" 
                  onmouseleave="this.src=this.dataset.normal"
@@ -2365,9 +2365,9 @@ function openWindow(type, opts) {
                  
             <!-- Değiştir Button using original asset - permanently disabled -->
             <img class="quiz-topic-btn disabled" id="${id}-btn-degistir" width="63" height="39" 
-                 src="/assets/extracted/img_04d600_63x39_4bpp.png" 
-                 data-normal="/assets/extracted/img_04d600_63x39_4bpp.png" 
-                 data-disabled="/assets/extracted/img_04d600_63x39_4bpp.png"
+                 src="/assets/btn_degistir_d.png" 
+                 data-normal="/assets/btn_degistir_d.png" 
+                 data-disabled="/assets/btn_degistir_d.png"
                  style="cursor:not-allowed; opacity:0.6; pointer-events:none; image-rendering:pixelated; flex-shrink:0;">
           </div>
         </div>
@@ -3447,9 +3447,9 @@ function showKeyboardModule() {
       <div style="width:75px;display:flex;flex-direction:column;gap:8px;flex-shrink:0;justify-content:flex-start;align-items:center;padding-top:4px;">
         <!-- Edit Button using original asset -->
         <img class="quiz-topic-btn" id="${id}-btn-edit" width="63" height="39" 
-             src="/assets/extracted/img_02c600_63x39_4bpp.png" 
-             data-normal="/assets/extracted/img_02c600_63x39_4bpp.png" 
-             data-pressed="/assets/extracted/img_03bc00_63x39_4bpp.png" 
+             src="/assets/btn_edit.png" 
+             data-normal="/assets/btn_edit.png" 
+             data-pressed="/assets/btn_edit_p.png" 
              onmousedown="this.src=this.dataset.pressed" 
              onmouseup="this.src=this.dataset.normal" 
              onmouseleave="this.src=this.dataset.normal"
@@ -3459,9 +3459,9 @@ function showKeyboardModule() {
              
         <!-- Tamam Button using original asset -->
         <img class="quiz-topic-btn" id="${id}-btn-tamam" width="63" height="39" 
-             src="/assets/extracted/img_02ae00_63x39_4bpp.png" 
-             data-normal="/assets/extracted/img_02ae00_63x39_4bpp.png" 
-             data-pressed="/assets/extracted/img_039800_63x39_4bpp.png" 
+             src="/assets/btn_tamam.png" 
+             data-normal="/assets/btn_tamam.png" 
+             data-pressed="/assets/btn_tamam_p.png" 
              onmousedown="this.src=this.dataset.pressed" 
              onmouseup="this.src=this.dataset.normal" 
              onmouseleave="this.src=this.dataset.normal"
@@ -3471,9 +3471,9 @@ function showKeyboardModule() {
              
         <!-- İptal Button using original asset -->
         <img class="quiz-topic-btn" id="${id}-btn-iptal" width="63" height="39" 
-             src="/assets/extracted/img_02ba00_63x39_4bpp.png" 
-             data-normal="/assets/extracted/img_02ba00_63x39_4bpp.png" 
-             data-pressed="/assets/extracted/img_03a400_63x39_4bpp.png" 
+             src="/assets/btn_iptal.png" 
+             data-normal="/assets/btn_iptal.png" 
+             data-pressed="/assets/btn_iptal_p.png" 
              onmousedown="this.src=this.dataset.pressed" 
              onmouseup="this.src=this.dataset.normal" 
              onmouseleave="this.src=this.dataset.normal"
@@ -3611,9 +3611,9 @@ function showVirtualKeyboard(parentId) {
         <div style="display:flex;gap:10px;align-items:center;">
           <!-- Tamam Button using standard thumbs-up asset -->
           <img class="quiz-topic-btn" id="${id}-btn-tamam" width="63" height="39" 
-               src="/assets/extracted/img_02ae00_63x39_4bpp.png" 
-               data-normal="/assets/extracted/img_02ae00_63x39_4bpp.png" 
-               data-pressed="/assets/extracted/img_039800_63x39_4bpp.png" 
+               src="/assets/btn_tamam.png" 
+               data-normal="/assets/btn_tamam.png" 
+               data-pressed="/assets/btn_tamam_p.png" 
                onmousedown="this.src=this.dataset.pressed" 
                onmouseup="this.src=this.dataset.normal" 
                onmouseleave="this.src=this.dataset.normal"
