@@ -143,16 +143,17 @@ def is_clean_turkish_synonym(w):
 
 def load_synonyms():
     """
-    Universal Turkish Thesaurus Engine:
-    Parses exact intra-meaning (#) synonym groups from MTU.TRK across all 17,988 entries,
-    cleaning all grammar annotations dynamically with 100% data-driven extraction.
-    Additional synonym groups are loaded from MTU.TUR Section 3 bytes11 group IDs.
+    Turkish Thesaurus Engine:
+    Groups Turkish words by shared English headword from MTU.TRK.
+    Each English headword becomes one synonym group containing all its Turkish translations.
     """
     entries = []
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
 
-    word_to_groups = defaultdict(list)
-    word_to_all_syns = defaultdict(set)
+    # en_headword -> set of Turkish synonyms
+    en_to_trs = defaultdict(set)
+    # tr_word -> set of English headwords
+    tr_to_ens = defaultdict(set)
 
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
@@ -165,60 +166,37 @@ def load_synonyms():
                     continue
                 en, tr_raw = parts[0], parts[1]
 
-                meanings = tr_raw.split('#')
-                anlam_idx = 0
-                for m in meanings:
-                    m_raw = m.strip()
-                    if not m_raw:
-                        continue
-
-                    is_mecaz = bool(re.search(r'(mecaz|mec)', m_raw, re.I))
-                    is_argo = bool(re.search(r'(argo|arg)', m_raw, re.I))
-
-                    if is_mecaz:
-                        tag = 'Mecaz'
-                    elif is_argo:
-                        tag = 'Argo'
-                    else:
-                        anlam_idx += 1
-                        tag = f'{anlam_idx}.Anlam'
-
-                    raw_items = m_raw.split('|')
-                    items = []
-                    for it in raw_items:
+                all_tr_words = set()
+                for m in tr_raw.split('#'):
+                    for it in m.split('|'):
                         cw = clean_turkish_synonym(it)
                         if is_clean_turkish_synonym(cw):
-                            items.append(cw)
+                            all_tr_words.add(cw)
 
-                    seen = set()
-                    unique_items = [x for x in items if not (x.lower() in seen or seen.add(x.lower()))]
+                if all_tr_words:
+                    en_to_trs[en].update(all_tr_words)
+                    for w in all_tr_words:
+                        tr_to_ens[w].add(en)
 
-                    if len(unique_items) >= 2:
-                        cluster_str = en + '::' + tag + '::' + ','.join(unique_items)
-                        for w in unique_items:
-                            w_key = w.lower()
-                            if cluster_str not in word_to_groups[w_key]:
-                                word_to_groups[w_key].append(cluster_str)
-                            for s in unique_items:
-                                if s.lower() != w_key:
-                                    word_to_all_syns[w_key].add(s)
+    # Build entries — one per Turkish word
+    for tr_word in tr_to_ens:
+        synonyms = set()
+        groups = []
+        for en in tr_to_ens[tr_word]:
+            trs = en_to_trs[en]
+            if len(trs) >= 2:
+                synonyms.update(trs)
+                groups.append(en + '::' + ','.join(sorted(trs, key=turkish_sort_key)))
+        synonyms.discard(tr_word)
 
-    # NOTE: Section 3 of MTU.TUR is the SUFFIX STRIPPING TABLE (morphology),
-    # NOT a synonym source. Its "group IDs" are grammatical class codes,
-    # not synonym families. The original EXE synonym system uses ONLY
-    # TRK reverse lookup (words sharing the same English headword).
-
-    # Build entries — one per word, sorted by Turkish alphabet
-    for word_key, group_list in word_to_groups.items():
-        first_cluster_parts = group_list[0].split('::')
-        if len(first_cluster_parts) >= 3:
-            first_words = first_cluster_parts[2].split(',')
-            rep_word = next((w for w in first_words if w.lower() == word_key), word_key)
-        else:
-            rep_word = word_key
-        syns = sorted(word_to_all_syns[word_key], key=turkish_sort_key)
-        groups = ' | '.join(group_list)
-        entries.append({"word": rep_word, "synonyms": ' | '.join(syns), "groups": groups})
+        if groups:
+            rep_word = tr_word
+            syns_sorted = sorted(synonyms, key=turkish_sort_key)
+            entries.append({
+                "word": rep_word,
+                "synonyms": ' | '.join(syns_sorted),
+                "groups": ' | '.join(groups),
+            })
 
     return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
 def get_turkish_stem(word):
@@ -602,12 +580,23 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(HTML_PAGE.encode("utf-8"))
 
     def json_response(self, data):
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-        self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
+        try:
+            json_bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(json_bytes)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            # Use connection.sendall for reliable delivery
+            self.connection.sendall(json_bytes)
+        except Exception as e:
+            import sys
+            print(f"json_response error: {e}", file=sys.stderr)
+            try:
+                self.send_error(500, f"JSON response error: {e}")
+            except:
+                pass
 
     def paginate(self, data, params):
         page = int(params.get("page", [1])[0])
