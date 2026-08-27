@@ -1639,15 +1639,10 @@ body {
   <div class="main-win" id="mainWin">
     <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">MoonStar Türkçe Dil Kılavuzu</span></div>
     <div class="win-body" style="padding:0;">
-      <!-- Menu Bar (Exact MTU.EXE Main Menu Hierarchy) -->
+      <!-- Menu Bar (Minimal Desktop MDI: Yardım & Zoom) -->
       <div class="menu-bar" id="menuBar">
         <div class="menu-items-group">
-          <div class="menu-item" onclick="toggleMenu('edtFileMenu', event)" onmouseenter="onMenuItemHover('edtFileMenu', event)">Dosya</div>
-          <div class="menu-item" onclick="toggleMenu('edtEditMenu', event)" onmouseenter="onMenuItemHover('edtEditMenu', event)">Edit</div>
-          <div class="menu-item" onclick="toggleMenu('edtFindMenu', event)" onmouseenter="onMenuItemHover('edtFindMenu', event)">Bul</div>
-          <div class="menu-item" onclick="toggleMenu('edtTextMenu', event)" onmouseenter="onMenuItemHover('edtTextMenu', event)">Metin</div>
-          <div class="menu-item" onclick="toggleMenu('edtOptsMenu', event)" onmouseenter="onMenuItemHover('edtOptsMenu', event)">Opsiyonlar</div>
-          <div class="menu-item" onclick="toggleMenu('edtHelpMenu', event)" onmouseenter="onMenuItemHover('edtHelpMenu', event)">Yardım</div>
+          <div class="menu-item" onclick="toggleMenu('mainHelpMenu', event)" onmouseenter="onMenuItemHover('mainHelpMenu', event)">Yardım</div>
         </div>
         <div class="retro-zoom-controls">
           <span class="retro-zoom-label">🔍 Ölçek:</span>
@@ -1658,7 +1653,16 @@ body {
         </div>
       </div>
 
-      <!-- Dropdown Menus (Exact 0x5C200 MTU.EXE Resources) -->
+      <!-- Main Desktop Dropdown Menus -->
+      <div class="dropdown" id="mainHelpMenu">
+        <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Denetim Editörü Kılavuzu:\n\n• F5: İmla Denetimi\n• Shift+F5: Sözlük Kontrol Raporu\n• F3: Bul\n• F4: Değiştir\n• F6: Türkçe Leb Demeden\n• F7: Eş Anlamlı Kelimeler\n• F8: Türkçe -> İngilizce\n• F9: Metin İstatistikleri\n• Ctrl+Q: Büyük Harf\n• Ctrl+W: Küçük Harf\n• Alt+F8: Kaydet')">İçerik (F1)</div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="showChangelog()">Change Log</div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="showAbout()">MoonStar Hakkında</div>
+      </div>
+
+      <!-- Editor Child Window Dropdown Menus (Exact 0x5C200 MTU.EXE Resources) -->
       <div class="dropdown" id="edtFileMenu">
         <div class="dropdown-item" onclick="editorNew('win-edt')">Yeni Dosya</div>
         <div class="dropdown-item" onclick="editorOpenDemo('win-edt')">Dosya Açma (TEST)</div>
@@ -1712,7 +1716,7 @@ body {
         <div class="dropdown-item" onclick="openCharacterList('win-kbd-select')">Karakter Listesi...</div>
         <div class="dropdown-item" onclick="showKeyboardModule()">Klavye Seçimi...</div>
         <div class="dropdown-sep"></div>
-        <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Dil Denetim ve Editör Sistemi v5.10')">Genel tanımlar...</div>
+        <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Dil Denetim ve Editör Sistemi v5.11')">Genel tanımlar...</div>
       </div>
       <div class="dropdown" id="edtHelpMenu">
         <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Denetim Editörü Kılavuzu:\n\n• F5: İmla Denetimi\n• Shift+F5: Sözlük Kontrol Raporu\n• F3: Bul\n• F4: Değiştir\n• F6: Türkçe Leb Demeden\n• F7: Eş Anlamlı Kelimeler\n• F8: Türkçe -> İngilizce\n• F9: Metin İstatistikleri\n• Ctrl+Q: Büyük Harf\n• Ctrl+W: Küçük Harf\n• Alt+F8: Kaydet')">İçerik (F1)</div>
@@ -1803,7 +1807,7 @@ body {
       <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;padding:12px 6px 6px;margin:0;"><legend>Sürüm Notları</legend>
         <div class="win-list" style="flex:1;overflow-y:auto;background:#fff;padding:10px 12px;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;font-size:12px;line-height:1.6;color:#000;">
           <div style="font-size:13px;font-weight:bold;color:#000080;border-bottom:1px solid #000080;padding-bottom:2px;margin-bottom:6px;">
-            v5.10 (Modern Web Sürümü)
+            v5.11 (Modern Web Sürümü)
           </div>
           <ul style="margin:0 0 12px 0;padding-left:18px;">
             <li><strong>Kelime Oyunu:</strong> 36 farklı konu başlığı, 12.437 kelimelik soru havuzu, retro ses efektleri ve 10 aşamalı darağacı.</li>
@@ -1821,10 +1825,10 @@ body {
           </ul>
 
           <div style="font-size:13px;font-weight:bold;color:#800000;border-bottom:1px solid #800000;padding-bottom:2px;margin-bottom:6px;">
-            v5.00 (Orijinal Win16 Sürümü - 1994)
+            v5.10 (Orijinal Win16 Sürümü - 1994)
           </div>
           <ul style="margin:0 0 12px 0;padding-left:18px;">
-            <li>İlk Windows 3.1 16-bit sürümü (Borland C++).</li>
+            <li>Orijinal Windows 3.1 16-bit sürümü (Borland C++).</li>
             <li>Türkçe Denetim Editörü, morfolojik analiz ve heceleme motoru.</li>
             <li>İHLAS Bilgi İşlem ve Ticaret A.Ş. dağıtımı.</li>
           </ul>
@@ -2126,6 +2130,15 @@ function closeAllMenus() {
   menuOpen = false;
   document.querySelectorAll('.dropdown').forEach(m => m.classList.remove('open'));
   document.querySelectorAll('.menu-item').forEach(m => m.classList.remove('open'));
+}
+
+function closeAllChildWindows() {
+  closeAllMenus();
+  Object.keys(state.windows).forEach(id => {
+    if (id !== 'win-welcome') {
+      closeWindow(id);
+    }
+  });
 }
 
 function positionDropdown(menu, targetEl) {
