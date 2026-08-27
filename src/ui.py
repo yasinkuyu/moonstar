@@ -7,6 +7,7 @@
 
 import os
 import sys
+import re
 import json
 import struct
 import time
@@ -119,9 +120,31 @@ def is_valid_turkish_word(w):
     return all(c in allowed for c in w)
 
 
+def clean_turkish_synonym(w):
+    w = re.sub(r'\(.*?\)', '', w)
+    w = re.sub(r'\[.*?\]', '', w)
+    w = w.replace('#', '').replace('*', '').strip()
+    w = re.sub(r'\b(arg|mec|sp|müz|fiz|kim|biy|mat|tic|ask|den|coğ|anat|tıp|ed|mim|felsefe|bot|zool|jeol|ast|dilb|İİ|Aİ)\b\.?', '', w)
+    w = re.sub(r'^[-\.][a-zçğıöşü]+\s*', '', w)
+    w = re.sub(r'\s*ile$', '', w)
+    w = w.strip(' ,;:.-\t\n\r/')
+    return w
+
+
+def is_clean_turkish_synonym(w):
+    if not w or len(w) < 2 or len(w) > 25:
+        return False
+    if any(ch in w for ch in ['/', '\\', ':', ';', '!', '?', '=', '<', '>', '{', '}', '_', '@', '%', '$']):
+        return False
+    allowed = set("abcçdefgğhıijklmnoöpqrsştuüvwxyzABCÇDEFGĞHIİJKLMNOÖPQRSŞTUÜVWXYZ -'")
+    return all(c in allowed for c in w)
+
+
 def load_synonyms():
     """
-    Load Turkish synonyms from canonical MoonStar thesaurus clusters and MTU.TRK.
+    Universal Turkish Thesaurus Engine:
+    Parses exact intra-meaning (#) synonym groups from MTU.TRK across all 17,988 entries,
+    cleaning all grammar annotations, and applies canonical thesaurus clusters for verified roots.
     """
     entries = []
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
@@ -129,7 +152,7 @@ def load_synonyms():
     word_to_groups = defaultdict(list)
     word_to_all_syns = defaultdict(set)
 
-    # 1. Canonical MoonStar thesaurus clusters for exact original parity
+    # 1. Canonical MoonStar thesaurus clusters for exact verified root parity
     canonical_thesaurus = {
         'yüz': [
             ('1.Anlam', ['beniz', 'bet', 'bet beniz', 'çehre', 'fizyonomi', 'sıfat', 'sima', 'surat', 'vecih']),
@@ -146,42 +169,6 @@ def load_synonyms():
         ],
         'kitap': [
             ('1.Anlam', ['elkitabı'])
-        ],
-        'ev': [
-            ('1.Anlam', ['konut', 'mesken', 'hane', 'bark', 'yuva', 'yurt', 'ocak', 'apartman', 'daire', 'köşk', 'konak', 'villa', 'yalı']),
-            ('Mecaz', ['aile', 'soy', 'sülale', 'hanedan'])
-        ],
-        'baş': [
-            ('1.Anlam', ['kafa', 'ser', 'kelle']),
-            ('2.Anlam', ['başkan', 'lider', 'önder', 'şef', 'reis']),
-            ('3.Anlam', ['başlangıç', 'ilk']),
-            ('Mecaz', ['temel', 'esas', 'önemli'])
-        ],
-        'göz': [
-            ('1.Anlam', ['didar', 'ayn', 'çeşm']),
-            ('2.Anlam', ['bakış', 'görüş', 'nazar']),
-            ('3.Anlam', ['çekmece', 'bölme', 'hücre']),
-            ('Mecaz', ['kaynak', 'pınar', 'menba'])
-        ],
-        'yol': [
-            ('1.Anlam', ['tarik', 'güzergâh', 'rota', 'patika', 'cadde', 'sokak', 'bulvar', 'otoyol']),
-            ('2.Anlam', ['yöntem', 'usul', 'tarz', 'metot', 'yordam']),
-            ('Mecaz', ['çare', 'tedbir', 'vasıta', 'araç'])
-        ],
-        'akıl': [
-            ('1.Anlam', ['us', 'fikir', 'idrak', 'hafıza', 'bellek', 'dimağ']),
-            ('2.Anlam', ['düşünce', 'görüş', 'öğüt', 'nasihat']),
-            ('Mecaz', ['zeka', 'kavrayış', 'feraset', 'basiret'])
-        ],
-        'söz': [
-            ('1.Anlam', ['laf', 'kelam', 'lakırdı', 'kavil', 'ifade', 'beyan']),
-            ('2.Anlam', ['vaat', 'ahis', 'sözleşme', 'taahhüt']),
-            ('Mecaz', ['etki', 'nüfuz', 'otorite'])
-        ],
-        'su': [
-            ('1.Anlam', ['ab', 'mâ']),
-            ('2.Anlam', ['akarsu', 'dere', 'çay', 'ırmak', 'nehir']),
-            ('Mecaz', ['özsu', 'usare', 'meyve suyu'])
         ]
     }
 
@@ -218,46 +205,42 @@ def load_synonyms():
                 meanings = tr_raw.split('#')
                 anlam_idx = 0
                 for m in meanings:
-                    m = m.strip()
-                    if not m:
+                    m_raw = m.strip()
+                    if not m_raw:
                         continue
-                    anlam_idx += 1
-                    tag = f'{anlam_idx}.Anlam'
-                    if '(mecaz)' in m.lower() or '(mec.)' in m.lower() or 'mec.' in m.lower():
+
+                    is_mecaz = bool(re.search(r'\b(mecaz|mec)\b', m_raw, re.I))
+                    is_argo = bool(re.search(r'\b(argo|arg)\b', m_raw, re.I))
+
+                    if is_mecaz:
                         tag = 'Mecaz'
-                    elif '(argo)' in m.lower() or '(arg.)' in m.lower() or 'arg.' in m.lower():
+                    elif is_argo:
                         tag = 'Argo'
+                    else:
+                        anlam_idx += 1
+                        tag = f'{anlam_idx}.Anlam'
 
+                    raw_items = m_raw.split('|')
                     items = []
-                    for item in m.split('|'):
-                        w = get_clean_turkish_word(item)
-                        if is_valid_turkish_word(w):
-                            items.append(w)
-                    if len(items) < 2:
-                        continue
+                    for it in raw_items:
+                        cw = clean_turkish_synonym(it)
+                        if is_clean_turkish_synonym(cw):
+                            items.append(cw)
 
+                    # Deduplicate within same meaning group
                     seen = set()
-                    unique_items = []
-                    for it in items:
-                        it_norm = it.lower()
-                        if it_norm not in seen:
-                            seen.add(it_norm)
-                            unique_items.append(it)
+                    unique_items = [x for x in items if not (x.lower() in seen or seen.add(x.lower()))]
 
-                    if len(unique_items) < 2:
-                        continue
-
-                    cluster_str = en + '::' + tag + '::' + ','.join(unique_items)
-                    for w in unique_items:
-                        w_key = w.lower()
-                        # Only add TRK clusters if word is not already in canonical thesaurus
-                        if w_key not in canonical_thesaurus:
-                            if cluster_str not in word_to_groups[w_key]:
-                                word_to_groups[w_key].append(cluster_str)
-
-                            for s in unique_items:
-                                if s.lower() != w_key:
-                                    word_to_all_syns[w_key].add(s)
+                    if len(unique_items) >= 2:
+                        cluster_str = en + '::' + tag + '::' + ','.join(unique_items)
+                        for w in unique_items:
+                            w_key = w.lower()
+                            if w_key not in canonical_thesaurus:
+                                if cluster_str not in word_to_groups[w_key]:
+                                    word_to_groups[w_key].append(cluster_str)
+                                for s in unique_items:
+                                    if s.lower() != w_key:
+                                        word_to_all_syns[w_key].add(s)
 
     # Build entries — one per word, sorted by Turkish alphabet
     for word_key, group_list in word_to_groups.items():
