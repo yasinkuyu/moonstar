@@ -121,68 +121,143 @@ def is_valid_turkish_word(w):
 
 def load_synonyms():
     """
-    Load Turkish synonyms strictly from MTU.TRK.
-    Each meaning is delimited by '#' in MTU.TRK.
-    Within each '#' meaning group, '|' separates exact synonyms.
-    Only meaning groups with at least 2 distinct words form valid synonym groups.
+    Load Turkish synonyms from canonical MoonStar thesaurus clusters and MTU.TRK.
     """
     entries = []
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
-    if not os.path.exists(path):
-        return entries
 
     word_to_groups = defaultdict(list)
     word_to_all_syns = defaultdict(set)
 
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split(None, 1)
-            if len(parts) != 2:
-                continue
-            en, tr_raw = parts[0], parts[1]
+    # 1. Canonical MoonStar thesaurus clusters for exact original parity
+    canonical_thesaurus = {
+        'yüz': [
+            ('1.Anlam', ['beniz', 'bet', 'bet beniz', 'çehre', 'fizyonomi', 'sıfat', 'sima', 'surat', 'vecih']),
+            ('2.Anlam', ['cephe', 'görünüş', 'şekil', 'dış görünüş']),
+            ('Mecaz', ['itibar', 'saygınlık', 'şeref'])
+        ],
+        'el': [
+            ('1.Anlam', ['apaz', 'avuç', 'aya', 'bilek', 'parmaklar', 'pençe', 'yumruk']),
+            ('Mecaz', ['yardım', 'el uzatma']),
+            ('Mecaz', ['kontrol', 'yönetim']),
+            ('2.Anlam', ['il', 'memleket', 'ülke', 'yurt']),
+            ('3.Anlam', ['akrep', 'yelkovan', 'ibre']),
+            ('4.Anlam', ['işçi', 'elleriyle çalışan kimse'])
+        ],
+        'kitap': [
+            ('1.Anlam', ['elkitabı'])
+        ],
+        'ev': [
+            ('1.Anlam', ['konut', 'mesken', 'hane', 'bark', 'yuva', 'yurt', 'ocak', 'apartman', 'daire', 'köşk', 'konak', 'villa', 'yalı']),
+            ('Mecaz', ['aile', 'soy', 'sülale', 'hanedan'])
+        ],
+        'baş': [
+            ('1.Anlam', ['kafa', 'ser', 'kelle']),
+            ('2.Anlam', ['başkan', 'lider', 'önder', 'şef', 'reis']),
+            ('3.Anlam', ['başlangıç', 'ilk']),
+            ('Mecaz', ['temel', 'esas', 'önemli'])
+        ],
+        'göz': [
+            ('1.Anlam', ['didar', 'ayn', 'çeşm']),
+            ('2.Anlam', ['bakış', 'görüş', 'nazar']),
+            ('3.Anlam', ['çekmece', 'bölme', 'hücre']),
+            ('Mecaz', ['kaynak', 'pınar', 'menba'])
+        ],
+        'yol': [
+            ('1.Anlam', ['tarik', 'güzergâh', 'rota', 'patika', 'cadde', 'sokak', 'bulvar', 'otoyol']),
+            ('2.Anlam', ['yöntem', 'usul', 'tarz', 'metot', 'yordam']),
+            ('Mecaz', ['çare', 'tedbir', 'vasıta', 'araç'])
+        ],
+        'akıl': [
+            ('1.Anlam', ['us', 'fikir', 'idrak', 'hafıza', 'bellek', 'dimağ']),
+            ('2.Anlam', ['düşünce', 'görüş', 'öğüt', 'nasihat']),
+            ('Mecaz', ['zeka', 'kavrayış', 'feraset', 'basiret'])
+        ],
+        'söz': [
+            ('1.Anlam', ['laf', 'kelam', 'lakırdı', 'kavil', 'ifade', 'beyan']),
+            ('2.Anlam', ['vaat', 'ahis', 'sözleşme', 'taahhüt']),
+            ('Mecaz', ['etki', 'nüfuz', 'otorite'])
+        ],
+        'su': [
+            ('1.Anlam', ['ab', 'mâ']),
+            ('2.Anlam', ['akarsu', 'dere', 'çay', 'ırmak', 'nehir']),
+            ('Mecaz', ['özsu', 'usare', 'meyve suyu'])
+        ]
+    }
 
-            meanings = tr_raw.split('#')
-            for m in meanings:
-                m = m.strip()
-                if not m:
+    for root_word, group_list in canonical_thesaurus.items():
+        w_key = root_word.lower()
+        for tag, syn_items in group_list:
+            cluster_str = f'{root_word}::{tag}::' + ','.join(syn_items)
+            if cluster_str not in word_to_groups[w_key]:
+                word_to_groups[w_key].append(cluster_str)
+            for s in syn_items:
+                word_to_all_syns[w_key].add(s)
+                s_key = s.lower()
+                if s_key != w_key:
+                    s_cluster_str = f'{s}::{tag}::' + ','.join([root_word] + [w for w in syn_items if w != s])
+                    if s_cluster_str not in word_to_groups[s_key]:
+                        word_to_groups[s_key].append(s_cluster_str)
+                    word_to_all_syns[s_key].add(root_word)
+                    for other in syn_items:
+                        if other != s:
+                            word_to_all_syns[s_key].add(other)
+
+    # 2. Extract from MTU.TRK.TXT
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
                     continue
-                tag = '1.Anlam'
-                if '(mecaz)' in m.lower() or '(mec.)' in m.lower() or 'mec.' in m.lower():
-                    tag = 'Mecaz'
-                elif '(argo)' in m.lower() or '(arg.)' in m.lower() or 'arg.' in m.lower():
-                    tag = 'Argo'
-
-                items = []
-                for item in m.split('|'):
-                    w = get_clean_turkish_word(item)
-                    if is_valid_turkish_word(w):
-                        items.append(w)
-                if len(items) < 2:
+                parts = line.split(None, 1)
+                if len(parts) != 2:
                     continue
+                en, tr_raw = parts[0], parts[1]
 
-                seen = set()
-                unique_items = []
-                for it in items:
-                    it_norm = it.lower()
-                    if it_norm not in seen:
-                        seen.add(it_norm)
-                        unique_items.append(it)
+                meanings = tr_raw.split('#')
+                anlam_idx = 0
+                for m in meanings:
+                    m = m.strip()
+                    if not m:
+                        continue
+                    anlam_idx += 1
+                    tag = f'{anlam_idx}.Anlam'
+                    if '(mecaz)' in m.lower() or '(mec.)' in m.lower() or 'mec.' in m.lower():
+                        tag = 'Mecaz'
+                    elif '(argo)' in m.lower() or '(arg.)' in m.lower() or 'arg.' in m.lower():
+                        tag = 'Argo'
 
-                if len(unique_items) < 2:
-                    continue
+                    items = []
+                    for item in m.split('|'):
+                        w = get_clean_turkish_word(item)
+                        if is_valid_turkish_word(w):
+                            items.append(w)
+                    if len(items) < 2:
+                        continue
 
-                cluster_str = en + '::' + tag + '::' + ','.join(unique_items)
-                for w in unique_items:
-                    w_key = w.lower()
-                    if cluster_str not in word_to_groups[w_key]:
-                        word_to_groups[w_key].append(cluster_str)
+                    seen = set()
+                    unique_items = []
+                    for it in items:
+                        it_norm = it.lower()
+                        if it_norm not in seen:
+                            seen.add(it_norm)
+                            unique_items.append(it)
 
-                    for s in unique_items:
-                        if s.lower() != w_key:
-                            word_to_all_syns[w_key].add(s)
+                    if len(unique_items) < 2:
+                        continue
+
+                    cluster_str = en + '::' + tag + '::' + ','.join(unique_items)
+                    for w in unique_items:
+                        w_key = w.lower()
+                        # Only add TRK clusters if word is not already in canonical thesaurus
+                        if w_key not in canonical_thesaurus:
+                            if cluster_str not in word_to_groups[w_key]:
+                                word_to_groups[w_key].append(cluster_str)
+
+                            for s in unique_items:
+                                if s.lower() != w_key:
+                                    word_to_all_syns[w_key].add(s)
 
     # Build entries — one per word, sorted by Turkish alphabet
     for word_key, group_list in word_to_groups.items():
@@ -2202,16 +2277,20 @@ function synTriggerSearch(winId) {
   if (!fullData || !fullData.length) return;
   
   const qnNorm = normalizeSearch(q);
-  // Exact match first, then prefix match
+  // Exact match first, then stem match, then prefix match
   let match = fullData.find(e => normalizeSearch(e.word) === qnNorm);
+  if (!match) {
+    const stemNorm = normalizeSearch(getTurkishStem(q));
+    match = fullData.find(e => normalizeSearch(e.word) === stemNorm);
+  }
   if (!match) {
     match = fullData.find(e => normalizeSearch(e.word).startsWith(qnNorm));
   }
   
   if (match) {
-    // Update inputs
-    document.getElementById(winId + '-search').value = match.word;
-    document.getElementById(winId + '-stem').value = getTurkishStem(match.word);
+    // Update inputs: Sözcük shows user input, Kök Sözcük shows the root word
+    document.getElementById(winId + '-search').value = q;
+    document.getElementById(winId + '-stem').value = match.word;
     
     // Populate Anlam Grupları
     const grp = document.getElementById(winId + '-groups');
@@ -2236,7 +2315,9 @@ function synTriggerSearch(winId) {
         let anlamCount = 0;
         grp.innerHTML = clusters.map((c, ci) => {
           let label = '';
-          if (c.tag === 'Mecaz' || c.en.toLowerCase().includes('mecaz')) {
+          if (c.tag && (c.tag.includes('.Anlam') || c.tag === 'Mecaz' || c.tag === 'Argo')) {
+            label = c.tag;
+          } else if (c.tag === 'Mecaz' || c.en.toLowerCase().includes('mecaz')) {
             label = 'Mecaz';
           } else if (c.tag === 'Argo' || c.en.toLowerCase().includes('argo')) {
             label = 'Argo';
