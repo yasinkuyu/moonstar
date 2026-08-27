@@ -1320,11 +1320,12 @@ body {
 /* Hangman — pixel sizes match EXE assets: 25 / 52×76 / 98 / 63×39 */
 .hm-main {
   display: flex; flex-direction: column;
-  width: 330px; padding: 6px 8px 6px; gap: 6px;
+  width: 326px; padding: 4px 6px; gap: 6px;
   background: #c0c0c0; box-sizing: border-box;
+  margin: 0 auto; user-select: none;
 }
 .hm-upper {
-  display: flex; flex-direction: row; gap: 10px;
+  display: flex; flex-direction: row; gap: 8px;
   align-items: flex-start;
 }
 .hm-left {
@@ -3022,11 +3023,12 @@ const SoundFX = (function() {
       playTone(880.00, 'sine', 0.18, 0.18, 0.12);
     },
     playWin: function() {
-      // Classic Win3.1 victory fanfare (C5 -> E5 -> G5 -> C6)
-      playTone(523.25, 'triangle', 0.12, 0.20, 0);
-      playTone(659.25, 'triangle', 0.12, 0.20, 0.10);
-      playTone(783.99, 'triangle', 0.14, 0.24, 0.20);
-      playTone(1046.50, 'triangle', 0.35, 0.28, 0.32);
+      // Classic Win3.1 / DOS triumphant arpeggio fanfare (C5 -> E5 -> G5 -> C6 -> E6)
+      playTone(523.25, 'triangle', 0.10, 0.20, 0.00); // C5
+      playTone(659.25, 'triangle', 0.10, 0.20, 0.08); // E5
+      playTone(783.99, 'triangle', 0.10, 0.22, 0.16); // G5
+      playTone(1046.50, 'triangle', 0.28, 0.26, 0.24); // C6
+      playTone(1318.51, 'triangle', 0.38, 0.28, 0.36); // E6
     },
     playLose: function() {
       // Classic game over descending sad tones (G4 -> F4 -> D#4 -> C4)
@@ -3076,7 +3078,7 @@ function openHangman() {
   const id = 'win-hm-' + (state.nextWindowId++);
   const workArea = document.getElementById('workArea');
 
-  let html = `<div class="win-window" id="${id}" style="width:360px;height:auto;">`;
+  let html = `<div class="win-window" id="${id}" style="width:342px;height:auto;">`;
   html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Kelime Oyunu</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
   html += `<div class="win-body" style="padding:0;display:block;background:#c0c0c0;">`;
