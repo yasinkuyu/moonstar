@@ -89,11 +89,13 @@ def load_trk():
         return entries
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
-            line = line.strip()
+            line = line.rstrip('\n')
             if line:
                 parts = line.split(None, 1)
-                if len(parts) == 2:
-                    entries.append({"en": parts[0], "tr": parts[1]})
+                en = parts[0] if parts else ""
+                tr = parts[1] if len(parts) == 2 else ""
+                if en:
+                    entries.append({"en": en, "tr": tr})
     return entries
 
 
@@ -205,7 +207,6 @@ def load_synonyms():
     # NOT a synonym source. Its "group IDs" are grammatical class codes,
     # not synonym families. The original EXE synonym system uses ONLY
     # TRK reverse lookup (words sharing the same English headword).
-    # Section 3 groups intentionally excluded.
 
     # Build entries — one per word, sorted by Turkish alphabet
     for word_key, group_list in word_to_groups.items():
