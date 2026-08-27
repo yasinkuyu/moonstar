@@ -139,12 +139,12 @@ def is_clean_turkish_synonym(w):
     allowed = set("abcçdefgğhıijklmnoöpqrsştuüvwxyzABCÇDEFGĞHIİJKLMNOÖPQRSŞTUÜVWXYZ -'")
     return all(c in allowed for c in w)
 
-
 def load_synonyms():
     """
     Universal Turkish Thesaurus Engine:
     Parses exact intra-meaning (#) synonym groups from MTU.TRK across all 17,988 entries,
     cleaning all grammar annotations dynamically with 100% data-driven extraction.
+    Additional synonym groups are loaded from MTU.TUR Section 3 bytes11 group IDs.
     """
     entries = []
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
@@ -170,8 +170,8 @@ def load_synonyms():
                     if not m_raw:
                         continue
 
-                    is_mecaz = bool(re.search(r'\b(mecaz|mec)\b', m_raw, re.I))
-                    is_argo = bool(re.search(r'\b(argo|arg)\b', m_raw, re.I))
+                    is_mecaz = bool(re.search(r'(mecaz|mec)', m_raw, re.I))
+                    is_argo = bool(re.search(r'(argo|arg)', m_raw, re.I))
 
                     if is_mecaz:
                         tag = 'Mecaz'
@@ -201,27 +201,40 @@ def load_synonyms():
                                 if s.lower() != w_key:
                                     word_to_all_syns[w_key].add(s)
 
+    # === ADD SECTION 3 SYNONYM GROUPS ===
+    # Load decoded Section 3 group IDs from MTU.TUR
+    section3_groups_path = os.path.join(OUTPUT_DIR, "section3_synonym_groups.json")
+    if os.path.exists(section3_groups_path):
+        with open(section3_groups_path, "r", encoding="utf-8") as f:
+            section3_groups = json.load(f)
+        
+        for gid_str, words in section3_groups.items():
+            if len(words) >= 2:
+                gid = int(gid_str.replace('0x', ''), 16) if '0x' in gid_str else int(gid_str)
+                group_tag = f'0x{gid:02X}'
+                cluster_str = f"TUR::{group_tag}::{','.join(words)}"
+                for w in words:
+                    w_key = w.lower()
+                    if cluster_str not in word_to_groups[w_key]:
+                        word_to_groups[w_key].append(cluster_str)
+                    for other_w in words:
+                        other_key = other_w.lower()
+                        if other_key != w_key:
+                            word_to_all_syns[w_key].add(other_w)
+
     # Build entries — one per word, sorted by Turkish alphabet
     for word_key, group_list in word_to_groups.items():
-        first_cluster = group_list[0].split('::', 2)[2].split(',')
-        rep_word = next((w for w in first_cluster if w.lower() == word_key), word_key)
+        first_cluster_parts = group_list[0].split('::')
+        if len(first_cluster_parts) >= 3:
+            first_words = first_cluster_parts[2].split(',')
+            rep_word = next((w for w in first_words if w.lower() == word_key), word_key)
+        else:
+            rep_word = word_key
         syns = sorted(word_to_all_syns[word_key], key=turkish_sort_key)
         groups = ' | '.join(group_list)
         entries.append({"word": rep_word, "synonyms": ' | '.join(syns), "groups": groups})
 
     return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
-
-    # Build entries — one per word, sorted by Turkish alphabet
-    for word_key, group_list in word_to_groups.items():
-        first_cluster = group_list[0].split('::', 2)[2].split(',')
-        rep_word = next((w for w in first_cluster if w.lower() == word_key), word_key)
-        syns = sorted(word_to_all_syns[word_key], key=turkish_sort_key)
-        groups = ' | '.join(group_list)
-        entries.append({"word": rep_word, "synonyms": ' | '.join(syns), "groups": groups})
-
-    return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
-
-
 def get_turkish_stem(word):
     word = get_clean_turkish_word(word).lower()
     suffixes = [
