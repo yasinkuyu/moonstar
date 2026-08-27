@@ -150,7 +150,9 @@ def load_synonyms():
     entries = []
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
 
-    # en_headword -> set of Turkish synonyms
+    # en_headword -> list of (set of Turkish words per meaning)
+    en_meanings = defaultdict(list)
+    # en_headword -> union of all Turkish words across meanings
     en_to_trs = defaultdict(set)
     # tr_word -> set of English headwords
     tr_to_ens = defaultdict(set)
@@ -166,37 +168,49 @@ def load_synonyms():
                     continue
                 en, tr_raw = parts[0], parts[1]
 
-                all_tr_words = set()
                 for m in tr_raw.split('#'):
+                    meaning_words = set()
                     for it in m.split('|'):
                         cw = clean_turkish_synonym(it)
                         if is_clean_turkish_synonym(cw):
-                            all_tr_words.add(cw)
+                            meaning_words.add(cw)
+                    if meaning_words:
+                        en_meanings[en].append(meaning_words)
+                        en_to_trs[en].update(meaning_words)
 
-                if all_tr_words:
-                    en_to_trs[en].update(all_tr_words)
-                    for w in all_tr_words:
-                        tr_to_ens[w].add(en)
+    # For each English headword, merge meanings that share Turkish words
+    # into a single group (like the original EXE)
+    en_groups = {}
+    for en, meanings in en_meanings.items():
+        # Merge all meanings into one group per headword
+        merged = set()
+        for m in meanings:
+            merged.update(m)
+        if len(merged) >= 2:
+            en_groups[en] = merged
+
+    # Build reverse lookup: tr_word -> list of (en, group_words)
+    for en, group_words in en_groups.items():
+        for w in group_words:
+            tr_to_ens.setdefault(w.lower(), []).append((en, group_words))
 
     # Build entries — one per Turkish word
-    for tr_word in tr_to_ens:
+    for tr_word_lower, en_list in tr_to_ens.items():
         synonyms = set()
-        groups = []
-        for en in tr_to_ens[tr_word]:
-            trs = en_to_trs[en]
-            if len(trs) >= 2:
-                synonyms.update(trs)
-                groups.append(en + '::' + ','.join(sorted(trs, key=turkish_sort_key)))
-        synonyms.discard(tr_word)
+        group_strs = []
+        for en, group_words in en_list:
+            synonyms.update(group_words)
+            group_strs.append(en + '::' + ','.join(sorted(group_words, key=turkish_sort_key)))
+        synonyms.discard(tr_word_lower)
 
-        if groups:
-            rep_word = tr_word
-            syns_sorted = sorted(synonyms, key=turkish_sort_key)
-            entries.append({
-                "word": rep_word,
-                "synonyms": ' | '.join(syns_sorted),
-                "groups": ' | '.join(groups),
-            })
+        # Find the representative word (matching the search key)
+        rep_word = tr_word_lower
+        syns_sorted = sorted(synonyms, key=turkish_sort_key)
+        entries.append({
+            "word": rep_word,
+            "synonyms": ' | '.join(syns_sorted),
+            "groups": ' | '.join(group_strs),
+        })
 
     return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
 def get_turkish_stem(word):
