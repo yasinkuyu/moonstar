@@ -1610,7 +1610,7 @@ body {
   display: none;
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.4);
+  background: transparent;
   z-index: 9999;
 }
 .dialog-overlay.open { display: flex; align-items: center; justify-content: center; }
@@ -1629,15 +1629,15 @@ body {
       <!-- Menu Bar -->
       <div class="menu-bar" id="menuBar">
         <div class="menu-items-group">
-          <div class="menu-item" onclick="toggleMenu('fileMenu', event)">Dosya</div>
-          <div class="menu-item" onclick="toggleMenu('editMenu', event)">Düzen</div>
-          <div class="menu-item" onclick="toggleMenu('searchMenu', event)">Ara</div>
-          <div class="menu-item" onclick="toggleMenu('checkMenu', event)">Denetim</div>
-          <div class="menu-item" onclick="toggleMenu('dictMenu', event)">Sözlük</div>
-          <div class="menu-item" onclick="toggleMenu('gameMenu', event)">Oyun</div>
-          <div class="menu-item" onclick="toggleMenu('statsMenu', event)">İstatistik</div>
-          <div class="menu-item" onclick="toggleMenu('optionsMenu', event)">Seçenekler</div>
-          <div class="menu-item" onclick="toggleMenu('helpMenu', event)">Yardım</div>
+          <div class="menu-item" onclick="toggleMenu('fileMenu', event)" onmouseenter="onMenuItemHover('fileMenu', event)">Dosya</div>
+          <div class="menu-item" onclick="toggleMenu('editMenu', event)" onmouseenter="onMenuItemHover('editMenu', event)">Düzen</div>
+          <div class="menu-item" onclick="toggleMenu('searchMenu', event)" onmouseenter="onMenuItemHover('searchMenu', event)">Ara</div>
+          <div class="menu-item" onclick="toggleMenu('checkMenu', event)" onmouseenter="onMenuItemHover('checkMenu', event)">Denetim</div>
+          <div class="menu-item" onclick="toggleMenu('dictMenu', event)" onmouseenter="onMenuItemHover('dictMenu', event)">Sözlük</div>
+          <div class="menu-item" onclick="toggleMenu('gameMenu', event)" onmouseenter="onMenuItemHover('gameMenu', event)">Oyun</div>
+          <div class="menu-item" onclick="toggleMenu('statsMenu', event)" onmouseenter="onMenuItemHover('statsMenu', event)">İstatistik</div>
+          <div class="menu-item" onclick="toggleMenu('optionsMenu', event)" onmouseenter="onMenuItemHover('optionsMenu', event)">Seçenekler</div>
+          <div class="menu-item" onclick="toggleMenu('helpMenu', event)" onmouseenter="onMenuItemHover('helpMenu', event)">Yardım</div>
         </div>
         <div class="retro-zoom-controls">
           <span class="retro-zoom-label">🔍 Ölçek:</span>
@@ -1694,33 +1694,63 @@ body {
         <div class="dropdown-item" onclick="showAbout()">MoonStar Hakkında</div>
       </div>
 
-      <!-- Editor Dropdown Menus -->
+      <!-- Editor Dropdown Menus (Exact 0x5C200 MTU.EXE Resources) -->
       <div class="dropdown" id="edtFileMenu">
-        <div class="dropdown-item" onclick="editorNew('win-edt')">Yeni</div>
+        <div class="dropdown-item" onclick="editorNew('win-edt')">Yeni Dosya</div>
         <div class="dropdown-item" onclick="editorOpenDemo('win-edt')">Dosya Açma (TEST)</div>
+        <div class="dropdown-item" onclick="editorUploadFile('win-edt')">Dosya Aç...</div>
         <div class="dropdown-sep"></div>
-        <div class="dropdown-item" onclick="editorSave('win-edt')">Kaydet</div>
-        <div class="dropdown-item" onclick="closeWindow('win-edt')">Kapat</div>
+        <div class="dropdown-item" onclick="editorSave('win-edt')">Dosya Kaydetme <span style="float:right;color:#666;font-size:11px;margin-left:12px;">Alt+F8</span></div>
+        <div class="dropdown-item" onclick="editorSaveAs('win-edt')">Başka İsimle Kaydet...</div>
+        <div class="dropdown-item" onclick="editorMergeFile('win-edt')">Dosya Birleştirme...</div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="closeWindow('win-edt')">Editör Çıkışı</div>
       </div>
       <div class="dropdown" id="edtEditMenu">
-        <div class="dropdown-item" onclick="editorUndo('win-edt')">Geri Al</div>
+        <div class="dropdown-item" onclick="editorUndo('win-edt')">İptal et <span style="float:right;color:#666;font-size:11px;margin-left:12px;">^Z</span></div>
         <div class="dropdown-sep"></div>
-        <div class="dropdown-item" onclick="editorCut('win-edt')">Kes</div>
-        <div class="dropdown-item" onclick="editorCopy('win-edt')">Kopyala</div>
-        <div class="dropdown-item" onclick="editorPaste('win-edt')">Yapıştır</div>
+        <div class="dropdown-item" onclick="editorCut('win-edt')">Kes <span style="float:right;color:#666;font-size:11px;margin-left:12px;">^X</span></div>
+        <div class="dropdown-item" onclick="editorCopy('win-edt')">Kopyala <span style="float:right;color:#666;font-size:11px;margin-left:12px;">^C</span></div>
+        <div class="dropdown-item" onclick="editorPaste('win-edt')">Yapıştır <span style="float:right;color:#666;font-size:11px;margin-left:12px;">^V</span></div>
         <div class="dropdown-item" onclick="editorClear('win-edt')">Temizle</div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="editorUppercase('win-edt')">Büyük harf <span style="float:right;color:#666;font-size:11px;margin-left:12px;">^Q</span></div>
+        <div class="dropdown-item" onclick="editorLowercase('win-edt')">Küçük harf <span style="float:right;color:#666;font-size:11px;margin-left:12px;">^W</span></div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="editorSingleParagraph('win-edt')">Tek paragraf yap</div>
+        <div class="dropdown-item" onclick="editorSortParagraphs('win-edt')">Paragraf sıralama</div>
       </div>
       <div class="dropdown" id="edtFindMenu">
-        <div class="dropdown-item" onclick="editorShowFind('win-edt')">Bul...</div>
-        <div class="dropdown-item" onclick="editorShowReplace('win-edt')">Değiştir...</div>
+        <div class="dropdown-item" onclick="showFindDialog()">Al ve bul <span style="float:right;color:#666;font-size:11px;margin-left:12px;">Alt+F3</span></div>
+        <div class="dropdown-item" onclick="editorShowFind('win-edt')">Bul <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F3</span></div>
+        <div class="dropdown-item" onclick="editorShowReplace('win-edt')">Değiştir <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F4</span></div>
       </div>
       <div class="dropdown" id="edtTextMenu">
-        <div class="dropdown-item" onclick="editorSpellCheck('win-edt')">Yazım Denetimi (F2)</div>
+        <div class="dropdown-item" onclick="editorSpellCheck('win-edt')">Denetle <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F5</span></div>
+        <div class="dropdown-item" onclick="editorDictCheck('win-edt')">Sözlük kontrol <span style="float:right;color:#666;font-size:11px;margin-left:12px;">Shift+F5</span></div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="showCheckOptions()">Denetim Opsiyonları...</div>
+        <div class="dropdown-item" onclick="editorShowUserDict('win-edt')">Kullanıcı sözlük...</div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="editorLookupTur('win-edt')">Leb demeden (Türkçe) <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F6</span></div>
+        <div class="dropdown-item" onclick="editorLookupTrk('win-edt')">Leb demeden (İngilizce) <span style="float:right;color:#666;font-size:11px;margin-left:12px;">Shift+F6</span></div>
+        <div class="dropdown-item" onclick="editorLookupSyn('win-edt')">Eş Anlamlı kelimeler <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F7</span></div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="editorLookupRev('win-edt')">Türkçe -> İngilizce <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F8</span></div>
+        <div class="dropdown-item" onclick="editorLookupTrk('win-edt')">İngilizce -> Türkçe <span style="float:right;color:#666;font-size:11px;margin-left:12px;">Shift+F8</span></div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="editorShowStats('win-edt')">Metin İstatistik <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F9</span></div>
       </div>
       <div class="dropdown" id="edtOptsMenu">
-        <div class="dropdown-item" onclick="showCheckOptions()">Denetim Opsiyonları...</div>
+        <div class="dropdown-item" onclick="openCharacterList('win-kbd-select')">Karakter Listesi...</div>
+        <div class="dropdown-item" onclick="showKeyboardModule()">Klavye Seçimi...</div>
+        <div class="dropdown-item" onclick="showVirtualKeyboard()">Klavye Harita Göstergesi...</div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Dil Denetim ve Editör Sistemi v5.10')">Genel tanımlar...</div>
       </div>
       <div class="dropdown" id="edtHelpMenu">
+        <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Denetim Editörü Kılavuzu:\n\n• F5: İmla Denetimi\n• Shift+F5: Sözlük Kontrol Raporu\n• F3: Bul\n• F4: Değiştir\n• F6: Türkçe Leb Demeden\n• F7: Eş Anlamlı Kelimeler\n• F8: Türkçe -> İngilizce\n• F9: Metin İstatistikleri\n• Ctrl+Q: Büyük Harf\n• Ctrl+W: Küçük Harf\n• Alt+F8: Kaydet')">İçerik (F1)</div>
+        <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="showAbout()">MoonStar Hakkında</div>
       </div>
 
@@ -1830,9 +1860,13 @@ body {
   </div>
 </div>
 
-<!-- Spell Check Dialog -->
+<!-- Hidden File Inputs for Editor -->
+<input type="file" id="editorFileInput" style="display:none;" accept=".txt,.doc,.bak,.soz,text/*" onchange="editorHandleFileOpen(event)">
+<input type="file" id="editorMergeInput" style="display:none;" accept=".txt,.doc,.bak,.soz,text/*" onchange="editorHandleFileMerge(event)">
+
+<!-- Spell Check Dialog (Enhanced Win16 Modal) -->
 <div class="dialog-overlay" id="spellCheckDialog">
-  <div class="win-window" style="width:380px;">
+  <div class="win-window" style="width:420px;">
     <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Yazım Denetimi</span>
       <div class="win-title-btns"><button onclick="closeSpellCheck()">✕</button></div>
     </div>
@@ -1844,8 +1878,8 @@ body {
           <input class="win-input" type="text" id="spell-err-word" style="width:100%;font-weight:bold;background:#d8d8d8;color:#555;" readonly>
         </div>
         <div>
-          <div style="font-weight:bold;margin-bottom:2px;">Öneri:</div>
-          <input class="win-input" type="text" id="spell-sug-word" style="width:100%;font-weight:bold;background:#fff;">
+          <div style="font-weight:bold;margin-bottom:2px;">Öneri / Düzeltme:</div>
+          <input class="win-input" type="text" id="spell-sug-word" style="width:100%;font-weight:bold;background:#fff;" onkeydown="if(event.key==='Enter') spellCheckReplace()">
         </div>
         <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
           <div style="font-weight:bold;margin-bottom:2px;">Alternatifler:</div>
@@ -1853,15 +1887,71 @@ body {
         </div>
       </div>
       <!-- Right side (Actions) -->
-      <div style="width:75px;display:flex;flex-direction:column;gap:10px;justify-content:flex-start;align-items:center;padding-top:14px;flex-shrink:0;">
-        <!-- Yoksay Button -->
-        <button class="win-btn" onclick="spellCheckIgnore()" style="width:68px;height:24px;font-size:11px;font-weight:bold;">Yoksay</button>
-        <!-- Değiştir Button -->
-        <button class="win-btn primary" onclick="spellCheckReplace()" style="width:68px;height:24px;font-size:11px;font-weight:bold;">Değiştir</button>
-        <!-- Ekle Button -->
-        <button class="win-btn" onclick="spellCheckAdd()" style="width:68px;height:24px;font-size:11px;font-weight:bold;">Ekle</button>
-        <!-- Kapat Button -->
-        <button class="win-btn" onclick="closeSpellCheck()" style="width:68px;height:24px;font-size:11px;font-weight:bold;margin-top:10px;">Kapat</button>
+      <div style="width:95px;display:flex;flex-direction:column;gap:6px;justify-content:flex-start;align-items:stretch;padding-top:4px;flex-shrink:0;">
+        <button class="win-btn" onclick="spellCheckIgnore()" style="height:23px;font-size:11px;font-weight:bold;">Geç</button>
+        <button class="win-btn" onclick="spellCheckIgnoreAll()" style="height:23px;font-size:11px;font-weight:bold;">Tümünü Geç</button>
+        <button class="win-btn primary" onclick="spellCheckReplace()" style="height:23px;font-size:11px;font-weight:bold;">Değiştir</button>
+        <button class="win-btn" onclick="spellCheckReplaceAll()" style="height:23px;font-size:11px;font-weight:bold;">Tümünü Değ.</button>
+        <button class="win-btn" onclick="spellCheckAdd()" style="height:23px;font-size:11px;font-weight:bold;">Sözlüğe Ekle</button>
+        <button class="win-btn" onclick="closeSpellCheck()" style="height:23px;font-size:11px;font-weight:bold;margin-top:12px;">Durdur</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Text Stats Dialog (MTU.EXE offset 0x5F853) -->
+<div class="dialog-overlay" id="textStatsDialog">
+  <div class="win-window" style="width:340px;">
+    <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Metin İstatistik</span>
+      <div class="win-title-btns"><button onclick="closeDialog('textStatsDialog')">✕</button></div>
+    </div>
+    <div class="win-body" style="padding:12px;background:#c0c0c0;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;font-size:12px;">
+      <div class="group-box" style="padding:8px 12px;margin-bottom:12px;">
+        <legend>İstatistik Değerleri</legend>
+        <table style="width:100%;font-size:12px;border-collapse:collapse;font-weight:bold;line-height:1.8;">
+          <tr><td style="padding:2px 0;">Toplam Sözcük:</td><td style="text-align:right;" id="stat-total-words">0</td></tr>
+          <tr><td style="padding:2px 0;">Farklı Sözcük:</td><td style="text-align:right;" id="stat-unique-words">0</td></tr>
+          <tr><td style="padding:2px 0;">Toplam Karakter:</td><td style="text-align:right;" id="stat-total-chars">0</td></tr>
+          <tr><td style="padding:2px 0;">Boşluksuz Karakter:</td><td style="text-align:right;" id="stat-nospace-chars">0</td></tr>
+          <tr><td style="padding:2px 0;">Toplam Paragraf:</td><td style="text-align:right;" id="stat-total-paragraphs">0</td></tr>
+          <tr><td style="padding:2px 0;">Toplam Satır:</td><td style="text-align:right;" id="stat-total-lines">0</td></tr>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:center;">
+        <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_tamam.png" alt="Tamam" title="Tamam" onclick="closeDialog('textStatsDialog')" style="cursor:pointer;image-rendering:pixelated;">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Dict Check Dialog (Shift+F5) -->
+<div class="dialog-overlay" id="dictCheckDialog">
+  <div class="win-window" style="width:440px;height:380px;">
+    <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Sözlük Kontrol Raporu</span>
+      <div class="win-title-btns"><button onclick="closeDialog('dictCheckDialog')">✕</button></div>
+    </div>
+    <div class="win-body" style="padding:10px;display:flex;flex-direction:column;gap:8px;height:100%;box-sizing:border-box;">
+      <div id="dict-check-summary" style="font-weight:bold;font-size:12px;color:#000;"></div>
+      <div class="win-list" id="dict-check-list" style="flex:1;overflow-y:auto;background:#fff;font-size:12px;"></div>
+      <div style="display:flex;justify-content:center;margin-top:4px;">
+        <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_tamam.png" alt="Tamam" title="Tamam" onclick="closeDialog('dictCheckDialog')" style="cursor:pointer;image-rendering:pixelated;">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- User Dictionary Dialog -->
+<div class="dialog-overlay" id="userDictDialog">
+  <div class="win-window" style="width:360px;height:340px;">
+    <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Kullanıcı Sözlüğü</span>
+      <div class="win-title-btns"><button onclick="closeDialog('userDictDialog')">✕</button></div>
+    </div>
+    <div class="win-body" style="padding:10px;display:flex;flex-direction:column;gap:8px;height:100%;box-sizing:border-box;">
+      <div style="font-weight:bold;font-size:12px;">Özel Eklenen Sözcükler:</div>
+      <div class="win-list" id="user-dict-list" style="flex:1;overflow-y:auto;background:#fff;font-size:12px;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <button class="win-btn" onclick="clearUserDict()">Sözlüğü Temizle</button>
+        <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_tamam.png" alt="Tamam" title="Tamam" onclick="closeDialog('userDictDialog')" style="cursor:pointer;image-rendering:pixelated;">
       </div>
     </div>
   </div>
@@ -2009,6 +2099,7 @@ window.addEventListener('keydown', function(ev) {
 
 // ─── Win16 Alert Dialog ──────────────────────────────────────────────────
 function winAlert(msg) {
+  closeAllMenus();
   const id = 'alert-' + Date.now();
   const ov = document.createElement('div');
   ov.className = 'dialog-overlay open';
@@ -2018,7 +2109,7 @@ function winAlert(msg) {
       <div class="win-title-btns"><button onclick="document.getElementById('${id}').remove()">✕</button></div>
     </div>
     <div class="win-body" style="padding:20px;text-align:center;">
-      <div style="font-size:14px;margin-bottom:16px;">${msg}</div>
+      <div style="font-size:14px;margin-bottom:16px;white-space:pre-line;">${msg}</div>
       <button class="win-btn" onclick="document.getElementById('${id}').remove()">Tamam</button>
     </div>
   </div>`;
@@ -2026,9 +2117,19 @@ function winAlert(msg) {
 }
 
 // ─── Menu System ──────────────────────────────────────────────────────────
+let menuOpen = false;
+
 function closeAllMenus() {
+  menuOpen = false;
   document.querySelectorAll('.dropdown').forEach(m => m.classList.remove('open'));
   document.querySelectorAll('.menu-item').forEach(m => m.classList.remove('open'));
+}
+
+function positionDropdown(menu, targetEl) {
+  const scale = state.uiScale || 1.0;
+  const rect = targetEl.getBoundingClientRect();
+  menu.style.left = (rect.left / scale) + 'px';
+  menu.style.top = ((rect.bottom + 1) / scale) + 'px';
 }
 
 function toggleMenu(id, event) {
@@ -2038,23 +2139,97 @@ function toggleMenu(id, event) {
   const isOpen = menu.classList.contains('open');
   closeAllMenus();
   if (!isOpen) {
+    menuOpen = true;
     menu.classList.add('open');
     event.target.classList.add('open');
-    // Position menu below menu item considering UI zoom scale
-    const scale = state.uiScale || 1.0;
-    const rect = event.target.getBoundingClientRect();
-    menu.style.left = (rect.left / scale) + 'px';
-    menu.style.top = ((rect.bottom + 1) / scale) + 'px';
+    positionDropdown(menu, event.target);
+  } else {
+    menuOpen = false;
   }
 }
 
+function onMenuItemHover(id, event) {
+  if (menuOpen) {
+    const menu = document.getElementById(id);
+    if (!menu) return;
+    closeAllMenus();
+    menuOpen = true;
+    menu.classList.add('open');
+    event.target.classList.add('open');
+    positionDropdown(menu, event.target);
+  }
+}
+
+// Ensure clicking any menu item or clicking outside immediately closes all dropdowns
 document.addEventListener('click', function(e) {
+  if (e.target.closest('.dropdown-item')) {
+    closeAllMenus();
+    return;
+  }
   if (!e.target.closest('.menu-item') && !e.target.closest('.dropdown')) {
     closeAllMenus();
   }
-});
+}, true);
 
-// ─── Windows System ──────────────────────────────────────────────────────
+// ─── Windows Management System ───────────────────────────────────────────
+function bringToFront(winId) {
+  const win = document.getElementById(winId);
+  if (!win) return;
+  state.topZ = (state.topZ || 10) + 1;
+  win.style.zIndex = state.topZ;
+  
+  // Update title bar colors: active window is blue, inactive windows are gray
+  document.querySelectorAll('.win-window').forEach(w => {
+    const title = w.querySelector('.win-title');
+    if (title) {
+      if (w.id === winId) {
+        title.classList.remove('inactive');
+      } else {
+        title.classList.add('inactive');
+      }
+    }
+  });
+}
+
+function makeDraggable(winEl, handleEl) {
+  if (!winEl || !handleEl) return;
+  handleEl.style.cursor = 'move';
+  handleEl.addEventListener('mousedown', function(e) {
+    if (e.target.tagName === 'BUTTON' || e.target.closest('.win-title-btns')) return;
+    bringToFront(winEl.id);
+    
+    const scale = state.uiScale || 1.0;
+    const rect = winEl.getBoundingClientRect();
+    const workRect = document.getElementById('workArea').getBoundingClientRect();
+    
+    if (winEl.style.transform && winEl.style.transform.includes('translate')) {
+      winEl.style.left = ((rect.left - workRect.left) / scale) + 'px';
+      winEl.style.top = ((rect.top - workRect.top) / scale) + 'px';
+      winEl.style.transform = 'none';
+    }
+    
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const initialLeft = parseFloat(winEl.style.left) || 0;
+    const initialTop = parseFloat(winEl.style.top) || 0;
+    
+    function onMouseMove(moveEvent) {
+      const dx = (moveEvent.clientX - startX) / scale;
+      const dy = (moveEvent.clientY - startY) / scale;
+      winEl.style.left = Math.max(0, initialLeft + dx) + 'px';
+      winEl.style.top = Math.max(0, initialTop + dy) + 'px';
+    }
+    
+    function onMouseUp() {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    }
+    
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+}
+
 function closeAllWindows() {
   closeQuizTopicDialog();
   Object.keys(state.windows).forEach(k => {
@@ -2064,6 +2239,12 @@ function closeAllWindows() {
   });
 }
 
+function closeDialog(id) {
+  closeAllMenus();
+  const el = document.getElementById(id);
+  if (el) el.classList.remove('open');
+}
+
 function openWindow(type, opts) {
   opts = opts || {};
   closeAllMenus();
@@ -2071,9 +2252,6 @@ function openWindow(type, opts) {
     openHangman();
     return;
   }
-  if (!opts.keep) closeAllWindows();
-  const id = 'win-' + (state.nextWindowId++);
-  const workArea = document.getElementById('workArea');
   
   let config = { title: 'Pencere', content: '<div class="loading">Yükleniyor...</div>', width: 'auto', height: 'auto' };
   
@@ -2096,6 +2274,23 @@ function openWindow(type, opts) {
     default:
       config = { title: 'Pencere', type: 'trk', w: 400, h: 300 };
   }
+
+  // If a window of this type is already open, focus it
+  const existingWinId = Object.keys(state.windows).find(k => state.windows[k].type === config.type);
+  if (existingWinId) {
+    bringToFront(existingWinId);
+    return;
+  }
+  
+  // Remove welcome window if active
+  const welcomeWin = document.getElementById('win-welcome');
+  if (welcomeWin) {
+    welcomeWin.remove();
+    delete state.windows['win-welcome'];
+  }
+
+  const id = 'win-' + (state.nextWindowId++);
+  const workArea = document.getElementById('workArea');
 
   let html = `<div class="win-window" id="${id}" style="width:${config.w}px;height:${config.h}px;${opts.keep ? 'top:36px;left:48px;transform:none;' : ''}">`;
   html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">${config.title}</span>`;
@@ -2200,6 +2395,12 @@ function openWindow(type, opts) {
   // Insert at beginning of work area
   workArea.insertAdjacentHTML('afterbegin', html);
   
+  const winEl = document.getElementById(id);
+  const titleEl = winEl.querySelector('.win-title');
+  winEl.addEventListener('mousedown', () => bringToFront(id));
+  if (titleEl) makeDraggable(winEl, titleEl);
+  bringToFront(id);
+  
   // Load data
   state.windows[id] = { type: config.type, id: id };
   
@@ -2217,8 +2418,12 @@ function closeWindow(id) {
   if (win) win.remove();
   delete state.windows[id];
   if (state.activeHangmanId === id) state.activeHangmanId = null;
-  if (Object.keys(state.windows).length === 0) {
+  
+  const remainingKeys = Object.keys(state.windows);
+  if (remainingKeys.length === 0) {
     showWelcomeWindow();
+  } else {
+    bringToFront(remainingKeys[remainingKeys.length - 1]);
   }
 }
 
@@ -2853,8 +3058,21 @@ function hmKeyIndex(letter) {
 }
 
 function openHangman() {
-  closeAllWindows();
+  closeAllMenus();
   closeQuizTopicDialog();
+  
+  const existingId = Object.keys(state.windows).find(k => state.windows[k].type === 'hangman');
+  if (existingId) {
+    bringToFront(existingId);
+    return;
+  }
+  
+  const welcomeWin = document.getElementById('win-welcome');
+  if (welcomeWin) {
+    welcomeWin.remove();
+    delete state.windows['win-welcome'];
+  }
+
   const id = 'win-hm-' + (state.nextWindowId++);
   const workArea = document.getElementById('workArea');
 
@@ -2875,6 +3093,13 @@ function openHangman() {
     }
   };
   state.activeHangmanId = id;
+  
+  const winEl = document.getElementById(id);
+  const titleEl = winEl.querySelector('.win-title');
+  winEl.addEventListener('mousedown', () => bringToFront(id));
+  if (titleEl) makeDraggable(winEl, titleEl);
+  bringToFront(id);
+  
   renderHangman(id);
 }
 
@@ -2910,33 +3135,19 @@ function activeHangmanId() {
   if (state.activeHangmanId && state.windows[state.activeHangmanId]) {
     return state.activeHangmanId;
   }
-  for (const id of Object.keys(state.windows)) {
-    if (state.windows[id].type === 'hangman') return id;
-  }
-  return null;
+  const found = Object.keys(state.windows).find(k => state.windows[k].type === 'hangman');
+  return found || null;
 }
 
-document.addEventListener('keydown', function(ev) {
-  if (document.getElementById('quizTopicDialog')?.classList.contains('open')) return;
-  if (document.querySelector('.dialog-overlay.open')) return;
-  const tag = (ev.target && ev.target.tagName) || '';
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || ev.target?.isContentEditable) return;
-
+window.addEventListener('keydown', function(ev) {
   const id = activeHangmanId();
   if (!id) return;
-  const info = state.windows[id].hangman;
-  if (!info) return;
-
-  if (!info.started || !info.word) {
-    if (ev.key === 'Enter') {
-      ev.preventDefault();
-      hangmanBasla(id);
-    }
-    return;
-  }
-  if (info.done) {
-    if (ev.key === 'Enter') {
-      ev.preventDefault();
+  const isEditing = ev.target && (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA');
+  if (isEditing) return;
+  if (ev.key === ' ') {
+    ev.preventDefault();
+    const info = state.windows[id] && state.windows[id].hangman;
+    if (!info || !info.started || info.done) {
       hangmanBasla(id);
     }
     return;
@@ -2998,7 +3209,15 @@ function renderHangman(id) {
   const started = !!info.started && !!info.word;
   const won = started && !info.word.split('').some(c => !info.guessed.includes(c));
   const lost = started && info.wrong >= info.maxWrong;
-  if (won || lost) info.done = true;
+  if (won || lost) {
+    info.done = true;
+    if (lost) {
+      info.score = 0;
+      setTimeout(() => SoundFX.playLose(), 160);
+    } else if (won) {
+      setTimeout(() => SoundFX.playWin(), 160);
+    }
+  }
 
   const displayWord = started
     ? (info.done
@@ -3096,21 +3315,22 @@ function guessLetter(id, letter) {
       SoundFX.playCorrect();
     }
   }
-  const won = !info.word.split('').some(c => !info.guessed.includes(c));
-  const lost = info.wrong >= info.maxWrong;
-  if (won || lost) {
-    info.done = true;
-    if (lost) {
-      info.score = 0;
-      setTimeout(() => SoundFX.playLose(), 160);
-    } else if (won) {
-      setTimeout(() => SoundFX.playWin(), 160);
-    }
-  }
   renderHangman(id);
 }
 
 function openRawWindow(id, title, w, h, bodyHtml) {
+  closeAllMenus();
+  const welcomeWin = document.getElementById('win-welcome');
+  if (welcomeWin) {
+    welcomeWin.remove();
+    delete state.windows['win-welcome'];
+  }
+  
+  if (document.getElementById(id)) {
+    bringToFront(id);
+    return;
+  }
+
   const workArea = document.getElementById('workArea');
   let html = `<div class="win-window" id="${id}" style="width:${w}px;height:${h}px;">`;
   html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">${title}</span>`;
@@ -3120,6 +3340,12 @@ function openRawWindow(id, title, w, h, bodyHtml) {
   html += `</div></div>`;
   workArea.insertAdjacentHTML('afterbegin', html);
   state.windows[id] = { type: 'raw', id: id };
+  
+  const winEl = document.getElementById(id);
+  const titleEl = winEl.querySelector('.win-title');
+  winEl.addEventListener('mousedown', () => bringToFront(id));
+  if (titleEl) makeDraggable(winEl, titleEl);
+  bringToFront(id);
 }
 
 // ─── Welcome Screen ───────────────────────────────────────────────────────
@@ -3129,13 +3355,11 @@ function welcomeBtnPress(img, pressed) {
 }
 
 function showWelcomeWindow() {
-  closeAllWindows();
   const id = 'win-welcome';
+  if (document.getElementById(id)) return;
   const workArea = document.getElementById('workArea');
   state.windows[id] = { type: 'welcome', id: id };
 
-  // EXE module order (3×2): Denetim | TR→EN | Eş Anlam / Klavye | EN→TR | Adam Asma
-  // Cache-bust so browsers don't keep old pressed bitmaps for btn_*.png
   const v = '3';
   const modules = [
     { label: 'Türkçe Denetim', base: 'btn_denetim', action: 'openTextEditor()' },
@@ -3143,7 +3367,7 @@ function showWelcomeWindow() {
     { label: 'Türkçe Eş Anlamlılar', base: 'btn_esanlam', action: "openWindow('synonyms')" },
     { label: 'Klavye', base: 'btn_klavye', action: 'showKeyboardModule()' },
     { label: 'İngilizce / Türkçe', base: 'btn_en_tr', action: "openWindow('ing-tr')" },
-    { label: 'Adam Asma', base: 'btn_adam_asma', action: "openWindow('quiz')" },
+    { label: 'Adam Asma', base: 'btn_adam_asma', action: "openHangman()" },
   ];
 
   let html = `<div class="win-window" id="${id}" style="width:372px;height:auto;">`;
@@ -3175,15 +3399,21 @@ function showWelcomeWindow() {
   `</div>`;
   html += `</div></div></div>`;
   workArea.insertAdjacentHTML('afterbegin', html);
+  
+  const winEl = document.getElementById(id);
+  const titleEl = winEl.querySelector('.win-title');
+  winEl.addEventListener('mousedown', () => bringToFront(id));
+  if (titleEl) makeDraggable(winEl, titleEl);
+  bringToFront(id);
 }
 
 function showKeyboardModule() {
-  closeAllWindows();
+  closeAllMenus();
   const id = 'win-kbd-select';
   if (document.getElementById(id)) return;
   
-  openRawWindow(id, 'Klavye Seçimi', 330, 320, `
-    <div class="win-body" style="padding:10px;flex:1;display:flex;min-height:0;background:#c0c0c0;color:#000;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;gap:12px;box-sizing:border-box;height:100%;">
+  openRawWindow(id, 'Klavye Seçimi', 340, 335, `
+    <div style="padding:4px 6px;flex:1;display:flex;min-height:0;background:#c0c0c0;color:#000;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;gap:10px;box-sizing:border-box;height:100%;">
       <!-- Left Column -->
       <div style="flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;height:100%;">
         <!-- 1.Klavye Group Box -->
@@ -3205,19 +3435,19 @@ function showKeyboardModule() {
         </div>
         
         <!-- Dikkat Group Box -->
-        <div class="group-box" style="flex-shrink:0;padding:6px;margin:0;text-align:center;font-size:11px;line-height:1.4;font-weight:bold;"><legend>Dikkat</legend>
+        <div class="group-box" style="flex-shrink:0;padding:4px;margin:0;text-align:center;font-size:11px;line-height:1.4;font-weight:bold;"><legend>Dikkat</legend>
           <div>Klavyeler arasında geçiş</div>
           <div>CTRL+F1 tuşu ile yapılır</div>
         </div>
       </div>
       
       <!-- Right Column -->
-      <div style="width:75px;display:flex;flex-direction:column;gap:12px;flex-shrink:0;justify-content:flex-start;align-items:center;padding-top:8px;">
+      <div style="width:75px;display:flex;flex-direction:column;gap:8px;flex-shrink:0;justify-content:flex-start;align-items:center;padding-top:4px;">
         <!-- Edit Button using original asset -->
         <img class="quiz-topic-btn" id="${id}-btn-edit" width="63" height="39" 
              src="/assets/extracted/img_02c600_63x39_4bpp.png" 
              data-normal="/assets/extracted/img_02c600_63x39_4bpp.png" 
-             data-pressed="/assets/extracted/img_03bc00_63x39_4bpp.png"
+             data-pressed="/assets/extracted/img_03bc00_63x39_4bpp.png" 
              onmousedown="this.src=this.dataset.pressed" 
              onmouseup="this.src=this.dataset.normal" 
              onmouseleave="this.src=this.dataset.normal"
@@ -3229,7 +3459,7 @@ function showKeyboardModule() {
         <img class="quiz-topic-btn" id="${id}-btn-tamam" width="63" height="39" 
              src="/assets/extracted/img_02ae00_63x39_4bpp.png" 
              data-normal="/assets/extracted/img_02ae00_63x39_4bpp.png" 
-             data-pressed="/assets/extracted/img_039800_63x39_4bpp.png"
+             data-pressed="/assets/extracted/img_039800_63x39_4bpp.png" 
              onmousedown="this.src=this.dataset.pressed" 
              onmouseup="this.src=this.dataset.normal" 
              onmouseleave="this.src=this.dataset.normal"
@@ -3241,7 +3471,7 @@ function showKeyboardModule() {
         <img class="quiz-topic-btn" id="${id}-btn-iptal" width="63" height="39" 
              src="/assets/extracted/img_02ba00_63x39_4bpp.png" 
              data-normal="/assets/extracted/img_02ba00_63x39_4bpp.png" 
-             data-pressed="/assets/extracted/img_03a400_63x39_4bpp.png"
+             data-pressed="/assets/extracted/img_03a400_63x39_4bpp.png" 
              onmousedown="this.src=this.dataset.pressed" 
              onmouseup="this.src=this.dataset.normal" 
              onmouseleave="this.src=this.dataset.normal"
@@ -3343,8 +3573,7 @@ function getKbdKeyChar(key, layers) {
 function showVirtualKeyboard(parentId) {
   const id = 'win-kbd';
   if (document.getElementById(id)) {
-    const win = document.getElementById(id);
-    win.parentNode.appendChild(win);
+    bringToFront(id);
     return;
   }
   
@@ -3353,11 +3582,11 @@ function showVirtualKeyboard(parentId) {
   if (selEl) {
     titleName = selEl.textContent.trim();
   }
-  openRawWindow(id, titleName, 415, 230, `
-    <div class="win-body" style="padding:10px;flex:1;display:flex;flex-direction:column;min-height:0;background:#c0c0c0;color:#000;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;gap:8px;box-sizing:border-box;height:100%;">
+  openRawWindow(id, titleName, 435, 265, `
+    <div style="padding:4px 6px;flex:1;display:flex;flex-direction:column;min-height:0;background:#c0c0c0;color:#000;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;gap:6px;box-sizing:border-box;height:100%;">
       
       <!-- Keyboard Keys Grid in Recessed Border Frame -->
-      <div style="border:2px solid;border-color:#808080 #fff #fff #808080;padding:8px 6px;background:#c0c0c0;flex-shrink:0;box-sizing:border-box;">
+      <div style="border:2px solid;border-color:#808080 #fff #fff #808080;padding:6px 4px;background:#c0c0c0;flex-shrink:0;box-sizing:border-box;">
         <div id="${id}-kbd-grid" style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;"></div>
       </div>
       
@@ -3382,7 +3611,7 @@ function showVirtualKeyboard(parentId) {
           <img class="quiz-topic-btn" id="${id}-btn-tamam" width="63" height="39" 
                src="/assets/extracted/img_02ae00_63x39_4bpp.png" 
                data-normal="/assets/extracted/img_02ae00_63x39_4bpp.png" 
-               data-pressed="/assets/extracted/img_039800_63x39_4bpp.png"
+               data-pressed="/assets/extracted/img_039800_63x39_4bpp.png" 
                onmousedown="this.src=this.dataset.pressed" 
                onmouseup="this.src=this.dataset.normal" 
                onmouseleave="this.src=this.dataset.normal"
@@ -3427,8 +3656,8 @@ function drawVirtualKeyboardKeys(winId) {
         : 'border-color: #fff #404040 #404040 #fff; background: #7c7c7c; color: #fff;';
       
       html += `<div class="kbd-key-3d" onclick="selectVirtualKeyboardKey('${winId}', ${i})" ` +
-        `style="width:25px;height:25px;border:2px solid;${keyStyle}display:flex;justify-content:center;align-items:center;font-size:12px;font-weight:bold;cursor:pointer;user-select:none;font-family:'Courier New',monospace;box-sizing:border-box;image-rendering:pixelated;">` +
-        `${ch}` +
+        `style="width:25px;height:25px;border:2px solid;${keyStyle}display:flex;justify-content:center;align-items:center;text-align:center;line-height:1;font-size:12px;font-weight:bold;cursor:pointer;user-select:none;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;box-sizing:border-box;padding:0;margin:0;">` +
+        `<span style="display:inline-flex;align-items:center;justify-content:center;width:100%;height:100%;line-height:1;text-align:center;">${ch}</span>` +
         `</div>`;
     }
     html += `</div>`;
@@ -3474,7 +3703,15 @@ const cp1254Chars = (function() {
 })();
 
 function openCharacterList(kbdWinId) {
-  charListState.kbdWinId = kbdWinId;
+  closeAllMenus();
+  charListState.kbdWinId = kbdWinId || null;
+  
+  // Save current editor selection / cursor
+  const textarea = document.getElementById('win-edt-textarea');
+  if (textarea) {
+    charListState.cursorStart = textarea.selectionStart;
+    charListState.cursorEnd = textarea.selectionEnd;
+  }
   
   const holder = document.getElementById('char-grid-holder');
   if (!holder) return;
@@ -3527,29 +3764,47 @@ function selectCharacterCell(code, el) {
 
 function confirmCharacterSelection() {
   const code = charListState.selectedCode;
-  const ch = cp1254Chars[code];
+  const ch = cp1254Chars[code] || '';
   const winId = charListState.kbdWinId;
   
-  const state = virtualKeyboardState;
-  const idx = state.selectedKeyIdx;
-  if (idx !== null && idx >= 0 && idx < state.keys.length) {
-    const key = state.keys[idx];
-    if (state.layers.alt) {
+  // 1. Insert into Text Editor if it exists
+  const textarea = document.getElementById('win-edt-textarea');
+  if (textarea && ch) {
+    const start = (charListState.cursorStart !== undefined && charListState.cursorStart !== null) 
+      ? charListState.cursorStart 
+      : (textarea.selectionStart || 0);
+    const end = (charListState.cursorEnd !== undefined && charListState.cursorEnd !== null) 
+      ? charListState.cursorEnd 
+      : (textarea.selectionEnd || 0);
+    const val = textarea.value;
+    textarea.value = val.substring(0, start) + ch + val.substring(end);
+    textarea.selectionStart = textarea.selectionEnd = start + ch.length;
+    textarea.focus();
+    if (typeof updateEditorStatus === 'function') {
+      updateEditorStatus('Karakter eklendi: ' + ch);
+    }
+  }
+  
+  // 2. If called from Virtual Keyboard, update key definition
+  const vkState = virtualKeyboardState;
+  const idx = vkState.selectedKeyIdx;
+  if (idx !== null && idx >= 0 && idx < vkState.keys.length) {
+    const key = vkState.keys[idx];
+    if (vkState.layers.alt) {
       key.alt = ch;
-    } else if (state.layers.shift) {
+    } else if (vkState.layers.shift) {
       key.shift = ch;
     } else {
       key.normal = ch;
     }
     console.log(`Updated key ${idx} to ${ch}`);
-    drawVirtualKeyboardKeys(winId);
+    if (winId) drawVirtualKeyboardKeys(winId);
   }
   
   closeCharacterList();
 }
 
 function closeCharacterList() {
-  document.getElementById('charListDialog').classList.remove('remove');
   document.getElementById('charListDialog').classList.remove('open');
 }
 
@@ -3792,13 +4047,24 @@ function openQuizWindow() {
 }
 
 // ─── Turkish Spell Check Text Editor Module ──────────────────────────────────
+let currentEditorWinId = null;
+if (!state.userDictionary) state.userDictionary = new Set();
+
 function openTextEditor() {
   closeAllMenus();
-  closeAllWindows();
   const id = 'win-edt';
-  if (document.getElementById(id)) return;
+  if (document.getElementById(id)) {
+    bringToFront(id);
+    return;
+  }
   
-  let html = `<div class="win-window" id="${id}" style="width:580px;height:450px;overflow:hidden;">`;
+  const welcomeWin = document.getElementById('win-welcome');
+  if (welcomeWin) {
+    welcomeWin.remove();
+    delete state.windows['win-welcome'];
+  }
+  
+  let html = `<div class="win-window" id="${id}" style="width:620px;height:480px;overflow:hidden;">`;
   html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text" id="${id}-title">MoonStar Türkçe Denetim Editörü - [isimsiz]</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
   
@@ -3807,22 +4073,22 @@ function openTextEditor() {
   // Editor local Menu Bar
   html += `  <div class="menu-bar" style="justify-content:flex-start;gap:0;padding:1px 2px;border-bottom:1px solid #808080;background:#c0c0c0;flex-shrink:0;user-select:none;">`;
   html += `    <div class="menu-items-group" style="display:flex;align-items:center;gap:0;">`;
-  html += `      <div class="menu-item" onclick="toggleMenu('edtFileMenu', event)" style="padding:3px 8px;cursor:pointer;">Dosya</div>`;
-  html += `      <div class="menu-item" onclick="toggleMenu('edtEditMenu', event)" style="padding:3px 8px;cursor:pointer;">Edit</div>`;
-  html += `      <div class="menu-item" onclick="toggleMenu('edtFindMenu', event)" style="padding:3px 8px;cursor:pointer;">Bul</div>`;
-  html += `      <div class="menu-item" onclick="toggleMenu('edtTextMenu', event)" style="padding:3px 8px;cursor:pointer;">Metin</div>`;
-  html += `      <div class="menu-item" onclick="toggleMenu('edtOptsMenu', event)" style="padding:3px 8px;cursor:pointer;">Opsiyonlar</div>`;
-  html += `      <div class="menu-item" onclick="toggleMenu('edtHelpMenu', event)" style="padding:3px 8px;cursor:pointer;">Yardım</div>`;
+  html += `      <div class="menu-item" onclick="toggleMenu('edtFileMenu', event)" onmouseenter="onMenuItemHover('edtFileMenu', event)" style="padding:3px 8px;cursor:pointer;">Dosya</div>`;
+  html += `      <div class="menu-item" onclick="toggleMenu('edtEditMenu', event)" onmouseenter="onMenuItemHover('edtEditMenu', event)" style="padding:3px 8px;cursor:pointer;">Edit</div>`;
+  html += `      <div class="menu-item" onclick="toggleMenu('edtFindMenu', event)" onmouseenter="onMenuItemHover('edtFindMenu', event)" style="padding:3px 8px;cursor:pointer;">Bul</div>`;
+  html += `      <div class="menu-item" onclick="toggleMenu('edtTextMenu', event)" onmouseenter="onMenuItemHover('edtTextMenu', event)" style="padding:3px 8px;cursor:pointer;">Metin</div>`;
+  html += `      <div class="menu-item" onclick="toggleMenu('edtOptsMenu', event)" onmouseenter="onMenuItemHover('edtOptsMenu', event)" style="padding:3px 8px;cursor:pointer;">Opsiyonlar</div>`;
+  html += `      <div class="menu-item" onclick="toggleMenu('edtHelpMenu', event)" onmouseenter="onMenuItemHover('edtHelpMenu', event)" style="padding:3px 8px;cursor:pointer;">Yardım</div>`;
   html += `    </div>`;
   html += `  </div>`;
   
   // Monospace text editor field
   html += `  <div style="flex:1;min-height:0;position:relative;background:#fff;border-top:1px solid #808080;">`;
-  html += `    <textarea id="${id}-textarea" style="width:100%;height:100%;border:none;outline:none;resize:none;font-family:'Courier New', monospace;font-size:14px;padding:8px;box-sizing:border-box;background:#fff;color:#000;line-height:1.4;white-space:pre-wrap;overflow-y:scroll;" onfocus="closeAllMenus()"></textarea>`;
+  html += `    <textarea id="${id}-textarea" spellcheck="false" style="width:100%;height:100%;border:none;outline:none;resize:none;font-family:'Courier New', monospace;font-size:14px;padding:8px;box-sizing:border-box;background:#fff;color:#000;line-height:1.4;white-space:pre-wrap;overflow-y:scroll;" onfocus="closeAllMenus()"></textarea>`;
   html += `  </div>`;
   
   // Status Bar
-  html += `  <div class="win-status" id="${id}-status" style="flex-shrink:0;padding:2px 4px;border-top:1px solid #808080;font-size:11px;background:#c0c0c0;user-select:none;">Editör Hazır.</div>`;
+  html += `  <div class="win-status" id="${id}-status" style="flex-shrink:0;padding:2px 6px;border-top:1px solid #808080;font-size:11px;background:#c0c0c0;user-select:none;">Editör Hazır. Denetim için F5'e basınız.</div>`;
   
   html += `</div></div>`;
   
@@ -3830,28 +4096,77 @@ function openTextEditor() {
   workArea.insertAdjacentHTML('afterbegin', html);
   state.windows[id] = { type: 'editor', id: id };
   
-  // Attach keydown listener for F2 shortcut
+  const winEl = document.getElementById(id);
+  const titleEl = winEl.querySelector('.win-title');
+  winEl.addEventListener('mousedown', () => bringToFront(id));
+  if (titleEl) makeDraggable(winEl, titleEl);
+  bringToFront(id);
+  
+  // Attach keydown listener for all authentic shortcuts
   const textarea = document.getElementById(id + '-textarea');
   textarea.addEventListener('keydown', function(event) {
-    if (event.key === 'F2') {
+    if (event.key === 'F1') {
+      event.preventDefault();
+      winAlert('MoonStar Türkçe Denetim Editörü Kılavuzu:\n\n• F5: İmla Denetimi\n• Shift+F5: Sözlük Kontrol Raporu\n• F3: Bul\n• F4: Değiştir\n• F6: Türkçe Leb Demeden\n• F7: Eş Anlamlı Kelimeler\n• F8: Türkçe -> İngilizce\n• F9: Metin İstatistikleri\n• Ctrl+Q: Büyük Harf\n• Ctrl+W: Küçük Harf\n• Alt+F8: Kaydet');
+    } else if (event.key === 'F2' || (event.key === 'F5' && !event.shiftKey)) {
       event.preventDefault();
       editorSpellCheck(id);
+    } else if (event.key === 'F5' && event.shiftKey) {
+      event.preventDefault();
+      editorDictCheck(id);
+    } else if (event.key === 'F3' && event.altKey) {
+      event.preventDefault();
+      showFindDialog();
+    } else if (event.key === 'F3') {
+      event.preventDefault();
+      editorShowFind(id);
+    } else if (event.key === 'F4') {
+      event.preventDefault();
+      editorShowReplace(id);
+    } else if (event.key === 'F6' && !event.shiftKey) {
+      event.preventDefault();
+      editorLookupTur(id);
+    } else if (event.key === 'F6' && event.shiftKey) {
+      event.preventDefault();
+      editorLookupTrk(id);
+    } else if (event.key === 'F7') {
+      event.preventDefault();
+      editorLookupSyn(id);
+    } else if (event.key === 'F8' && !event.shiftKey) {
+      event.preventDefault();
+      editorLookupRev(id);
+    } else if (event.key === 'F8' && event.shiftKey) {
+      event.preventDefault();
+      editorLookupTrk(id);
+    } else if (event.key === 'F9') {
+      event.preventDefault();
+      editorShowStats(id);
+    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'q') {
+      event.preventDefault();
+      editorUppercase(id);
+    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'w') {
+      event.preventDefault();
+      editorLowercase(id);
+    } else if (event.altKey && event.key === 'F8') {
+      event.preventDefault();
+      editorSave(id);
     }
   });
 }
 
 function editorNew(winId) {
-  closeAllEditorMenus();
+  closeAllMenus();
   const textarea = document.getElementById(winId + '-textarea');
   textarea.value = '';
   document.getElementById(winId + '-title').textContent = 'MoonStar Türkçe Denetim Editörü - [isimsiz]';
   document.getElementById(winId + '-status').textContent = 'Yeni belge oluşturuldu.';
+  textarea.focus();
 }
 
 function editorOpenDemo(winId) {
-  closeAllEditorMenus();
+  closeAllMenus();
   const status = document.getElementById(winId + '-status');
-  status.textContent = 'Demo belgesi yükleniyor...';
+  status.textContent = 'TEST demo belgesi yükleniyor...';
   
   fetch('/api/editor/demo')
     .then(r => r.json())
@@ -3859,7 +4174,7 @@ function editorOpenDemo(winId) {
       if (data.content) {
         document.getElementById(winId + '-textarea').value = data.content;
         document.getElementById(winId + '-title').textContent = `MoonStar Türkçe Denetim Editörü - [${data.filename}]`;
-        status.textContent = 'Demo belgesi yüklendi.';
+        status.textContent = `Demo belgesi (${data.filename}) başarıyla yüklendi.`;
       } else {
         status.textContent = 'Hata: Demo belgesi yüklenemedi.';
       }
@@ -3869,51 +4184,130 @@ function editorOpenDemo(winId) {
     });
 }
 
+function editorUploadFile(winId) {
+  closeAllMenus();
+  currentEditorWinId = winId;
+  document.getElementById('editorFileInput').click();
+}
+
+function editorHandleFileOpen(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    if (currentEditorWinId) {
+      document.getElementById(currentEditorWinId + '-textarea').value = e.target.result;
+      document.getElementById(currentEditorWinId + '-title').textContent = `MoonStar Türkçe Denetim Editörü - [${file.name}]`;
+      document.getElementById(currentEditorWinId + '-status').textContent = `"${file.name}" yüklendi.`;
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function editorMergeFile(winId) {
+  closeAllMenus();
+  currentEditorWinId = winId;
+  document.getElementById('editorMergeInput').click();
+}
+
+function editorHandleFileMerge(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    if (currentEditorWinId) {
+      const t = document.getElementById(currentEditorWinId + '-textarea');
+      t.value = (t.value ? t.value + '\n\n' : '') + e.target.result;
+      document.getElementById(currentEditorWinId + '-status').textContent = `"${file.name}" içeriği birleştirildi.`;
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function downloadFile(filename, content) {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
 function editorSave(winId) {
-  closeAllEditorMenus();
-  alert('Dosya kaydedildi (Tarayıcı hafızasına simüle edildi).');
-  document.getElementById(winId + '-status').textContent = 'Dosya başarıyla kaydedildi.';
+  closeAllMenus();
+  const t = document.getElementById(winId + '-textarea');
+  const text = t.value;
+  const titleEl = document.getElementById(winId + '-title');
+  let filename = 'belge.txt';
+  if (titleEl && titleEl.textContent.includes('[') && !titleEl.textContent.includes('[isimsiz]')) {
+    filename = titleEl.textContent.split('[')[1].replace(']', '').trim();
+  }
+  downloadFile(filename, text);
+  document.getElementById(winId + '-status').textContent = `"${filename}" dosyası kaydedildi.`;
+}
+
+function editorSaveAs(winId) {
+  closeAllMenus();
+  const filename = prompt('Kaydedilecek dosya adı:', 'belge.txt');
+  if (!filename) return;
+  const t = document.getElementById(winId + '-textarea');
+  downloadFile(filename, t.value);
+  document.getElementById(winId + '-title').textContent = `MoonStar Türkçe Denetim Editörü - [${filename}]`;
+  document.getElementById(winId + '-status').textContent = `"${filename}" dosyası kaydedildi.`;
 }
 
 function editorClear(winId) {
-  closeAllEditorMenus();
-  document.getElementById(winId + '-textarea').value = '';
+  closeAllMenus();
+  const t = document.getElementById(winId + '-textarea');
+  t.focus();
+  const start = t.selectionStart;
+  const end = t.selectionEnd;
+  if (start !== end) {
+    const val = t.value;
+    t.value = val.substring(0, start) + val.substring(end);
+    t.setSelectionRange(start, start);
+  } else {
+    t.value = '';
+  }
 }
 
 function editorUndo(winId) {
-  closeAllEditorMenus();
-  // Browser native undo simulation
+  closeAllMenus();
   document.getElementById(winId + '-textarea').focus();
   document.execCommand('undo');
 }
 
 function editorCut(winId) {
-  closeAllEditorMenus();
+  closeAllMenus();
   const t = document.getElementById(winId + '-textarea');
   t.focus();
-  const selStart = t.selectionStart;
-  const selEnd = t.selectionEnd;
-  if (selStart !== selEnd) {
+  const start = t.selectionStart;
+  const end = t.selectionEnd;
+  if (start !== end) {
     const text = t.value;
-    navigator.clipboard.writeText(text.substring(selStart, selEnd));
-    t.value = text.substring(0, selStart) + text.substring(selEnd);
-    t.setSelectionRange(selStart, selStart);
+    navigator.clipboard.writeText(text.substring(start, end));
+    t.value = text.substring(0, start) + text.substring(end);
+    t.setSelectionRange(start, start);
   }
 }
 
 function editorCopy(winId) {
-  closeAllEditorMenus();
+  closeAllMenus();
   const t = document.getElementById(winId + '-textarea');
   t.focus();
-  const selStart = t.selectionStart;
-  const selEnd = t.selectionEnd;
-  if (selStart !== selEnd) {
-    navigator.clipboard.writeText(t.value.substring(selStart, selEnd));
+  const start = t.selectionStart;
+  const end = t.selectionEnd;
+  if (start !== end) {
+    navigator.clipboard.writeText(t.value.substring(start, end));
   }
 }
 
 function editorPaste(winId) {
-  closeAllEditorMenus();
+  closeAllMenus();
   const t = document.getElementById(winId + '-textarea');
   t.focus();
   navigator.clipboard.readText().then(clipText => {
@@ -3926,31 +4320,96 @@ function editorPaste(winId) {
   });
 }
 
+function trToUpper(str) {
+  return str.replace(/i/g, 'İ').replace(/ı/g, 'I').toUpperCase();
+}
+
+function trToLower(str) {
+  return str.replace(/İ/g, 'i').replace(/I/g, 'ı').toLowerCase();
+}
+
+function editorUppercase(winId) {
+  closeAllMenus();
+  const t = document.getElementById(winId + '-textarea');
+  t.focus();
+  const start = t.selectionStart;
+  const end = t.selectionEnd;
+  const val = t.value;
+  if (start !== end) {
+    const sel = val.substring(start, end);
+    t.value = val.substring(0, start) + trToUpper(sel) + val.substring(end);
+    t.setSelectionRange(start, end);
+  } else {
+    t.value = trToUpper(val);
+  }
+  document.getElementById(winId + '-status').textContent = 'Büyük harfe dönüştürüldü.';
+}
+
+function editorLowercase(winId) {
+  closeAllMenus();
+  const t = document.getElementById(winId + '-textarea');
+  t.focus();
+  const start = t.selectionStart;
+  const end = t.selectionEnd;
+  const val = t.value;
+  if (start !== end) {
+    const sel = val.substring(start, end);
+    t.value = val.substring(0, start) + trToLower(sel) + val.substring(end);
+    t.setSelectionRange(start, end);
+  } else {
+    t.value = trToLower(val);
+  }
+  document.getElementById(winId + '-status').textContent = 'Küçük harfe dönüştürüldü.';
+}
+
+function editorSingleParagraph(winId) {
+  closeAllMenus();
+  const t = document.getElementById(winId + '-textarea');
+  const text = t.value;
+  if (!text.trim()) return;
+  const paragraphs = text.split(/\n\s*\n/);
+  const processed = paragraphs.map(p => p.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim()).join('\n\n');
+  t.value = processed;
+  document.getElementById(winId + '-status').textContent = 'Tek paragraf düzeni uygulandı.';
+}
+
+function editorSortParagraphs(winId) {
+  closeAllMenus();
+  const t = document.getElementById(winId + '-textarea');
+  const text = t.value;
+  if (!text.trim()) return;
+  const paragraphs = text.split(/\n+/).map(p => p.trim()).filter(p => p.length > 0);
+  paragraphs.sort((a, b) => a.localeCompare(b, 'tr'));
+  t.value = paragraphs.join('\n\n');
+  document.getElementById(winId + '-status').textContent = 'Paragraflar alfabetik olarak sıralandı.';
+}
+
 function editorShowFind(winId) {
-  closeAllEditorMenus();
-  const query = prompt('Bulunacak metin:');
+  closeAllMenus();
+  const query = prompt('Bulunacak metin (F3):');
   if (!query) return;
   const t = document.getElementById(winId + '-textarea');
   const text = t.value;
-  const idx = text.indexOf(query, t.selectionStart);
+  const idx = text.toLocaleLowerCase('tr').indexOf(query.toLocaleLowerCase('tr'), t.selectionStart);
   if (idx !== -1) {
     t.focus();
     t.setSelectionRange(idx, idx + query.length);
+    document.getElementById(winId + '-status').textContent = `"${query}" bulundu.`;
   } else {
-    // Wrap around
-    const idx2 = text.indexOf(query);
+    const idx2 = text.toLocaleLowerCase('tr').indexOf(query.toLocaleLowerCase('tr'));
     if (idx2 !== -1) {
       t.focus();
       t.setSelectionRange(idx2, idx2 + query.length);
+      document.getElementById(winId + '-status').textContent = `"${query}" baştan bulundu.`;
     } else {
-      alert('Metin bulunamadı.');
+      winAlert(`"${query}" metni bulunamadı.`);
     }
   }
 }
 
 function editorShowReplace(winId) {
-  closeAllEditorMenus();
-  const query = prompt('Değiştirilecek metin:');
+  closeAllMenus();
+  const query = prompt('Değiştirilecek metin (F4):');
   if (!query) return;
   const rep = prompt('Yeni metin:');
   if (rep === null) return;
@@ -3958,9 +4417,149 @@ function editorShowReplace(winId) {
   const text = t.value;
   if (text.includes(query)) {
     t.value = text.replaceAll(query, rep);
-    alert('Metinler değiştirildi.');
+    document.getElementById(winId + '-status').textContent = `"${query}" -> "${rep}" olarak değiştirildi.`;
   } else {
-    alert('Metin bulunamadı.');
+    winAlert(`"${query}" metni bulunamadı.`);
+  }
+}
+
+function editorShowStats(winId) {
+  closeAllMenus();
+  const t = document.getElementById(winId + '-textarea');
+  const text = t.value;
+  const totalChars = text.length;
+  const noSpaceChars = text.replace(/\s/g, '').length;
+  const lines = text.split('\n').length;
+  const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim().length > 0).length;
+  const words = text.match(/[a-zA-ZçÇğĞıİöÖşŞüÜâîû]+/g) || [];
+  const totalWords = words.length;
+  const uniqueWords = new Set(words.map(w => w.toLocaleLowerCase('tr'))).size;
+  
+  document.getElementById('stat-total-words').textContent = totalWords.toLocaleString('tr-TR');
+  document.getElementById('stat-unique-words').textContent = uniqueWords.toLocaleString('tr-TR');
+  document.getElementById('stat-total-chars').textContent = totalChars.toLocaleString('tr-TR');
+  document.getElementById('stat-nospace-chars').textContent = noSpaceChars.toLocaleString('tr-TR');
+  document.getElementById('stat-total-paragraphs').textContent = (paragraphs || (text.trim() ? 1 : 0)).toLocaleString('tr-TR');
+  document.getElementById('stat-total-lines').textContent = lines.toLocaleString('tr-TR');
+  
+  document.getElementById('textStatsDialog').classList.add('open');
+}
+
+function editorDictCheck(winId) {
+  closeAllMenus();
+  const t = document.getElementById(winId + '-textarea');
+  const text = t.value;
+  const words = text.match(/[a-zA-ZçÇğĞıİöÖşŞüÜâîû]+/g) || [];
+  if (words.length === 0) {
+    winAlert('Metinde kontrol edilecek sözcük bulunamadı.');
+    return;
+  }
+  const uniqueWords = Array.from(new Set(words.map(w => w.toLocaleLowerCase('tr'))));
+  document.getElementById(winId + '-status').textContent = 'Sözlük kontrolü yapılıyor...';
+  
+  fetch('/api/check/bulk?q=' + encodeURIComponent(uniqueWords.join(',')))
+    .then(r => r.json())
+    .then(results => {
+      let validCount = 0;
+      let invalidCount = 0;
+      let listHtml = '';
+      uniqueWords.forEach(w => {
+        const res = results[w];
+        const isValid = (res && res.valid) || state.userDictionary.has(w);
+        if (isValid) {
+          validCount++;
+          listHtml += `<div style="padding:2px 6px;border-bottom:1px solid #eee;color:#008000;">✓ <b>${w}</b> (Geçerli)</div>`;
+        } else {
+          invalidCount++;
+          listHtml += `<div style="padding:2px 6px;border-bottom:1px solid #eee;color:#c00;">✕ <b>${w}</b> (Sözlükte Yok)</div>`;
+        }
+      });
+      document.getElementById('dict-check-summary').textContent = `Toplam ${uniqueWords.length} farklı sözcük: ${validCount} geçerli, ${invalidCount} hatalı.`;
+      document.getElementById('dict-check-list').innerHTML = listHtml;
+      document.getElementById('dictCheckDialog').classList.add('open');
+      document.getElementById(winId + '-status').textContent = 'Sözlük kontrolü tamamlandı.';
+    });
+}
+
+function getEditorSelectedOrWord(winId) {
+  const t = document.getElementById(winId + '-textarea');
+  const start = t.selectionStart;
+  const end = t.selectionEnd;
+  const val = t.value;
+  if (start !== end) {
+    return val.substring(start, end).trim();
+  }
+  const left = val.slice(0, start).search(/[a-zA-ZçÇğĞıİöÖşŞüÜâîû]+$/);
+  const right = val.slice(start).search(/[^a-zA-ZçÇğĞıİöÖşŞüÜâîû]/);
+  if (left !== -1) {
+    const wStart = left;
+    const wEnd = right === -1 ? val.length : start + right;
+    return val.substring(wStart, wEnd).trim();
+  }
+  return '';
+}
+
+function editorLookupTur(winId) {
+  closeAllMenus();
+  const w = getEditorSelectedOrWord(winId);
+  openWindow('tr-tr');
+  if (w) setTimeout(() => {
+    const searchInput = document.getElementById('win-tr-tr-search');
+    if (searchInput) { searchInput.value = w; dictSearchDebounced('win-tr-tr'); }
+  }, 100);
+}
+
+function editorLookupTrk(winId) {
+  closeAllMenus();
+  const w = getEditorSelectedOrWord(winId);
+  openWindow('ing-tr');
+  if (w) setTimeout(() => {
+    const searchInput = document.getElementById('win-ing-tr-search');
+    if (searchInput) { searchInput.value = w; dictSearchDebounced('win-ing-tr'); }
+  }, 100);
+}
+
+function editorLookupSyn(winId) {
+  closeAllMenus();
+  const w = getEditorSelectedOrWord(winId);
+  openWindow('synonyms');
+  if (w) setTimeout(() => {
+    const searchInput = document.getElementById('win-syn-search');
+    if (searchInput) { searchInput.value = w; synTriggerSearch('win-syn'); }
+  }, 100);
+}
+
+function editorLookupRev(winId) {
+  closeAllMenus();
+  const w = getEditorSelectedOrWord(winId);
+  openWindow('tr-ing');
+  if (w) setTimeout(() => {
+    const searchInput = document.getElementById('win-tr-ing-search');
+    if (searchInput) { searchInput.value = w; dictSearchDebounced('win-tr-ing'); }
+  }, 100);
+}
+
+function editorShowUserDict(winId) {
+  closeAllMenus();
+  renderUserDictList();
+  document.getElementById('userDictDialog').classList.add('open');
+}
+
+function renderUserDictList() {
+  const listEl = document.getElementById('user-dict-list');
+  if (!state.userDictionary || state.userDictionary.size === 0) {
+    listEl.innerHTML = '<div style="color:#888;padding:8px;font-style:italic;">Kullanıcı sözlüğünde henüz sözcük yok.</div>';
+    return;
+  }
+  listEl.innerHTML = Array.from(state.userDictionary).sort().map(w => 
+    `<div style="padding:3px 6px;border-bottom:1px solid #eee;font-weight:bold;">${w}</div>`
+  ).join('');
+}
+
+function clearUserDict() {
+  if (confirm('Kullanıcı sözlüğünü temizlemek istediğinizden emin misiniz?')) {
+    state.userDictionary.clear();
+    renderUserDictList();
   }
 }
 
@@ -3974,14 +4573,14 @@ let spellCheckState = {
 };
 
 function editorSpellCheck(winId) {
-  closeAllEditorMenus();
+  closeAllMenus();
   const status = document.getElementById(winId + '-status');
   status.textContent = 'Yazım denetimi başlatılıyor...';
   
   const textarea = document.getElementById(winId + '-textarea');
   const text = textarea.value;
   if (!text.trim()) {
-    alert('Denetlenecek metin yok.');
+    winAlert('Denetlenecek metin yok.');
     status.textContent = 'Yazım denetimi iptal edildi (metin boş).';
     return;
   }
@@ -3998,32 +4597,35 @@ function editorSpellCheck(winId) {
       start: match.index,
       end: regex.lastIndex
     });
-    uniqueWords.add(match[0].toLowerCase());
+    uniqueWords.add(match[0].toLocaleLowerCase('tr'));
   }
   
   if (words.length === 0) {
-    alert('Denetlenecek kelime bulunamadı.');
+    winAlert('Denetlenecek sözcük bulunamadı.');
     return;
   }
   
   // Perform bulk check
   const wordsList = Array.from(uniqueWords).join(',');
-  status.textContent = 'Kelimeler sorgulanıyor...';
+  status.textContent = 'Kelimeler sözlükte denetleniyor...';
   
   fetch('/api/check/bulk?q=' + encodeURIComponent(wordsList))
     .then(r => r.json())
     .then(results => {
-      // Filter out misspelled word occurrences
       const errors = [];
       words.forEach((w, idx) => {
-        const check = results[w.word] || results[w.word.toLowerCase()];
+        const lower = w.word.toLocaleLowerCase('tr');
+        if (state.userDictionary && state.userDictionary.has(lower)) {
+          return;
+        }
+        const check = results[w.word] || results[lower];
         if (check && !check.valid) {
           errors.push(idx);
         }
       });
       
       if (errors.length === 0) {
-        alert('✓ Hiçbir yazım hatası bulunamadı.');
+        winAlert('✓ Tebrikler! Metinde hiçbir yazım hatası bulunamadı.');
         status.textContent = '✓ Yazım denetimi tamamlandı: Hata bulunamadı.';
         return;
       }
@@ -4037,7 +4639,6 @@ function editorSpellCheck(winId) {
         results: results
       };
       
-      // Open dialog
       document.getElementById('spellCheckDialog').classList.add('open');
       spellCheckNext();
     })
@@ -4047,36 +4648,31 @@ function editorSpellCheck(winId) {
 }
 
 function spellCheckNext() {
-  const state = spellCheckState;
-  const textarea = document.getElementById(state.winId + '-textarea');
-  const status = document.getElementById(state.winId + '-status');
+  const sState = spellCheckState;
+  const textarea = document.getElementById(sState.winId + '-textarea');
+  const status = document.getElementById(sState.winId + '-status');
   
-  if (state.errorIdx >= state.errors.length) {
-    // Completed!
+  if (sState.errorIdx >= sState.errors.length) {
     closeSpellCheck();
-    alert('Yazım denetimi tamamlandı.');
+    winAlert('✓ Yazım denetimi başarıyla tamamlandı.');
     status.textContent = '✓ Yazım denetimi tamamlandı.';
     textarea.focus();
     return;
   }
   
-  const errWordIdx = state.errors[state.errorIdx];
-  const errWordOccur = state.words[errWordIdx];
+  const errWordIdx = sState.errors[sState.errorIdx];
+  const errWordOccur = sState.words[errWordIdx];
   
-  // Highlight in textarea
   textarea.focus();
   textarea.setSelectionRange(errWordOccur.start, errWordOccur.end);
   
-  // Scroll word into view if needed (textarea selection behavior)
   const lineNum = textarea.value.substr(0, errWordOccur.start).split("\n").length;
-  const lineHeight = 19; // approx line height
+  const lineHeight = 19;
   textarea.scrollTop = (lineNum - 4) * lineHeight;
   
-  // Update fields
   document.getElementById('spell-err-word').value = errWordOccur.word;
   
-  // Suggestions
-  const check = state.results[errWordOccur.word] || state.results[errWordOccur.word.toLowerCase()];
+  const check = sState.results[errWordOccur.word] || sState.results[errWordOccur.word.toLocaleLowerCase('tr')];
   const suggestions = (check && check.suggestions) || [];
   const sugInput = document.getElementById('spell-sug-word');
   const sugList = document.getElementById('spell-suggestions');
@@ -4085,14 +4681,14 @@ function spellCheckNext() {
   if (suggestions.length > 0) {
     sugInput.value = suggestions[0].word;
     sugList.innerHTML = suggestions.map((s, idx) => 
-      `<div class="dict-word${idx===0?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit;" onclick="selectSpellSuggestion(this, '${s.word}')">${s.word}</div>`
+      `<div class="dict-word${idx===0?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit; padding:3px 6px; cursor:pointer;" onclick="selectSpellSuggestion(this, '${s.word}')">${s.word}</div>`
     ).join('');
   } else {
-    sugInput.value = errWordOccur.word; // fall back to original
+    sugInput.value = errWordOccur.word;
     sugList.innerHTML = '<div style="color:#888;padding:6px;font-style:italic;">Öneri bulunamadı.</div>';
   }
   
-  status.textContent = `Hata ${state.errorIdx + 1} / ${state.errors.length}: "${errWordOccur.word}"`;
+  status.textContent = `Hata ${sState.errorIdx + 1} / ${sState.errors.length}: "${errWordOccur.word}"`;
 }
 
 function selectSpellSuggestion(el, word) {
@@ -4107,19 +4703,22 @@ function spellCheckIgnore() {
   spellCheckNext();
 }
 
-function spellCheckAdd() {
-  const word = spellCheckState.words[spellCheckState.errors[spellCheckState.errorIdx]].word;
-  // In a real app this adds to user dictionary. Here we simulate.
-  console.log('Added to user dictionary: ' + word);
-  spellCheckState.errorIdx++;
+function spellCheckIgnoreAll() {
+  const sState = spellCheckState;
+  const errWord = sState.words[sState.errors[sState.errorIdx]].word.toLocaleLowerCase('tr');
+  sState.errors = sState.errors.filter((errIdx, idx) => {
+    if (idx <= sState.errorIdx) return true;
+    return sState.words[errIdx].word.toLocaleLowerCase('tr') !== errWord;
+  });
+  sState.errorIdx++;
   spellCheckNext();
 }
 
 function spellCheckReplace() {
-  const state = spellCheckState;
-  const textarea = document.getElementById(state.winId + '-textarea');
-  const errWordIdx = state.errors[state.errorIdx];
-  const errWordOccur = state.words[errWordIdx];
+  const sState = spellCheckState;
+  const textarea = document.getElementById(sState.winId + '-textarea');
+  const errWordIdx = sState.errors[sState.errorIdx];
+  const errWordOccur = sState.words[errWordIdx];
   
   const repWord = document.getElementById('spell-sug-word').value;
   if (!repWord) return;
@@ -4127,22 +4726,49 @@ function spellCheckReplace() {
   const text = textarea.value;
   textarea.value = text.substring(0, errWordOccur.start) + repWord + text.substring(errWordOccur.end);
   
-  // Recalculate offsets for all subsequent occurrences
   const diff = repWord.length - errWordOccur.word.length;
-  for (let i = errWordIdx + 1; i < state.words.length; i++) {
-    state.words[i].start += diff;
-    state.words[i].end += diff;
+  for (let i = errWordIdx + 1; i < sState.words.length; i++) {
+    sState.words[i].start += diff;
+    sState.words[i].end += diff;
   }
   
-  // Step
-  state.errorIdx++;
+  sState.errorIdx++;
   spellCheckNext();
+}
+
+function spellCheckReplaceAll() {
+  const sState = spellCheckState;
+  const textarea = document.getElementById(sState.winId + '-textarea');
+  const errWordOccur = sState.words[sState.errors[sState.errorIdx]];
+  const targetWord = errWordOccur.word;
+  const repWord = document.getElementById('spell-sug-word').value;
+  if (!repWord) return;
+  
+  const regex = new RegExp('\\b' + targetWord + '\\b', 'g');
+  textarea.value = textarea.value.replace(regex, repWord);
+  
+  sState.errors = sState.errors.filter((errIdx, idx) => {
+    if (idx <= sState.errorIdx) return true;
+    return sState.words[errIdx].word.toLocaleLowerCase('tr') !== targetWord.toLocaleLowerCase('tr');
+  });
+  
+  sState.errorIdx++;
+  spellCheckNext();
+}
+
+function spellCheckAdd() {
+  const sState = spellCheckState;
+  const word = sState.words[sState.errors[sState.errorIdx]].word;
+  if (!state.userDictionary) state.userDictionary = new Set();
+  state.userDictionary.add(word.toLocaleLowerCase('tr'));
+  spellCheckIgnoreAll();
 }
 
 function closeSpellCheck() {
   document.getElementById('spellCheckDialog').classList.remove('open');
   if (spellCheckState.winId) {
-    document.getElementById(spellCheckState.winId + '-textarea').focus();
+    const ta = document.getElementById(spellCheckState.winId + '-textarea');
+    if (ta) ta.focus();
   }
 }
 
