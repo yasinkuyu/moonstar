@@ -1716,7 +1716,7 @@ body {
         <div class="dropdown-item" onclick="openCharacterList('win-kbd-select')">Karakter Listesi...</div>
         <div class="dropdown-item" onclick="showKeyboardModule()">Klavye Seçimi...</div>
         <div class="dropdown-sep"></div>
-        <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Dil Denetim ve Editör Sistemi v5.11')">Genel tanımlar...</div>
+        <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Dil Denetim ve Editör Sistemi v4.0')">Genel tanımlar...</div>
       </div>
       <div class="dropdown" id="edtHelpMenu">
         <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Denetim Editörü Kılavuzu:\n\n• F5: İmla Denetimi\n• Shift+F5: Sözlük Kontrol Raporu\n• F3: Bul\n• F4: Değiştir\n• F6: Türkçe Leb Demeden\n• F7: Eş Anlamlı Kelimeler\n• F8: Türkçe -> İngilizce\n• F9: Metin İstatistikleri\n• Ctrl+Q: Büyük Harf\n• Ctrl+W: Küçük Harf\n• Alt+F8: Kaydet')">İçerik (F1)</div>
@@ -1807,7 +1807,7 @@ body {
       <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;padding:12px 6px 6px;margin:0;"><legend>Sürüm Notları</legend>
         <div class="win-list" style="flex:1;overflow-y:auto;background:#fff;padding:10px 12px;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;font-size:12px;line-height:1.6;color:#000;">
           <div style="font-size:13px;font-weight:bold;color:#000080;border-bottom:1px solid #000080;padding-bottom:2px;margin-bottom:6px;">
-            v5.11 (Modern Web Sürümü)
+            v4.0 (Modern Web Sürümü)
           </div>
           <ul style="margin:0 0 12px 0;padding-left:18px;">
             <li><strong>Kelime Oyunu:</strong> 36 farklı konu başlığı, 12.437 kelimelik soru havuzu, retro ses efektleri ve 10 aşamalı darağacı.</li>
@@ -1825,7 +1825,7 @@ body {
           </ul>
 
           <div style="font-size:13px;font-weight:bold;color:#800000;border-bottom:1px solid #800000;padding-bottom:2px;margin-bottom:6px;">
-            v5.10 (Orijinal Win16 Sürümü - 1994)
+            v3.1 (Orijinal Win16 Sürümü - 1994)
           </div>
           <ul style="margin:0 0 12px 0;padding-left:18px;">
             <li>Orijinal Windows 3.1 16-bit sürümü (Borland C++).</li>
