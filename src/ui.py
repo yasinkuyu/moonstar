@@ -1836,10 +1836,14 @@ body {
           <div style="font-size:13px;font-weight:bold;color:#008000;border-bottom:1px solid #008000;padding-bottom:2px;margin-bottom:6px;">
             Credits
           </div>
-          <ul style="margin:0;padding-left:18px;">
+          <ul style="margin:0 0 8px 0;padding-left:18px;">
             <li><a href="https://github.com/erengy" target="_blank" style="color:#000080;text-decoration:underline;">https://github.com/erengy</a></li>
             <li><a href="https://github.com/yasinkuyu" target="_blank" style="color:#000080;text-decoration:underline;">https://github.com/yasinkuyu</a></li>
           </ul>
+
+          <div style="font-style:italic;color:#333;margin-top:6px;padding-top:6px;border-top:1px dashed #808080;">
+            Müjdat Özalp anısına.
+          </div>
         </div>
       </div>
       <div style="display:flex;justify-content:center;margin-top:2px;">
