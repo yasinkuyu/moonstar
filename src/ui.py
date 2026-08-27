@@ -144,7 +144,7 @@ def load_synonyms():
     """
     Universal Turkish Thesaurus Engine:
     Parses exact intra-meaning (#) synonym groups from MTU.TRK across all 17,988 entries,
-    cleaning all grammar annotations, and applies canonical thesaurus clusters for verified roots.
+    cleaning all grammar annotations dynamically with 100% data-driven extraction.
     """
     entries = []
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
@@ -152,45 +152,6 @@ def load_synonyms():
     word_to_groups = defaultdict(list)
     word_to_all_syns = defaultdict(set)
 
-    # 1. Canonical MoonStar thesaurus clusters for exact verified root parity
-    canonical_thesaurus = {
-        'yüz': [
-            ('1.Anlam', ['beniz', 'bet', 'bet beniz', 'çehre', 'fizyonomi', 'sıfat', 'sima', 'surat', 'vecih']),
-            ('2.Anlam', ['cephe', 'görünüş', 'şekil', 'dış görünüş']),
-            ('Mecaz', ['itibar', 'saygınlık', 'şeref'])
-        ],
-        'el': [
-            ('1.Anlam', ['apaz', 'avuç', 'aya', 'bilek', 'parmaklar', 'pençe', 'yumruk']),
-            ('Mecaz', ['yardım', 'el uzatma']),
-            ('Mecaz', ['kontrol', 'yönetim']),
-            ('2.Anlam', ['il', 'memleket', 'ülke', 'yurt']),
-            ('3.Anlam', ['akrep', 'yelkovan', 'ibre']),
-            ('4.Anlam', ['işçi', 'elleriyle çalışan kimse'])
-        ],
-        'kitap': [
-            ('1.Anlam', ['elkitabı'])
-        ]
-    }
-
-    for root_word, group_list in canonical_thesaurus.items():
-        w_key = root_word.lower()
-        for tag, syn_items in group_list:
-            cluster_str = f'{root_word}::{tag}::' + ','.join(syn_items)
-            if cluster_str not in word_to_groups[w_key]:
-                word_to_groups[w_key].append(cluster_str)
-            for s in syn_items:
-                word_to_all_syns[w_key].add(s)
-                s_key = s.lower()
-                if s_key != w_key:
-                    s_cluster_str = f'{s}::{tag}::' + ','.join([root_word] + [w for w in syn_items if w != s])
-                    if s_cluster_str not in word_to_groups[s_key]:
-                        word_to_groups[s_key].append(s_cluster_str)
-                    word_to_all_syns[s_key].add(root_word)
-                    for other in syn_items:
-                        if other != s:
-                            word_to_all_syns[s_key].add(other)
-
-    # 2. Extract from MTU.TRK.TXT
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -227,7 +188,6 @@ def load_synonyms():
                         if is_clean_turkish_synonym(cw):
                             items.append(cw)
 
-                    # Deduplicate within same meaning group
                     seen = set()
                     unique_items = [x for x in items if not (x.lower() in seen or seen.add(x.lower()))]
 
@@ -235,12 +195,21 @@ def load_synonyms():
                         cluster_str = en + '::' + tag + '::' + ','.join(unique_items)
                         for w in unique_items:
                             w_key = w.lower()
-                            if w_key not in canonical_thesaurus:
-                                if cluster_str not in word_to_groups[w_key]:
-                                    word_to_groups[w_key].append(cluster_str)
-                                for s in unique_items:
-                                    if s.lower() != w_key:
-                                        word_to_all_syns[w_key].add(s)
+                            if cluster_str not in word_to_groups[w_key]:
+                                word_to_groups[w_key].append(cluster_str)
+                            for s in unique_items:
+                                if s.lower() != w_key:
+                                    word_to_all_syns[w_key].add(s)
+
+    # Build entries — one per word, sorted by Turkish alphabet
+    for word_key, group_list in word_to_groups.items():
+        first_cluster = group_list[0].split('::', 2)[2].split(',')
+        rep_word = next((w for w in first_cluster if w.lower() == word_key), word_key)
+        syns = sorted(word_to_all_syns[word_key], key=turkish_sort_key)
+        groups = ' | '.join(group_list)
+        entries.append({"word": rep_word, "synonyms": ' | '.join(syns), "groups": groups})
+
+    return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
 
     # Build entries — one per word, sorted by Turkish alphabet
     for word_key, group_list in word_to_groups.items():
@@ -2129,7 +2098,7 @@ function openWindow(type, opts) {
           <!-- Sözcük Row -->
           <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
             <div style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">Sözcük</div>
-            <input class="win-input" type="text" style="width:100%;background:#c0c0c0;font-weight:bold;font-family:inherit;" id="${id}-search" onkeydown="if(event.key==='Enter') synTriggerSearch('${id}')">
+            <input class="win-input" type="text" style="width:100%;background:#c0c0c0;font-weight:bold;font-family:inherit;" id="${id}-search" oninput="synTriggerSearch('${id}')" onkeydown="if(event.key==='Enter'){event.preventDefault();synTriggerSearch('${id}');}">
           </div>
           
           <!-- Kök Sözcük Row -->
@@ -2139,13 +2108,13 @@ function openWindow(type, opts) {
           </div>
           
           <!-- Anlam Grupları Group Box -->
-          <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;margin-top:4px;"><legend>Anlam Grupları</legend>
+          <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;margin-top:4px;"><legend style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;padding:0 4px;">Anlam Grupları</legend>
             <div class="win-list" style="flex:1;overflow-y:auto;background:#fff;" id="${id}-groups"></div>
           </div>
           
           <!-- Bottom Buttons Row (Centered under Left Column) -->
-          <div style="display:flex;gap:20px;flex-shrink:0;padding-top:6px;justify-content:center;align-items:center;width:100%;">
-            <!-- Tamam Button using original asset -->
+          <div style="display:flex;gap:20px;flex-shrink:0;margin-top:-2px;margin-bottom:2px;justify-content:center;align-items:center;width:100%;">
+            <!-- Tamam Button using original asset - closes window -->
             <img class="quiz-topic-btn" id="${id}-btn-tamam" width="63" height="39" 
                  src="/assets/extracted/img_02ae00_63x39_4bpp.png" 
                  data-normal="/assets/extracted/img_02ae00_63x39_4bpp.png" 
@@ -2153,31 +2122,23 @@ function openWindow(type, opts) {
                  onmousedown="this.src=this.dataset.pressed" 
                  onmouseup="this.src=this.dataset.normal" 
                  onmouseleave="this.src=this.dataset.normal"
-                 onclick="synTriggerSearch('${id}')"
+                 onclick="closeWindow('${id}')"
                  style="cursor:pointer; image-rendering:pixelated; flex-shrink:0;">
                  
-            <!-- Değiştir Button using original asset (initially disabled) -->
+            <!-- Değiştir Button using original asset - permanently disabled -->
             <img class="quiz-topic-btn disabled" id="${id}-btn-degistir" width="63" height="39" 
                  src="/assets/extracted/img_04d600_63x39_4bpp.png" 
-                 data-normal="/assets/extracted/img_030200_63x39_4bpp.png" 
-                 data-pressed="/assets/extracted/img_03ec00_63x39_4bpp.png"
+                 data-normal="/assets/extracted/img_04d600_63x39_4bpp.png" 
                  data-disabled="/assets/extracted/img_04d600_63x39_4bpp.png"
-                 onmousedown="if(!this.classList.contains('disabled'))this.src=this.dataset.pressed" 
-                 onmouseup="if(!this.classList.contains('disabled'))this.src=this.dataset.normal" 
-                 onmouseleave="if(!this.classList.contains('disabled'))this.src=this.dataset.normal"
-                 onclick="synTriggerReplace('${id}')"
-                 style="cursor:not-allowed; image-rendering:pixelated; flex-shrink:0;">
+                 style="cursor:not-allowed; opacity:0.6; pointer-events:none; image-rendering:pixelated; flex-shrink:0;">
           </div>
         </div>
         
         <!-- Right Column (Eş Anlamları Group Box) -->
-        <div class="group-box" style="flex:1;display:flex;flex-direction:column;margin-top:0;"><legend>Eş Anlamları</legend>
+        <div class="group-box" style="flex:1;display:flex;flex-direction:column;margin-top:0;"><legend style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;padding:0 4px;">Eş Anlamları</legend>
           <div class="win-list" style="flex:1;overflow-y:auto;background:#fff;" id="${id}-defn"></div>
         </div>
       </div>
-      
-      <!-- Status bar -->
-      <div class="win-status" id="${id}-status" style="flex-shrink:0;padding:2px 4px;border-top:1px solid #808080;font-size:11px;"></div>
     </div>`;
   } else if (config.type === 'tur') {
     html += `<div class="win-body" style="padding:4px;flex:1;display:flex;flex-direction:column;min-height:0;">
@@ -2431,10 +2392,16 @@ function loadWindowDict(winId, type, apiUrl) {
         if (groupsEl) {
           groupsEl.innerHTML = '';
         }
-        synSetReplaceEnabled(winId, false);
+        const statusEl = document.getElementById(winId + '-status');
+        if (statusEl) {
+          statusEl.textContent = `${d.total.toLocaleString()} kayıt`;
+        }
+      } else {
+        const statusEl = document.getElementById(winId + '-status');
+        if (statusEl) {
+          statusEl.textContent = `${d.total.toLocaleString()} kayıt`;
+        }
       }
-      
-      document.getElementById(winId + '-status').textContent = `${d.total.toLocaleString()} kayıt`;
     });
 }
 
