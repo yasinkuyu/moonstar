@@ -475,7 +475,7 @@ def load_ing_with_trk():
         flag = ing_data[start + 2]
 
         trk_idx = si if header_idx == (si + 1) % 256 else (header_idx - 1) % 256
-        topic_idx = flag % 36
+        topic_idx = (flag & 0x7F) % 36
         topic_name = decoded_topics[topic_idx + 2] if topic_idx + 2 < len(decoded_topics) else f"Topic_{topic_idx}"
         en_word = trk_words[trk_idx] if 0 <= trk_idx < len(trk_words) else "???"
         tr_text = trk_dict.get(trk_idx, "")
@@ -1229,33 +1229,61 @@ body {
   flex-shrink: 0;
   line-height: 0;
 }
-.welcome-btn {
-  width: 104px;
-  height: 50px;
+
+/* ─── CSS Sprites System ─────────────────────────────────────────────────── */
+.sprite-btn {
+  background-image: url('/assets/buttons_sprite.png?v=1');
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  display: inline-block;
+  cursor: pointer;
+  box-sizing: border-box;
+  user-select: none;
+  border: none;
+  outline: none;
   padding: 0;
   margin: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  display: block;
-  line-height: 0;
-  user-select: none;
-  -webkit-user-drag: none;
-  outline: none;
 }
-.welcome-btn:focus,
-.welcome-btn:focus-visible {
-  outline: none;
-}
-.welcome-btn img {
-  width: 104px;
-  height: 50px;
-  display: block;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  pointer-events: none;
-  -webkit-user-drag: none;
-}
+
+/* Toolbar Buttons (104x50) */
+.btn-sprite-toolbar { width: 104px; height: 50px; }
+.btn-sprite-btn_denetim { background-position: 0px 0px; }
+.btn-sprite-btn_denetim:active { background-position: 0px -50px; }
+
+.btn-sprite-btn_tr_en { background-position: -104px 0px; }
+.btn-sprite-btn_tr_en:active { background-position: -104px -50px; }
+
+.btn-sprite-btn_esanlam { background-position: -208px 0px; }
+.btn-sprite-btn_esanlam:active { background-position: -208px -50px; }
+
+.btn-sprite-btn_klavye { background-position: -312px 0px; }
+.btn-sprite-btn_klavye:active { background-position: -312px -50px; }
+
+.btn-sprite-btn_en_tr { background-position: -416px 0px; }
+.btn-sprite-btn_en_tr:active { background-position: -416px -50px; }
+
+.btn-sprite-btn_adam_asma { background-position: -520px 0px; }
+.btn-sprite-btn_adam_asma:active { background-position: -520px -50px; }
+
+/* Dialog Buttons (63x39) */
+.btn-sprite-dialog { width: 63px; height: 39px; flex-shrink: 0; }
+.btn-sprite-tamam { background-position: 0px -100px; }
+.btn-sprite-tamam:active { background-position: 0px -139px; }
+
+.btn-sprite-iptal { background-position: -63px -100px; }
+.btn-sprite-iptal:active { background-position: -63px -139px; }
+
+.btn-sprite-edit { background-position: -126px -100px; }
+.btn-sprite-edit:active { background-position: -126px -139px; }
+
+.btn-sprite-sozluk { background-position: -189px -100px; }
+.btn-sprite-sozluk:active { filter: brightness(0.92); }
+
+.btn-sprite-basla { background-position: -252px -100px; }
+.btn-sprite-basla:active { filter: brightness(0.92); }
+
+.btn-sprite-degistir-d { background-position: -315px -100px; cursor: not-allowed !important; opacity: 0.6; pointer-events: none; }
+
 .welcome-sep {
   height: 2px;
   border-top: 1px solid #808080;
@@ -1336,20 +1364,22 @@ body {
   align-items: center;
 }
 .hm-keyrow { display: flex; gap: 1px; line-height: 0; justify-content: center; }
-.hm-key {
-  width: 25px; height: 25px; padding: 0; margin: 0; border: 0;
+.hm-key-sprite {
+  width: 25px; height: 25px;
+  background-image: url('/assets/keys_sprite.png?v=1');
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  display: block;
+  cursor: pointer;
   box-sizing: border-box;
-  background: transparent; cursor: pointer; display: block;
-  image-rendering: pixelated; image-rendering: crisp-edges;
 }
-.hm-key.used {
+.hm-key-sprite.used {
   cursor: default;
   opacity: 0.65;
   filter: contrast(0.85);
   outline: 1px dotted #808080;
   outline-offset: -2px;
 }
-.hm-key.idle { cursor: default; }
 .kbd-grid { display: grid; grid-template-columns: repeat(5,auto); gap: 4px; justify-content: center; }
 .kbd-key { cursor: pointer; width: 25px; height: 25px; padding: 0; margin: 0; border: 0; background: transparent; image-rendering: pixelated; image-rendering: crisp-edges; }
 .kbd-key:hover { filter: brightness(1.1); }
@@ -1415,9 +1445,12 @@ body {
   background: #c0c0c0; padding: 2px; line-height: 0; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
 }
-.hm-gallows img {
-  width: 52px; height: 76px; display: block;
-  image-rendering: pixelated; image-rendering: crisp-edges;
+.hm-gallows-sprite {
+  width: 52px; height: 76px;
+  background-image: url('/assets/gallows_sprite.png?v=1');
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  display: block;
 }
 .hm-scorecol {
   width: 98px;
@@ -1469,13 +1502,7 @@ body {
   margin-top: 8px;
   margin-bottom: 0;
 }
-.hm-btn {
-  width: 63px; height: 39px; padding: 0; margin: 0; border: 0;
-  background: transparent; cursor: pointer; display: block;
-  image-rendering: pixelated; image-rendering: crisp-edges;
-}
-.hm-btn:active { filter: brightness(0.92); }
-.hm-btn.disabled {
+.sprite-btn.disabled {
   opacity: 0.45;
   filter: grayscale(1) contrast(0.85);
   cursor: default;
@@ -1820,15 +1847,7 @@ body {
       
       <!-- Bottom row: Tamam button -->
       <div style="display:flex; justify-content:center; margin-top: 4px;">
-        <img class="quiz-topic-btn" width="63" height="39" 
-             src="/assets/btn_tamam.png" 
-             data-normal="/assets/btn_tamam.png" 
-             data-pressed="/assets/btn_tamam_p.png"
-             onmousedown="this.src=this.dataset.pressed" 
-             onmouseup="this.src=this.dataset.normal" 
-             onmouseleave="this.src=this.dataset.normal"
-             onclick="closeDialog('aboutDialog')"
-             style="cursor:pointer; image-rendering:pixelated; flex-shrink: 0;">
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="closeDialog('aboutDialog')" title="Tamam"></div>
       </div>
     </div>
   </div>
@@ -1919,7 +1938,7 @@ body {
         </table>
       </div>
       <div style="display:flex;justify-content:center;">
-        <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_tamam.png" alt="Tamam" title="Tamam" onclick="closeDialog('textStatsDialog')" style="cursor:pointer;image-rendering:pixelated;">
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="closeDialog('textStatsDialog')" title="Tamam"></div>
       </div>
     </div>
   </div>
@@ -1935,7 +1954,7 @@ body {
       <div id="dict-check-summary" style="font-weight:bold;font-size:12px;color:#000;"></div>
       <div class="win-list" id="dict-check-list" style="flex:1;overflow-y:auto;background:#fff;font-size:12px;"></div>
       <div style="display:flex;justify-content:center;margin-top:4px;">
-        <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_tamam.png" alt="Tamam" title="Tamam" onclick="closeDialog('dictCheckDialog')" style="cursor:pointer;image-rendering:pixelated;">
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="closeDialog('dictCheckDialog')" title="Tamam"></div>
       </div>
     </div>
   </div>
@@ -1952,7 +1971,7 @@ body {
       <div class="win-list" id="user-dict-list" style="flex:1;overflow-y:auto;background:#fff;font-size:12px;"></div>
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <button class="win-btn" onclick="clearUserDict()">Sözlüğü Temizle</button>
-        <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_tamam.png" alt="Tamam" title="Tamam" onclick="closeDialog('userDictDialog')" style="cursor:pointer;image-rendering:pixelated;">
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="closeDialog('userDictDialog')" title="Tamam"></div>
       </div>
     </div>
   </div>
@@ -1978,17 +1997,8 @@ body {
           <div>HEX   = <span id="char-hex-val">20</span></div>
         </div>
         
-        <!-- Tamam Button using original thumbs-up asset -->
-        <img class="quiz-topic-btn" id="char-btn-tamam" width="63" height="39" 
-             src="/assets/btn_tamam.png" 
-             data-normal="/assets/btn_tamam.png" 
-             data-pressed="/assets/btn_tamam_p.png"
-             onmousedown="this.src=this.dataset.pressed" 
-             onmouseup="this.src=this.dataset.normal" 
-             onmouseleave="this.src=this.dataset.normal"
-             onclick="confirmCharacterSelection()"
-             style="cursor:pointer; image-rendering:pixelated; flex-shrink: 0;"
-             alt="Tamam" title="Tamam">
+        <!-- Tamam Button using sprite -->
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" id="char-btn-tamam" onclick="confirmCharacterSelection()" title="Tamam"></div>
       </div>
       
     </div>
@@ -2009,8 +2019,8 @@ body {
                onkeydown="quizTopicKeydown(event)"></div>
         </div>
         <div class="quiz-topic-actions">
-          <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_tamam.png" alt="Tamam" title="Tamam" onclick="confirmQuizTopic()">
-          <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_iptal.png" alt="İptal" title="İptal" onclick="closeQuizTopicDialog()">
+          <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="confirmQuizTopic()" title="Tamam"></div>
+          <div class="sprite-btn btn-sprite-dialog btn-sprite-iptal" onclick="closeQuizTopicDialog()" title="İptal"></div>
         </div>
       </div>
     </div>
@@ -2036,8 +2046,8 @@ body {
         </div>
       </div>
       <div style="display:flex;justify-content:center;gap:12px;">
-        <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_tamam.png" alt="Tamam" title="Tamam" onclick="confirmOyunKelimeleri()">
-        <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_iptal.png" alt="İptal" title="İptal" onclick="closeOyunKelimeleriDialog()">
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="confirmOyunKelimeleri()" title="Tamam"></div>
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-iptal" onclick="closeOyunKelimeleriDialog()" title="İptal"></div>
       </div>
     </div>
   </div>
@@ -2306,7 +2316,7 @@ function openWindow(type, opts) {
           <div style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">Sözcük</div>
           <input class="win-input" type="text" style="width:100%;background:#c0c0c0;" id="${id}-search" oninput="dictSearchDebounced('${id}')" onkeydown="if(event.key==='Enter') closeWindow('${id}')">
         </div>
-        <img class="quiz-topic-btn" width="63" height="39" src="/assets/btn_tamam.png" alt="Tamam" title="Tamam" onclick="closeWindow('${id}')" style="cursor:pointer; image-rendering:pixelated; flex-shrink:0;">
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="closeWindow('${id}')" title="Tamam"></div>
       </div>
 
       <!-- Mid lists row: left listbox and right listbox -->
@@ -2352,23 +2362,11 @@ function openWindow(type, opts) {
           
           <!-- Bottom Buttons Row (Centered under Left Column) -->
           <div style="display:flex;gap:20px;flex-shrink:0;margin-top:-2px;margin-bottom:2px;justify-content:center;align-items:center;width:100%;">
-            <!-- Tamam Button using original asset - closes window -->
-            <img class="quiz-topic-btn" id="${id}-btn-tamam" width="63" height="39" 
-                 src="/assets/btn_tamam.png" 
-                 data-normal="/assets/btn_tamam.png" 
-                 data-pressed="/assets/btn_tamam_p.png"
-                 onmousedown="this.src=this.dataset.pressed" 
-                 onmouseup="this.src=this.dataset.normal" 
-                 onmouseleave="this.src=this.dataset.normal"
-                 onclick="closeWindow('${id}')"
-                 style="cursor:pointer; image-rendering:pixelated; flex-shrink:0;">
+            <!-- Tamam Button using sprite - closes window -->
+            <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" id="${id}-btn-tamam" onclick="closeWindow('${id}')" title="Tamam"></div>
                  
-            <!-- Değiştir Button using original asset - permanently disabled -->
-            <img class="quiz-topic-btn disabled" id="${id}-btn-degistir" width="63" height="39" 
-                 src="/assets/btn_degistir_d.png" 
-                 data-normal="/assets/btn_degistir_d.png" 
-                 data-disabled="/assets/btn_degistir_d.png"
-                 style="cursor:not-allowed; opacity:0.6; pointer-events:none; image-rendering:pixelated; flex-shrink:0;">
+            <!-- Değiştir Button using sprite - permanently disabled -->
+            <div class="sprite-btn btn-sprite-dialog btn-sprite-degistir-d" id="${id}-btn-degistir" title="Değiştir"></div>
           </div>
         </div>
         
@@ -3242,12 +3240,13 @@ function renderHangman(id) {
       const idx = hmKeyIndex(letter);
       // Disabled if round not started yet, or game round is over, or letter was already guessed
       const disabled = !started || info.done || info.guessed.includes(letter);
-      const prefix = disabled ? 'p' : 'n';
       const cls = disabled ? ' used' : '';
-      const onClick = disabled ? '' : `guessLetter('${id}','${letter}')`;
+      const onClick = disabled ? '' : `onclick="guessLetter('${id}','${letter}')"`;
+      const xPos = -(idx * 25);
+      const yPos = disabled ? -25 : 0;
 
-      html += `<img class="hm-key${cls}" width="25" height="25" src="/assets/keys/${prefix}_${String(idx).padStart(2,'0')}.png?v=14" ` +
-        `alt="${letter}" title="${letter}" onclick="${onClick}">`;
+      html += `<div class="hm-key-sprite${cls}" style="background-position:${xPos}px ${yPos}px;" ` +
+        `title="${letter}" ${onClick}></div>`;
     }
     html += `</div>`;
   }
@@ -3260,7 +3259,7 @@ function renderHangman(id) {
   html += `</div>`;
   html += `<div class="hm-status">`;
   html += `<div class="hm-status-row">`;
-  html += `<div class="hm-gallows"><img width="52" height="76" src="/assets/hm_${stage}.png" alt=""></div>`;
+  html += `<div class="hm-gallows"><div class="hm-gallows-sprite" style="background-position:${-(stage * 52)}px 0px;"></div></div>`;
   html += `<div class="hm-scorecol">`;
   html += `<div class="hm-scorelabel">Puan</div>`;
   html += `<div class="hm-scorebox" id="${id}-score">${info.score}</div>`;
@@ -3271,15 +3270,15 @@ function renderHangman(id) {
   html += `<div class="hm-wordbox">${displayWord}</div>`;
   
   const isPlaying = started && !info.done;
-  const sozlukCls = isPlaying ? 'hm-btn disabled' : 'hm-btn';
+  const sozlukCls = isPlaying ? 'disabled' : '';
   const sozlukClick = isPlaying ? '' : `onclick="hangmanSozluk('${id}')"`;
-  const baslaCls = isPlaying ? 'hm-btn disabled' : 'hm-btn';
+  const baslaCls = isPlaying ? 'disabled' : '';
   const baslaClick = isPlaying ? '' : `onclick="hangmanBasla('${id}')"`;
 
   html += `<div class="hm-btns">`;
-  html += `<img class="${sozlukCls}" width="63" height="39" src="/assets/btn_sozluk.png" alt="Sözlük" title="Sözlük" ${sozlukClick}>`;
-  html += `<img class="${baslaCls}" width="63" height="39" src="/assets/btn_basla.png" alt="Başla" title="Başla" ${baslaClick}>`;
-  html += `<img class="hm-btn" width="63" height="39" src="/assets/btn_iptal.png" alt="İptal" title="İptal" onclick="SoundFX.playClick();closeWindow('${id}')">`;
+  html += `<div class="sprite-btn btn-sprite-dialog btn-sprite-sozluk ${sozlukCls}" title="Sözlük" ${sozlukClick}></div>`;
+  html += `<div class="sprite-btn btn-sprite-dialog btn-sprite-basla ${baslaCls}" title="Başla" ${baslaClick}></div>`;
+  html += `<div class="sprite-btn btn-sprite-dialog btn-sprite-iptal" title="İptal" onclick="SoundFX.playClick();closeWindow('${id}')"></div>`;
   html += `</div>`;
   
   html += `</div>`; // hm-right
@@ -3379,16 +3378,7 @@ function showWelcomeWindow() {
   html += `<div class="welcome-panel">`;
   html += `<div class="welcome-grid">`;
   modules.forEach(m => {
-    const n = `/assets/${m.base}.png?v=${v}`;
-    const p = `/assets/${m.base}_p.png?v=${v}`;
-    html += `<button type="button" class="welcome-btn" title="${m.label}" onclick="${m.action}"` +
-      ` onpointerdown="welcomeBtnPress(this.querySelector('img'),true)"` +
-      ` onpointerup="welcomeBtnPress(this.querySelector('img'),false)"` +
-      ` onpointerleave="welcomeBtnPress(this.querySelector('img'),false)"` +
-      ` onpointercancel="welcomeBtnPress(this.querySelector('img'),false)"` +
-      ` onblur="welcomeBtnPress(this.querySelector('img'),false)">` +
-      `<img src="${n}" width="104" height="50" data-n="${n}" data-p="${p}" alt="${m.label}" draggable="false">` +
-      `</button>`;
+    html += `<div class="sprite-btn btn-sprite-toolbar btn-sprite-${m.base}" title="${m.label}" onclick="${m.action}"></div>`;
   });
   html += `</div>`;
   html += `<div class="welcome-sep"></div>`;
@@ -3445,41 +3435,14 @@ function showKeyboardModule() {
       
       <!-- Right Column -->
       <div style="width:75px;display:flex;flex-direction:column;gap:8px;flex-shrink:0;justify-content:flex-start;align-items:center;padding-top:4px;">
-        <!-- Edit Button using original asset -->
-        <img class="quiz-topic-btn" id="${id}-btn-edit" width="63" height="39" 
-             src="/assets/btn_edit.png" 
-             data-normal="/assets/btn_edit.png" 
-             data-pressed="/assets/btn_edit_p.png" 
-             onmousedown="this.src=this.dataset.pressed" 
-             onmouseup="this.src=this.dataset.normal" 
-             onmouseleave="this.src=this.dataset.normal"
-             onclick="showVirtualKeyboard('${id}')"
-             style="cursor:pointer; image-rendering:pixelated; flex-shrink:0;"
-             alt="Edit" title="Edit">
+        <!-- Edit Button using sprite -->
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-edit" id="${id}-btn-edit" onclick="showVirtualKeyboard('${id}')" title="Edit"></div>
              
-        <!-- Tamam Button using original asset -->
-        <img class="quiz-topic-btn" id="${id}-btn-tamam" width="63" height="39" 
-             src="/assets/btn_tamam.png" 
-             data-normal="/assets/btn_tamam.png" 
-             data-pressed="/assets/btn_tamam_p.png" 
-             onmousedown="this.src=this.dataset.pressed" 
-             onmouseup="this.src=this.dataset.normal" 
-             onmouseleave="this.src=this.dataset.normal"
-             onclick="closeWindow('${id}')"
-             style="cursor:pointer; image-rendering:pixelated; flex-shrink:0;"
-             alt="Tamam" title="Tamam">
+        <!-- Tamam Button using sprite -->
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" id="${id}-btn-tamam" onclick="closeWindow('${id}')" title="Tamam"></div>
              
-        <!-- İptal Button using original asset -->
-        <img class="quiz-topic-btn" id="${id}-btn-iptal" width="63" height="39" 
-             src="/assets/btn_iptal.png" 
-             data-normal="/assets/btn_iptal.png" 
-             data-pressed="/assets/btn_iptal_p.png" 
-             onmousedown="this.src=this.dataset.pressed" 
-             onmouseup="this.src=this.dataset.normal" 
-             onmouseleave="this.src=this.dataset.normal"
-             onclick="closeWindow('${id}')"
-             style="cursor:pointer; image-rendering:pixelated; flex-shrink:0;"
-             alt="İptal" title="İptal">
+        <!-- İptal Button using sprite -->
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-iptal" id="${id}-btn-iptal" onclick="closeWindow('${id}')" title="İptal"></div>
       </div>
     </div>
   `);
@@ -3609,17 +3572,8 @@ function showVirtualKeyboard(parentId) {
         
         <!-- Buttons -->
         <div style="display:flex;gap:10px;align-items:center;">
-          <!-- Tamam Button using standard thumbs-up asset -->
-          <img class="quiz-topic-btn" id="${id}-btn-tamam" width="63" height="39" 
-               src="/assets/btn_tamam.png" 
-               data-normal="/assets/btn_tamam.png" 
-               data-pressed="/assets/btn_tamam_p.png" 
-               onmousedown="this.src=this.dataset.pressed" 
-               onmouseup="this.src=this.dataset.normal" 
-               onmouseleave="this.src=this.dataset.normal"
-               onclick="closeWindow('${id}')"
-               style="cursor:pointer; image-rendering:pixelated; flex-shrink:0;"
-               alt="Tamam" title="Tamam">
+          <!-- Tamam Button using sprite -->
+          <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" id="${id}-btn-tamam" onclick="closeWindow('${id}')" title="Tamam"></div>
         </div>
       </div>
     </div>

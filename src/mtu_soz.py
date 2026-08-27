@@ -4,19 +4,23 @@
 #
 # Extracts data from MTU.SOZ, which uses the MG2 format similar to MTU.TUR.
 #
-# MTU.SOZ consists of seven parts (no Section 3 like MTU.TUR):
+# MTU.SOZ is a supplementary spell check dictionary containing Turkish place
+# names and other specialized terms. It uses the same MG2 morphological
+# pipeline as MTU.TUR but with a different header structure.
+#
+# MG2 format:
 #     1- Magic number (4 bytes): "MG2\x1a"
-#     2- Header (8 bytes): 4 × 16-bit values
-#     3- Section 1 (66 bytes): lookup table for letters (32 letters + 1)
-#     4- Section 2 (2050 bytes): lookup table for two-letter prefixes (byte0=start, byte1=count)
-#     5- Section 4 (8,772 bytes): instructions for Turkish word formation
-#     6- Section 5 (6,415 bytes): suffix data
-#     7- Section 6 (≈5,692 bytes): modification instructions
-#
-# The existing 22.5 KB MTU.SOZ file has NO Section 3 (header[1] = 14227 is
-# not an entry count here — it likely has a different meaning for this file).
-#
-# Section 2 uses byte pairs (start, count) unlike MTU.TUR which uses uint16 offsets.
+#     2- Header (8 bytes): 4 x 16-bit values
+#        [0] = Section 4 entry count (word formation instructions)
+#        [1] = Section 3 entry count (suffix stripping table)
+#        [2] = Section 5 size (suffix data bytes)
+#        [3] = Section 6 entry count (modification flags)
+#     3- Section 1 (66 bytes): letter lookup table (32 letters + 1)
+#     4- Section 2 (2050 bytes): two-letter prefix offset table
+#     5- Section 3: suffix stripping table (if header[1] > 0)
+#     6- Section 4: word formation instructions
+#     7- Section 5: suffix data
+#     8- Section 6: modification flags
 #
 # @yasinkuyu
 
@@ -67,12 +71,11 @@ def GetSuffix(data, instructions, base_offset):
     return suffix
 
 def ApplyModifications(data, prefix, suffix):
-    """
+    '''
     Applies modifications to prefix and suffix based on Section 6 data.
-    """
+    '''
     should_capitalize = False
 
-    # Check capitalization flags
     if data[0] == 0x0f:
         should_capitalize = True
     elif data[1] in [0x41, 0x49, 0x51, 0x59]:
@@ -80,7 +83,6 @@ def ApplyModifications(data, prefix, suffix):
     elif data[0] == 0x2f and data[1] == 0x59:
         should_capitalize = True
 
-    # Apply capitalization to prefix
     if should_capitalize and prefix:
         if len(prefix) > 0:
             first_char = prefix[0]
@@ -91,7 +93,6 @@ def ApplyModifications(data, prefix, suffix):
             else:
                 prefix = prefix[0].upper() + prefix[1:]
 
-    # Apply ğ -> k conversion
     if data[0] == 0x80:
         if suffix and suffix.endswith('ğ'):
             suffix = suffix[:-1] + 'k'
@@ -100,96 +101,24 @@ def ApplyModifications(data, prefix, suffix):
 
     return prefix, suffix
 
+def ReadDictionaryEntries(dictionary, data, base_offset, prefixes, section4, section6):
+    item_index = 0
+    for prefix, count in prefixes:
+        if count == 0:
+            continue
+        for i in range(item_index, item_index + count):
+            suffix = GetSuffix(data, section4[i], base_offset)
+            section6_index = section4[i][0]
+            prefix_mod, suffix_mod = ApplyModifications(section6[section6_index], prefix, suffix)
+            word = prefix_mod + suffix_mod
+            dictionary.append(word)
+        item_index += count
+
 def Import(dictionary, path):
     data = open(path, "rb").read()
     pos = 0
 
-    # Skip magic number
     if data[pos:pos+4] != b'MG2\x1a':
-        raise ValueError("Invalid magic number")
-    pos += 4
-
-    # Read header
-    header = []
-    for i in range(0, 4):
-        length = struct.unpack("<H", data[pos:pos + 2])[0]
-        pos += 2
-        header.append(length)
-
-    # In MTU.SOZ, Section 4 starts directly after the header (offset 12)
-    # Section 1 (66 bytes) and Section 2 (2050 bytes) are present in the file size layout
-    # but contain dummy/unused index data.
-    # The actual word rules start at offset 2128 (12 + 66 + 2050).
-    sec4_start = 12 + 66 + 2050
-    sec4_count = header[0]  # 2193 entries
-
-    sec5_start = sec4_start + sec4_count * 4
-    sec5_size = header[2]  # 6415 bytes
-
-    alphabet32 = 'abcçdefgğhıijklmnoöpqrsştuüvwxyz'
-
-    # Read all rules
-    rules = []
-    for i in range(sec4_count):
-        entry_pos = sec4_start + i * 4
-        entry = data[entry_pos:entry_pos + 4]
-        
-        p1, p2 = entry[0], entry[1]
-        prefix = (alphabet32[p1] if p1 < 32 else '') + (alphabet32[p2] if p2 < 32 else '')
-        
-        offset = entry[2] + entry[3] * 256
-        rules.append({
-            'index': i,
-            'prefix': prefix,
-            'offset': offset
-        })
-
-    # Sort rules by offset to determine suffix boundaries (suffix compaction)
-    sorted_rules = sorted(rules, key=lambda x: x['offset'])
-    for i in range(len(sorted_rules)):
-        curr = sorted_rules[i]
-        next_offset = sec5_size
-        for j in range(i + 1, len(sorted_rules)):
-            if sorted_rules[j]['offset'] > curr['offset']:
-                next_offset = sorted_rules[j]['offset']
-                break
-        curr['suffix_len'] = next_offset - curr['offset']
-
-    # Reconstruct words
-    for r in rules:
-        pos = sec5_start + r['offset']
-        slen = min(r['suffix_len'], 30)  # limit sanity check
-        suffix = ''
-        for k in range(slen):
-            if pos + k < len(data):
-                idx = data[pos + k]
-                suffix += alphabet32[idx] if idx < 32 else ''
-        
-        word = r['prefix'] + suffix
-        if word:
-            # Capitalize properly if it looks like a name
-            word = word[0].upper() + word[1:]
-            dictionary.append(word)
-
-def ImportBridgeTable(bridge, path):
-    """
-    Reads Section 3 (if it exists in the file) and pairs each entry with its
-    resolved Turkish word from Section 4.
-
-    In the current 22.5 KB MTU.SOZ file, Section 3 does NOT exist — header[1]
-    is not an entry count. This function detects the mismatch and returns
-    early. A larger/different MTU.SOZ binary may contain a proper bridge table
-    with 14-byte entries.
-
-    The 11-byte block inside each bridge entry is kept as raw hex since its
-    internal layout hasn't been confirmed. It likely encodes an MTU.ING offset
-    (possibly middle-endian, like MTU.TRK's Turkish offsets) but with 11 bytes
-    available it probably stores more than a single offset.
-    """
-    data = open(path, "rb").read()
-    pos = 0
-
-    if data[pos:pos + 4] != b'MG2\x1a':
         raise ValueError("Invalid magic number")
     pos += 4
 
@@ -201,83 +130,52 @@ def ImportBridgeTable(bridge, path):
 
     letter_count = 32
 
-    pos += (letter_count + 1) * 2
+    section1 = []
+    for i in range(0, letter_count + 1):
+        value = struct.unpack("<H", data[pos:pos + 2])[0]
+        pos += 2
+        section1.append(value)
 
     section2 = []
-    for i in range(letter_count**2):
-        start = data[pos]
-        count = data[pos + 1]
+    for i in range(0, letter_count**2 + 1):
+        value = struct.unpack("<H", data[pos:pos + 2])[0]
         pos += 2
-        section2.append((start, count))
-    pos += 2
+        section2.append(value)
+    prefixes = []
+    for prefix_index in range(0, len(section2) - 1):
+        prefix = alphabet[prefix_index // letter_count]
+        prefix += alphabet[prefix_index % letter_count]
+        count = section2[prefix_index + 1] - section2[prefix_index]
+        prefixes.append((prefix, count))
 
-    # Check if a potential Section 3 would fit
-    sec3_bytes_needed = header[1] * 14
-    sec4_bytes_needed = header[0] * 4
-    sec5_bytes_needed = header[2]
-    after_s2 = len(data) - pos
-    after_s3 = after_s2 - sec3_bytes_needed
-    sec6_estimate = after_s3 - sec4_bytes_needed - sec5_bytes_needed
-
-    if sec3_bytes_needed > after_s2 or sec6_estimate < 0:
-        print(f"Note: Section 3 does not fit in this {len(data)} B file "
-              f"(needs {sec3_bytes_needed} B). Skipping bridge table.")
-        return
-
-    # Section 3 exists — read it
     section3 = []
-    for i in range(header[1]):
-        byte0 = data[pos]
+    for i in range(0, header[1]):
         pos += 1
-        section4_ref = struct.unpack("<H", data[pos:pos + 2])[0]
+        value = struct.unpack("<H", data[pos:pos + 2])[0]
         pos += 2
-        ing_block = data[pos:pos + 11]
+        section3.append(value)
         pos += 11
-        section3.append((byte0, section4_ref, ing_block))
 
-    section4_start = pos
-    section4_count = header[0]
+    section4 = []
+    for i in range(0, header[0]):
+        section4.append(data[pos:pos + 4])
+        pos += 4
 
-    section5_start = section4_start + section4_count * 4
+    base_offset = pos
+    pos += header[2]
 
-    section6_start = section5_start + header[2]
-    section6_available = (len(data) - section6_start) // 4
-    section6_count = min(header[3], section6_available)
     section6 = []
-    for i in range(section6_count):
-        section6.append(data[section6_start + i * 4:section6_start + i * 4 + 4])
+    for i in range(0, header[3]):
+        section6.append(data[pos:pos + 4])
+        pos += 4
 
-    turkish_words = {}
-    for prefix_idx in range(letter_count**2):
-        start, count = section2[prefix_idx]
-        if count == 0:
-            continue
-        prefix = alphabet[prefix_idx // letter_count] + alphabet[prefix_idx % letter_count]
-        for i in range(start, min(start + count, section4_count)):
-            entry_pos = section4_start + i * 4
-            entry = data[entry_pos:entry_pos + 4]
-            suffix = GetSuffix(data, entry, section5_start)
-            section6_idx = entry[0]
-            if section6_idx < len(section6):
-                prefix_mod, suffix_mod = ApplyModifications(section6[section6_idx], prefix, suffix)
-                turkish_words[i] = prefix_mod + suffix_mod
-            else:
-                turkish_words[i] = prefix + suffix
-
-    for byte0, section4_ref, ing_block in section3:
-        turkish_word = turkish_words.get(section4_ref, '')
-        bridge.append((turkish_word, byte0, ing_block.hex()))
+    ReadDictionaryEntries(dictionary, data, base_offset, prefixes, section4, section6)
 
 def Export(dictionary, path):
     with open(path, "w", encoding="utf-8") as file:
         for entry in dictionary:
             file.write(entry)
             file.write('\n')
-
-def ExportBridgeTable(bridge, path):
-    with open(path, "w", encoding="utf-8") as file:
-        for turkish_word, byte0, ing_hex in bridge:
-            file.write(f"{turkish_word:<30} flag=0x{byte0:02x}  ing_block={ing_hex}\n")
 
 def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -287,23 +185,7 @@ def main():
     dictionary = []
     Import(dictionary, data_path)
     Export(dictionary, os.path.join(output_dir, "MTU.SOZ.TXT"))
-    print("Exported", len(dictionary), "entries from MTU.SOZ.")
-
-    bridge = []
-    ImportBridgeTable(bridge, data_path)
-    if bridge:
-        ExportBridgeTable(bridge, os.path.join(output_dir, "MTU.SOZ_BRIDGE.TXT"))
-        print("Exported", len(bridge), "Section 3 bridge entries (raw, for analysis).")
-    else:
-        with open(os.path.join(output_dir, "MTU.SOZ_BRIDGE.TXT"), "w") as f:
-            f.write("# No Section 3 bridge data in this MTU.SOZ file.\n")
-            import struct
-            with open(data_path, "rb") as df:
-                d = df.read()
-            h = [struct.unpack("<H", d[6:8])[0]]
-            f.write(f"# File size: {os.path.getsize(data_path)} B — "
-                    f"too small to hold header[1]={h[0]} × 14 B entries.\n")
-            f.write("# A larger/correct MTU.SOZ binary is needed for the bridge table.\n")
+    print(f"Exported {len(dictionary)} entries from MTU.SOZ.")
 
 if __name__ == "__main__":
     main()
