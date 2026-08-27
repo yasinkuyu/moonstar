@@ -201,26 +201,11 @@ def load_synonyms():
                                 if s.lower() != w_key:
                                     word_to_all_syns[w_key].add(s)
 
-    # === ADD SECTION 3 SYNONYM GROUPS ===
-    # Load decoded Section 3 group IDs from MTU.TUR
-    section3_groups_path = os.path.join(OUTPUT_DIR, "section3_synonym_groups.json")
-    if os.path.exists(section3_groups_path):
-        with open(section3_groups_path, "r", encoding="utf-8") as f:
-            section3_groups = json.load(f)
-        
-        for gid_str, words in section3_groups.items():
-            if len(words) >= 2:
-                gid = int(gid_str.replace('0x', ''), 16) if '0x' in gid_str else int(gid_str)
-                group_tag = f'0x{gid:02X}'
-                cluster_str = f"TUR::{group_tag}::{','.join(words)}"
-                for w in words:
-                    w_key = w.lower()
-                    if cluster_str not in word_to_groups[w_key]:
-                        word_to_groups[w_key].append(cluster_str)
-                    for other_w in words:
-                        other_key = other_w.lower()
-                        if other_key != w_key:
-                            word_to_all_syns[w_key].add(other_w)
+    # NOTE: Section 3 of MTU.TUR is the SUFFIX STRIPPING TABLE (morphology),
+    # NOT a synonym source. Its "group IDs" are grammatical class codes,
+    # not synonym families. The original EXE synonym system uses ONLY
+    # TRK reverse lookup (words sharing the same English headword).
+    # Section 3 groups intentionally excluded.
 
     # Build entries — one per word, sorted by Turkish alphabet
     for word_key, group_list in word_to_groups.items():
@@ -4795,14 +4780,18 @@ def start_with_reload():
 
 def main():
     import subprocess
-    pid = subprocess.run(['lsof', '-ti', f":{PORT}"], capture_output=True, text=True).stdout.strip()
-    if pid:
-        # If multiple PIDs are returned, split and kill each
-        pids = pid.split()
-        print(f"  ⚠ Port {PORT} kullanımda (PID:{', '.join(pids)}), eski process sonlandırılıyor…")
-        for p in pids:
-            subprocess.run(['kill', '-9', p], capture_output=True)
-        time.sleep(0.3)
+    my_pid = str(os.getpid())
+    try:
+        pid = subprocess.run(['lsof', '-ti', f":{PORT}"], capture_output=True, text=True).stdout.strip()
+        if pid:
+            pids = [p for p in pid.split() if p != my_pid]
+            if pids:
+                print(f"  ⚠ Port {PORT} kullanımda (PID:{', '.join(pids)}), eski process sonlandırılıyor…")
+                for p in pids:
+                    subprocess.run(['kill', '-9', p], capture_output=True)
+                time.sleep(0.4)
+    except Exception:
+        pass
 
     http.server.HTTPServer.allow_reuse_address = True
     server = http.server.HTTPServer(("0.0.0.0", PORT), MoonStarHandler)
