@@ -1088,18 +1088,21 @@ body {
 .group-box {
   border: 2px solid;
   border-color: #808080 #fff #fff #808080;
-  padding: 8px 4px 4px 4px;
-  margin-top: 4px;
+  padding: 12px 6px 6px;
+  margin-top: 6px;
   position: relative;
+  box-sizing: border-box;
 }
 .group-box legend {
   position: absolute;
-  top: -9px;
+  top: -8px;
   left: 8px;
   background: #c0c0c0;
-  padding: 0 6px;
-  font-size: 13px;
-  font-weight: 700;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: bold;
+  font-family: 'MS Sans Serif', Tahoma, Arial, sans-serif;
+  color: #000;
   white-space: nowrap;
 }
 .win-list table {
@@ -1150,24 +1153,6 @@ body {
   background: #fff;
   border-bottom: 1px solid #fff;
   font-weight: bold;
-}
-
-/* Group box */
-.group-box {
-  border: 2px solid;
-  border-color: #808080 #fff #fff #808080;
-  padding: 12px 6px 6px;
-  margin: 6px 0;
-  position: relative;
-}
-.group-box legend {
-  background: #c0c0c0;
-  padding: 0 6px;
-  position: absolute;
-  top: -8px;
-  left: 6px;
-  font-size: 14px;
-  font-weight: 700;
 }
 
 /* Win16 status bar */
@@ -1654,18 +1639,15 @@ body {
   <div class="main-win" id="mainWin">
     <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">MoonStar Türkçe Dil Kılavuzu</span></div>
     <div class="win-body" style="padding:0;">
-      <!-- Menu Bar -->
+      <!-- Menu Bar (Exact MTU.EXE Main Menu Hierarchy) -->
       <div class="menu-bar" id="menuBar">
         <div class="menu-items-group">
-          <div class="menu-item" onclick="toggleMenu('fileMenu', event)" onmouseenter="onMenuItemHover('fileMenu', event)">Dosya</div>
-          <div class="menu-item" onclick="toggleMenu('editMenu', event)" onmouseenter="onMenuItemHover('editMenu', event)">Düzen</div>
-          <div class="menu-item" onclick="toggleMenu('searchMenu', event)" onmouseenter="onMenuItemHover('searchMenu', event)">Ara</div>
-          <div class="menu-item" onclick="toggleMenu('checkMenu', event)" onmouseenter="onMenuItemHover('checkMenu', event)">Denetim</div>
-          <div class="menu-item" onclick="toggleMenu('dictMenu', event)" onmouseenter="onMenuItemHover('dictMenu', event)">Sözlük</div>
-          <div class="menu-item" onclick="toggleMenu('gameMenu', event)" onmouseenter="onMenuItemHover('gameMenu', event)">Oyun</div>
-          <div class="menu-item" onclick="toggleMenu('statsMenu', event)" onmouseenter="onMenuItemHover('statsMenu', event)">İstatistik</div>
-          <div class="menu-item" onclick="toggleMenu('optionsMenu', event)" onmouseenter="onMenuItemHover('optionsMenu', event)">Seçenekler</div>
-          <div class="menu-item" onclick="toggleMenu('helpMenu', event)" onmouseenter="onMenuItemHover('helpMenu', event)">Yardım</div>
+          <div class="menu-item" onclick="toggleMenu('edtFileMenu', event)" onmouseenter="onMenuItemHover('edtFileMenu', event)">Dosya</div>
+          <div class="menu-item" onclick="toggleMenu('edtEditMenu', event)" onmouseenter="onMenuItemHover('edtEditMenu', event)">Edit</div>
+          <div class="menu-item" onclick="toggleMenu('edtFindMenu', event)" onmouseenter="onMenuItemHover('edtFindMenu', event)">Bul</div>
+          <div class="menu-item" onclick="toggleMenu('edtTextMenu', event)" onmouseenter="onMenuItemHover('edtTextMenu', event)">Metin</div>
+          <div class="menu-item" onclick="toggleMenu('edtOptsMenu', event)" onmouseenter="onMenuItemHover('edtOptsMenu', event)">Opsiyonlar</div>
+          <div class="menu-item" onclick="toggleMenu('edtHelpMenu', event)" onmouseenter="onMenuItemHover('edtHelpMenu', event)">Yardım</div>
         </div>
         <div class="retro-zoom-controls">
           <span class="retro-zoom-label">🔍 Ölçek:</span>
@@ -1676,53 +1658,7 @@ body {
         </div>
       </div>
 
-      <!-- Dropdown Menus -->
-      <div class="dropdown" id="fileMenu">
-        <div class="dropdown-item" onclick="winAlert('Bu özellik sadece veri görüntüleme amaçlıdır.')">&Yeni</div>
-        <div class="dropdown-item" onclick="winAlert('Bu özellik sadece veri görüntüleme amaçlıdır.')">Dosya &Açma</div>
-        <div class="dropdown-sep"></div>
-        <div class="dropdown-item" onclick="winAlert('Bu özellik sadece veri görüntüleme amaçlıdır.')">Çıkış</div>
-      </div>
-      <div class="dropdown" id="editMenu">
-        <div class="dropdown-item" onclick="winAlert('Bu özellik sadece veri görüntüleme amaçlıdır.')">Kopyala</div>
-        <div class="dropdown-item" onclick="winAlert('Bu özellik sadece veri görüntüleme amaçlıdır.')">Yapıştır</div>
-      </div>
-      <div class="dropdown" id="searchMenu">
-        <div class="dropdown-item" onclick="showFindDialog()">Al ve bul</div>
-        <div class="dropdown-item" onclick="showReplaceDialog()">Değiştir</div>
-      </div>
-      <div class="dropdown" id="checkMenu">
-        <div class="dropdown-item" onclick="openTextEditor()">Türkçe Denetim Editörü</div>
-        <div class="dropdown-sep"></div>
-        <div class="dropdown-item" onclick="showCheckOptions()">Denetim Opsiyonları</div>
-      </div>
-      <div class="dropdown" id="dictMenu">
-        <div class="dropdown-item" onclick="openWindow('ing-tr')">Leb demeden (İngilizce → Türkçe)</div>
-        <div class="dropdown-item" onclick="openWindow('tr-ing')">Leb demeden (Türkçe → İngilizce)</div>
-        <div class="dropdown-sep"></div>
-        <div class="dropdown-item" onclick="openWindow('synonyms')">Eş Anlamlı kelimeler</div>
-        <div class="dropdown-sep"></div>
-        <div class="dropdown-item" onclick="openWindow('tr-tr')">Türkçe Leb Demeden</div>
-      </div>
-      <div class="dropdown" id="gameMenu">
-        <div class="dropdown-item" onclick="openWindow('quiz')">Kelime Oyunu</div>
-        <div class="dropdown-sep"></div>
-        <div class="dropdown-item" onclick="showOyunKelimeleriDialog()">Oyun Kelimeleri...</div>
-      </div>
-      <div class="dropdown" id="statsMenu">
-        <div class="dropdown-item" onclick="openStatsWindow()">Metin İstatistik</div>
-      </div>
-      <div class="dropdown" id="optionsMenu">
-        <div class="dropdown-item" onclick="openCharacterList('win-kbd-select')">Karakter Listesi</div>
-        <div class="dropdown-item" onclick="showKeyboardModule()">Klavye Seçimi</div>
-        <div class="dropdown-item" onclick="showVirtualKeyboard()">Klavye Harita Göstergesi</div>
-        <div class="dropdown-item" onclick="winAlert('Bu özellik sadece veri görüntüleme amaçlıdır.')">Genel tanımlar</div>
-      </div>
-      <div class="dropdown" id="helpMenu">
-        <div class="dropdown-item" onclick="showAbout()">MoonStar Hakkında</div>
-      </div>
-
-      <!-- Editor Dropdown Menus (Exact 0x5C200 MTU.EXE Resources) -->
+      <!-- Dropdown Menus (Exact 0x5C200 MTU.EXE Resources) -->
       <div class="dropdown" id="edtFileMenu">
         <div class="dropdown-item" onclick="editorNew('win-edt')">Yeni Dosya</div>
         <div class="dropdown-item" onclick="editorOpenDemo('win-edt')">Dosya Açma (TEST)</div>
@@ -1740,7 +1676,7 @@ body {
         <div class="dropdown-item" onclick="editorCut('win-edt')">Kes <span style="float:right;color:#666;font-size:11px;margin-left:12px;">^X</span></div>
         <div class="dropdown-item" onclick="editorCopy('win-edt')">Kopyala <span style="float:right;color:#666;font-size:11px;margin-left:12px;">^C</span></div>
         <div class="dropdown-item" onclick="editorPaste('win-edt')">Yapıştır <span style="float:right;color:#666;font-size:11px;margin-left:12px;">^V</span></div>
-        <div class="dropdown-item" onclick="editorClear('win-edt')">Temizle</div>
+        <div class="dropdown-item" onclick="editorSave('win-edt')">Diske kaydet</div>
         <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="editorUppercase('win-edt')">Büyük harf <span style="float:right;color:#666;font-size:11px;margin-left:12px;">^Q</span></div>
         <div class="dropdown-item" onclick="editorLowercase('win-edt')">Küçük harf <span style="float:right;color:#666;font-size:11px;margin-left:12px;">^W</span></div>
@@ -1757,14 +1693,17 @@ body {
         <div class="dropdown-item" onclick="editorSpellCheck('win-edt')">Denetle <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F5</span></div>
         <div class="dropdown-item" onclick="editorDictCheck('win-edt')">Sözlük kontrol <span style="float:right;color:#666;font-size:11px;margin-left:12px;">Shift+F5</span></div>
         <div class="dropdown-sep"></div>
-        <div class="dropdown-item" onclick="showCheckOptions()">Denetim Opsiyonları...</div>
+        <div class="dropdown-item" onclick="showCheckOptions()">Denetim Opsiyonlar...</div>
         <div class="dropdown-item" onclick="editorShowUserDict('win-edt')">Kullanıcı sözlük...</div>
+        <div class="dropdown-item" onclick="winAlert('Kontrol sözlüğü (KONTROL.SOZ) hazır.')">Kontrol sözlük...</div>
         <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="editorLookupTur('win-edt')">Leb demeden (Türkçe) <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F6</span></div>
         <div class="dropdown-item" onclick="editorLookupTrk('win-edt')">Leb demeden (İngilizce) <span style="float:right;color:#666;font-size:11px;margin-left:12px;">Shift+F6</span></div>
+        <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="editorLookupSyn('win-edt')">Eş Anlamlı kelimeler <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F7</span></div>
         <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="editorLookupRev('win-edt')">Türkçe -> İngilizce <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F8</span></div>
+        <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="editorLookupTrk('win-edt')">İngilizce -> Türkçe <span style="float:right;color:#666;font-size:11px;margin-left:12px;">Shift+F8</span></div>
         <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="editorShowStats('win-edt')">Metin İstatistik <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F9</span></div>
@@ -1772,12 +1711,13 @@ body {
       <div class="dropdown" id="edtOptsMenu">
         <div class="dropdown-item" onclick="openCharacterList('win-kbd-select')">Karakter Listesi...</div>
         <div class="dropdown-item" onclick="showKeyboardModule()">Klavye Seçimi...</div>
-        <div class="dropdown-item" onclick="showVirtualKeyboard()">Klavye Harita Göstergesi...</div>
         <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Dil Denetim ve Editör Sistemi v5.10')">Genel tanımlar...</div>
       </div>
       <div class="dropdown" id="edtHelpMenu">
         <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Denetim Editörü Kılavuzu:\n\n• F5: İmla Denetimi\n• Shift+F5: Sözlük Kontrol Raporu\n• F3: Bul\n• F4: Değiştir\n• F6: Türkçe Leb Demeden\n• F7: Eş Anlamlı Kelimeler\n• F8: Türkçe -> İngilizce\n• F9: Metin İstatistikleri\n• Ctrl+Q: Büyük Harf\n• Ctrl+W: Küçük Harf\n• Alt+F8: Kaydet')">İçerik (F1)</div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="showChangelog()">Change Log</div>
         <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="showAbout()">MoonStar Hakkında</div>
       </div>
@@ -1848,6 +1788,58 @@ body {
       <!-- Bottom row: Tamam button -->
       <div style="display:flex; justify-content:center; margin-top: 4px;">
         <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="closeDialog('aboutDialog')" title="Tamam"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Changelog Dialog -->
+<div class="dialog-overlay" id="changelogDialog">
+  <div class="win-window" style="width:480px;height:430px;display:flex;flex-direction:column;">
+    <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">MoonStar - Change Log</span>
+      <div class="win-title-btns"><button onclick="closeDialog('changelogDialog')">✕</button></div>
+    </div>
+    <div class="win-body" style="padding:10px;flex:1;display:flex;flex-direction:column;min-height:0;background:#c0c0c0;gap:8px;box-sizing:border-box;">
+      <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;padding:12px 6px 6px;margin:0;"><legend>Sürüm Notları</legend>
+        <div class="win-list" style="flex:1;overflow-y:auto;background:#fff;padding:10px 12px;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;font-size:12px;line-height:1.6;color:#000;">
+          <div style="font-size:13px;font-weight:bold;color:#000080;border-bottom:1px solid #000080;padding-bottom:2px;margin-bottom:6px;">
+            v5.10 (Modern Web Sürümü)
+          </div>
+          <ul style="margin:0 0 12px 0;padding-left:18px;">
+            <li><strong>Kelime Oyunu:</strong> 36 farklı konu başlığı, 12.437 kelimelik soru havuzu, retro ses efektleri ve 10 aşamalı darağacı.</li>
+            <li><strong>Türkçe Q & F Sanal Klavye:</strong> Özel karakter seçimi, CP1254 karakter tablosu ve editöre aktarma desteği.</li>
+            <li><strong>Sözlük Motoru:</strong>
+              <div style="margin-left:8px;font-size:11px;color:#333;">
+                • İngilizce ➔ Türkçe (17.988 kelime)<br>
+                • Türkçe ➔ İngilizce (31.821 kelime)<br>
+                • Türkçe Eş Anlamlılar (28.266 kelime)<br>
+                • Türkçe Leb Demeden (26.775 kelime)
+              </div>
+            </li>
+            <li><strong>Türkçe Denetim Editörü:</strong> Canlı imla denetimi, sözlük kontrol raporu, kullanıcı sözlüğü yönetimi ve metin istatistikleri.</li>
+            <li><strong>Windows 3.1 UX:</strong> Çoklu pencere sürükleme, derinlik odak yönetimi ve orijinal Win16 menü yapısı.</li>
+          </ul>
+
+          <div style="font-size:13px;font-weight:bold;color:#800000;border-bottom:1px solid #800000;padding-bottom:2px;margin-bottom:6px;">
+            v5.00 (Orijinal Win16 Sürümü - 1994)
+          </div>
+          <ul style="margin:0 0 12px 0;padding-left:18px;">
+            <li>İlk Windows 3.1 16-bit sürümü (Borland C++).</li>
+            <li>Türkçe Denetim Editörü, morfolojik analiz ve heceleme motoru.</li>
+            <li>İHLAS Bilgi İşlem ve Ticaret A.Ş. dağıtımı.</li>
+          </ul>
+
+          <div style="font-size:13px;font-weight:bold;color:#008000;border-bottom:1px solid #008000;padding-bottom:2px;margin-bottom:6px;">
+            Credits
+          </div>
+          <ul style="margin:0;padding-left:18px;">
+            <li><a href="https://github.com/erengy" target="_blank" style="color:#000080;text-decoration:underline;">https://github.com/erengy</a></li>
+            <li><a href="https://github.com/yasinkuyu" target="_blank" style="color:#000080;text-decoration:underline;">https://github.com/yasinkuyu</a></li>
+          </ul>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:center;margin-top:2px;">
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="closeDialog('changelogDialog')" title="Tamam"></div>
       </div>
     </div>
   </div>
@@ -3409,7 +3401,7 @@ function showKeyboardModule() {
       <!-- Left Column -->
       <div style="flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;height:100%;">
         <!-- 1.Klavye Group Box -->
-        <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;margin:0;"><legend>1.Klavye</legend>
+        <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;margin:0;padding:12px 4px 4px;"><legend>1.Klavye</legend>
           <div class="win-list" style="flex:1;overflow-y:auto;background:#fff;" id="${id}-kbd1">
             <div class="dict-word" style="border-bottom:none; font-weight:bold; font-family:inherit;" onclick="selectKbdLayout('${id}', 1, 'F', this)">Türkçe F-Klavye</div>
             <div class="dict-word dict-sel" style="border-bottom:none; font-weight:bold; font-family:inherit;" onclick="selectKbdLayout('${id}', 1, 'Q', this)">Türkçe Q-Klavye</div>
@@ -3418,7 +3410,7 @@ function showKeyboardModule() {
         </div>
         
         <!-- 2.Klavye Group Box -->
-        <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;margin:0;"><legend>2.Klavye</legend>
+        <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;margin:0;padding:12px 4px 4px;"><legend>2.Klavye</legend>
           <div class="win-list" style="flex:1;overflow-y:auto;background:#fff;" id="${id}-kbd2">
             <div class="dict-word dict-sel" style="border-bottom:none; font-weight:bold; font-family:inherit;" onclick="selectKbdLayout('${id}', 2, 'F', this)">Türkçe F-Klavye</div>
             <div class="dict-word" style="border-bottom:none; font-weight:bold; font-family:inherit;" onclick="selectKbdLayout('${id}', 2, 'Q', this)">Türkçe Q-Klavye</div>
@@ -3427,7 +3419,7 @@ function showKeyboardModule() {
         </div>
         
         <!-- Dikkat Group Box -->
-        <div class="group-box" style="flex-shrink:0;padding:4px;margin:0;text-align:center;font-size:11px;line-height:1.4;font-weight:bold;"><legend>Dikkat</legend>
+        <div class="group-box" style="flex-shrink:0;padding:12px 6px 6px;margin:0;text-align:center;font-size:11px;line-height:1.4;font-weight:bold;"><legend>Dikkat</legend>
           <div>Klavyeler arasında geçiş</div>
           <div>CTRL+F1 tuşu ile yapılır</div>
         </div>
@@ -4728,10 +4720,15 @@ function closeSpellCheck() {
   }
 }
 
-// ─── Show About ───────────────────────────────────────────────────────────
+// ─── Show About & Changelog ──────────────────────────────────────────────
 function showAbout() {
   closeAllMenus();
   document.getElementById('aboutDialog').classList.add('open');
+}
+
+function showChangelog() {
+  closeAllMenus();
+  document.getElementById('changelogDialog').classList.add('open');
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────
