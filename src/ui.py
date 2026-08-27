@@ -1694,6 +1694,36 @@ body {
         <div class="dropdown-item" onclick="showAbout()">MoonStar Hakkında</div>
       </div>
 
+      <!-- Editor Dropdown Menus -->
+      <div class="dropdown" id="edtFileMenu">
+        <div class="dropdown-item" onclick="editorNew('win-edt')">Yeni</div>
+        <div class="dropdown-item" onclick="editorOpenDemo('win-edt')">Dosya Açma (TEST)</div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="editorSave('win-edt')">Kaydet</div>
+        <div class="dropdown-item" onclick="closeWindow('win-edt')">Kapat</div>
+      </div>
+      <div class="dropdown" id="edtEditMenu">
+        <div class="dropdown-item" onclick="editorUndo('win-edt')">Geri Al</div>
+        <div class="dropdown-sep"></div>
+        <div class="dropdown-item" onclick="editorCut('win-edt')">Kes</div>
+        <div class="dropdown-item" onclick="editorCopy('win-edt')">Kopyala</div>
+        <div class="dropdown-item" onclick="editorPaste('win-edt')">Yapıştır</div>
+        <div class="dropdown-item" onclick="editorClear('win-edt')">Temizle</div>
+      </div>
+      <div class="dropdown" id="edtFindMenu">
+        <div class="dropdown-item" onclick="editorShowFind('win-edt')">Bul...</div>
+        <div class="dropdown-item" onclick="editorShowReplace('win-edt')">Değiştir...</div>
+      </div>
+      <div class="dropdown" id="edtTextMenu">
+        <div class="dropdown-item" onclick="editorSpellCheck('win-edt')">Yazım Denetimi (F2)</div>
+      </div>
+      <div class="dropdown" id="edtOptsMenu">
+        <div class="dropdown-item" onclick="showCheckOptions()">Denetim Opsiyonları...</div>
+      </div>
+      <div class="dropdown" id="edtHelpMenu">
+        <div class="dropdown-item" onclick="showAbout()">MoonStar Hakkında</div>
+      </div>
+
       <!-- Client Area for Child Windows -->
       <div class="work-area" id="workArea" style="flex:1 1 0;min-height:0;">
         <!-- Windows will be added here dynamically -->
@@ -2004,15 +2034,17 @@ function closeAllMenus() {
 function toggleMenu(id, event) {
   event.stopPropagation();
   const menu = document.getElementById(id);
+  if (!menu) return;
   const isOpen = menu.classList.contains('open');
   closeAllMenus();
   if (!isOpen) {
     menu.classList.add('open');
     event.target.classList.add('open');
-    // Position menu below menu item
+    // Position menu below menu item considering UI zoom scale
+    const scale = state.uiScale || 1.0;
     const rect = event.target.getBoundingClientRect();
-    menu.style.left = rect.left + 'px';
-    menu.style.top = (rect.bottom + 1) + 'px';
+    menu.style.left = (rect.left / scale) + 'px';
+    menu.style.top = ((rect.bottom + 1) / scale) + 'px';
   }
 }
 
@@ -2098,9 +2130,6 @@ function openWindow(type, opts) {
         <div style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">${config.type==='trk'?'Türkçe Karşılık':'İngilizce Karşılık'}</div>
         <input class="win-input" type="text" readonly style="width:100%;background:#c0c0c0;color:#000;" id="${id}-detail">
       </div>
-      
-      <!-- Status bar -->
-      <div class="win-status" id="${id}-status" style="flex-shrink:0;padding:2px 4px;border-top:1px solid #808080;font-size:11px;"></div>
     </div>`;
   } else if (config.type === 'syn') {
     html += `<div class="win-body" style="padding:10px;flex:1;display:flex;flex-direction:column;min-height:0;background:#c0c0c0;color:#000;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;gap:8px;box-sizing:border-box;">
@@ -2161,7 +2190,6 @@ function openWindow(type, opts) {
       <div class="group-box" style="flex:1;display:flex;flex-direction:column;margin-bottom:4px;"><legend>Türkçe Sözcükler</legend>
         <div class="win-list" style="flex:1;overflow-y:auto;" id="${id}-list"></div>
       </div>
-      <div class="win-status" id="${id}-status" style="flex-shrink:0;"></div>
     </div>`;
   } else if (config.type === 'stats') {
     html += `<div class="win-body" id="${id}-body" style="padding:4px;flex:1;display:flex;flex-direction:column;min-height:0;overflow:auto;"><div class="loading">Yükleniyor...</div></div>`;
@@ -3777,53 +3805,20 @@ function openTextEditor() {
   html += `<div class="win-body" style="padding:0;flex:1;display:flex;flex-direction:column;min-height:0;background:#c0c0c0;color:#000;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;position:relative;">`;
   
   // Editor local Menu Bar
-  html += `  <div class="menu-bar" style="border-bottom:1px solid #808080;padding:1px 2px;background:#c0c0c0;flex-shrink:0;user-select:none;display:flex;gap:4px;">`;
-  html += `    <div class="menu-item" onclick="toggleEditorMenu('${id}-file-menu', event)" style="padding:2px 6px;cursor:pointer;">Dosya</div>`;
-  html += `    <div class="menu-item" onclick="toggleEditorMenu('${id}-edit-menu', event)" style="padding:2px 6px;cursor:pointer;">Edit</div>`;
-  html += `    <div class="menu-item" onclick="toggleEditorMenu('${id}-find-menu', event)" style="padding:2px 6px;cursor:pointer;">Bul</div>`;
-  html += `    <div class="menu-item" onclick="toggleEditorMenu('${id}-text-menu', event)" style="padding:2px 6px;cursor:pointer;">Metin</div>`;
-  html += `    <div class="menu-item" onclick="toggleEditorMenu('${id}-opts-menu', event)" style="padding:2px 6px;cursor:pointer;">Opsiyonlar</div>`;
-  html += `    <div class="menu-item" onclick="toggleEditorMenu('${id}-help-menu', event)" style="padding:2px 6px;cursor:pointer;">Yardım</div>`;
-  html += `  </div>`;
-  
-  // Editor absolute dropdown menus (contained inside the editor win-body)
-  html += `  <div class="dropdown editor-dropdown" id="${id}-file-menu" style="display:none;position:absolute;left:2px;top:21px;z-index:100;background:#c0c0c0;border:2px solid;border-color:#fff #555 #555 #fff;min-width:140px;box-shadow:2px 2px 5px rgba(0,0,0,0.2);">`;
-  html += `    <div class="dropdown-item" onclick="editorNew('${id}')" style="padding:4px 8px;cursor:pointer;">Yeni</div>`;
-  html += `    <div class="dropdown-item" onclick="editorOpenDemo('${id}')" style="padding:4px 8px;cursor:pointer;">Dosya Açma (TEST)</div>`;
-  html += `    <div class="dropdown-sep" style="border-top:1px solid #808080;border-bottom:1px solid #fff;margin:2px 0;"></div>`;
-  html += `    <div class="dropdown-item" onclick="editorSave('${id}')" style="padding:4px 8px;cursor:pointer;">Kaydet</div>`;
-  html += `    <div class="dropdown-item" onclick="closeWindow('${id}')" style="padding:4px 8px;cursor:pointer;">Kapat</div>`;
-  html += `  </div>`;
-  
-  html += `  <div class="dropdown editor-dropdown" id="${id}-edit-menu" style="display:none;position:absolute;left:48px;top:21px;z-index:100;background:#c0c0c0;border:2px solid;border-color:#fff #555 #555 #fff;min-width:100px;box-shadow:2px 2px 5px rgba(0,0,0,0.2);">`;
-  html += `    <div class="dropdown-item" onclick="editorUndo('${id}')" style="padding:4px 8px;cursor:pointer;">Geri Al</div>`;
-  html += `    <div class="dropdown-sep" style="border-top:1px solid #808080;border-bottom:1px solid #fff;margin:2px 0;"></div>`;
-  html += `    <div class="dropdown-item" onclick="editorCut('${id}')" style="padding:4px 8px;cursor:pointer;">Kes</div>`;
-  html += `    <div class="dropdown-item" onclick="editorCopy('${id}')" style="padding:4px 8px;cursor:pointer;">Kopyala</div>`;
-  html += `    <div class="dropdown-item" onclick="editorPaste('${id}')" style="padding:4px 8px;cursor:pointer;">Yapıştır</div>`;
-  html += `    <div class="dropdown-item" onclick="editorClear('${id}')" style="padding:4px 8px;cursor:pointer;">Temizle</div>`;
-  html += `  </div>`;
-  
-  html += `  <div class="dropdown editor-dropdown" id="${id}-find-menu" style="display:none;position:absolute;left:82px;top:21px;z-index:100;background:#c0c0c0;border:2px solid;border-color:#fff #555 #555 #fff;min-width:120px;box-shadow:2px 2px 5px rgba(0,0,0,0.2);">`;
-  html += `    <div class="dropdown-item" onclick="editorShowFind('${id}')" style="padding:4px 8px;cursor:pointer;">Bul...</div>`;
-  html += `    <div class="dropdown-item" onclick="editorShowReplace('${id}')" style="padding:4px 8px;cursor:pointer;">Değiştir...</div>`;
-  html += `  </div>`;
-  
-  html += `  <div class="dropdown editor-dropdown" id="${id}-text-menu" style="display:none;position:absolute;left:112px;top:21px;z-index:100;background:#c0c0c0;border:2px solid;border-color:#fff #555 #555 #fff;min-width:160px;box-shadow:2px 2px 5px rgba(0,0,0,0.2);">`;
-  html += `    <div class="dropdown-item" onclick="editorSpellCheck('${id}')" style="padding:4px 8px;cursor:pointer;">Yazım Denetimi (F2)</div>`;
-  html += `  </div>`;
-  
-  html += `  <div class="dropdown editor-dropdown" id="${id}-opts-menu" style="display:none;position:absolute;left:150px;top:21px;z-index:100;background:#c0c0c0;border:2px solid;border-color:#fff #555 #555 #fff;min-width:160px;box-shadow:2px 2px 5px rgba(0,0,0,0.2);">`;
-  html += `    <div class="dropdown-item" onclick="showCheckOptions()" style="padding:4px 8px;cursor:pointer;">Denetim Opsiyonları...</div>`;
-  html += `  </div>`;
-  
-  html += `  <div class="dropdown editor-dropdown" id="${id}-help-menu" style="display:none;position:absolute;left:205px;top:21px;z-index:100;background:#c0c0c0;border:2px solid;border-color:#fff #555 #555 #fff;min-width:140px;box-shadow:2px 2px 5px rgba(0,0,0,0.2);">`;
-  html += `    <div class="dropdown-item" onclick="showAbout()" style="padding:4px 8px;cursor:pointer;">MoonStar Hakkında</div>`;
+  html += `  <div class="menu-bar" style="justify-content:flex-start;gap:0;padding:1px 2px;border-bottom:1px solid #808080;background:#c0c0c0;flex-shrink:0;user-select:none;">`;
+  html += `    <div class="menu-items-group" style="display:flex;align-items:center;gap:0;">`;
+  html += `      <div class="menu-item" onclick="toggleMenu('edtFileMenu', event)" style="padding:3px 8px;cursor:pointer;">Dosya</div>`;
+  html += `      <div class="menu-item" onclick="toggleMenu('edtEditMenu', event)" style="padding:3px 8px;cursor:pointer;">Edit</div>`;
+  html += `      <div class="menu-item" onclick="toggleMenu('edtFindMenu', event)" style="padding:3px 8px;cursor:pointer;">Bul</div>`;
+  html += `      <div class="menu-item" onclick="toggleMenu('edtTextMenu', event)" style="padding:3px 8px;cursor:pointer;">Metin</div>`;
+  html += `      <div class="menu-item" onclick="toggleMenu('edtOptsMenu', event)" style="padding:3px 8px;cursor:pointer;">Opsiyonlar</div>`;
+  html += `      <div class="menu-item" onclick="toggleMenu('edtHelpMenu', event)" style="padding:3px 8px;cursor:pointer;">Yardım</div>`;
+  html += `    </div>`;
   html += `  </div>`;
   
   // Monospace text editor field
   html += `  <div style="flex:1;min-height:0;position:relative;background:#fff;border-top:1px solid #808080;">`;
-  html += `    <textarea id="${id}-textarea" style="width:100%;height:100%;border:none;outline:none;resize:none;font-family:'Courier New', monospace;font-size:14px;padding:8px;box-sizing:border-box;background:#fff;color:#000;line-height:1.4;white-space:pre-wrap;overflow-y:scroll;" onfocus="closeAllEditorMenus()"></textarea>`;
+  html += `    <textarea id="${id}-textarea" style="width:100%;height:100%;border:none;outline:none;resize:none;font-family:'Courier New', monospace;font-size:14px;padding:8px;box-sizing:border-box;background:#fff;color:#000;line-height:1.4;white-space:pre-wrap;overflow-y:scroll;" onfocus="closeAllMenus()"></textarea>`;
   html += `  </div>`;
   
   // Status Bar
@@ -3843,23 +3838,6 @@ function openTextEditor() {
       editorSpellCheck(id);
     }
   });
-  
-  // Global click handler to close editor dropdowns
-  document.addEventListener('click', closeAllEditorMenus);
-}
-
-function toggleEditorMenu(menuId, event) {
-  event.stopPropagation();
-  const dropdown = document.getElementById(menuId);
-  const wasOpen = dropdown.style.display === 'block';
-  closeAllEditorMenus();
-  if (!wasOpen) {
-    dropdown.style.display = 'block';
-  }
-}
-
-function closeAllEditorMenus() {
-  document.querySelectorAll('.editor-dropdown').forEach(d => d.style.display = 'none');
 }
 
 function editorNew(winId) {
