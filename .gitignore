@@ -1,5 +1,4 @@
-data/*
-!data/README
+data/
 assets/extracted/
 scratch/
 output/
