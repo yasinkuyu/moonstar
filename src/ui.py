@@ -154,7 +154,52 @@ def load_synonyms():
 
     word_thesaurus = defaultdict(lambda: defaultdict(set))
 
-    # 1. Extract clean meaning blocks from MTU.TRK
+    # 1. Exact MTU.TES Binary Graph Decoding (Bidirectional linkage)
+    if os.path.exists(tur_path) and os.path.exists(tes_path):
+        with open(tur_path, "r", encoding="utf-8") as f:
+            tur_raw = [line.strip() for line in f if line.strip()]
+        if len(tur_raw) > 288 and tur_raw[288].lower() == 'akıl':
+            tur_raw[288] = 'ağıl'
+
+        with open(tes_path, "rb") as f:
+            tes_data = f.read()
+
+        for idx in range(len(tur_raw)):
+            if idx * 3 + 3 > 96003:
+                break
+            off = struct.unpack('<L', tes_data[idx*3:(idx+1)*3] + b'\x00')[0]
+            if off < 96003 or off >= len(tes_data):
+                continue
+
+            chunk = tes_data[off:min(len(tes_data), off + 45)]
+            w_src = tur_raw[idx].lower()
+            p = 0
+            while p <= len(chunk) - 3:
+                b0 = chunk[p]
+                if b0 in [0x05, 0x15, 0x45, 0x80, 0x84, 0x85, 0xca, 0x0b]:
+                    break
+
+                if b0 in [0xFF, 0xC0, 0x00, 0x10]:
+                    val = chunk[p+1] | (chunk[p+2] << 8)
+                    if 0 < val < len(tur_raw) and val != idx:
+                        w_tgt = tur_raw[val].lower()
+                        word_thesaurus[w_src]["1.Anlam"].add(w_tgt)
+                        word_thesaurus[w_tgt]["1.Anlam"].add(w_src)
+                    p += 3
+                    continue
+
+                b1, b2 = chunk[p+1], chunk[p+2]
+                val = b0 | (b1 << 8)
+                if b2 in [0, 1, 2] and 0 < val < len(tur_raw) and val != idx:
+                    grp_name = "1.Anlam" if b2 == 0 else ("2.Anlam" if b2 == 1 else "Mecaz")
+                    w_tgt = tur_raw[val].lower()
+                    word_thesaurus[w_src][grp_name].add(w_tgt)
+                    word_thesaurus[w_tgt][grp_name].add(w_src)
+                    p += 3
+                    continue
+                break
+
+    # 2. Add MTU.TRK Bilingual Concept Clusters
     if os.path.exists(trk_path):
         tr_to_blocks = defaultdict(list)
         with open(trk_path, "r", encoding="utf-8") as f:
@@ -189,7 +234,7 @@ def load_synonyms():
                 if not merged:
                     clusters.append((is_mec, set(blk)))
 
-            anlam_count = 0
+            anlam_count = len([g for g in word_thesaurus[word_lower] if '.Anlam' in g])
             for is_mec, cl in clusters:
                 syns = {w for w in cl if w != word_lower}
                 if syns:
@@ -200,74 +245,20 @@ def load_synonyms():
                         grp_name = f"{anlam_count}.Anlam"
                     word_thesaurus[word_lower][grp_name].update(syns)
 
-    # 2. Add MTU.TES Clean Slots
-    if os.path.exists(tur_path) and os.path.exists(tes_path):
+    # 3. Format entries for UI — across ALL words
+    all_known_words = set(word_thesaurus.keys())
+    if os.path.exists(tur_path):
         with open(tur_path, "r", encoding="utf-8") as f:
-            tur_raw = [line.strip() for line in f if line.strip()]
-        if len(tur_raw) > 288 and tur_raw[288].lower() == 'akıl':
-            tur_raw[288] = 'ağıl'
+            for line in f:
+                w = line.strip().lower()
+                if w:
+                    all_known_words.add(w)
 
-        with open(tes_path, "rb") as f:
-            tes_data = f.read()
-
-        for idx in range(len(tur_raw)):
-            headword = tur_raw[idx].lower()
-            if idx * 3 + 3 > 96003:
-                break
-            off = struct.unpack('<L', tes_data[idx*3:(idx+1)*3] + b'\x00')[0]
-            if off < 96003 or off >= len(tes_data):
-                continue
-
-            chunk = tes_data[off:min(len(tes_data), off + 100)]
-            p = 0
-            while p <= len(chunk) - 3:
-                b0, b1, b2 = chunk[p], chunk[p+1], chunk[p+2]
-                if b0 in [0x05, 0x15, 0x45, 0x80, 0x84, 0x85, 0xca, 0x0b, 0xff]:
-                    break
-                if b0 in [0x00, 0x10]:
-                    val = b1 | (b2 << 8)
-                    if 0 < val < len(tur_raw) and val != idx:
-                        cw = clean_turkish_synonym(tur_raw[val])
-                        if cw and cw.lower() != headword:
-                            word_thesaurus[headword]["1.Anlam"].add(cw.lower())
-                    p += 3
-                    continue
-                val = b0 | (b1 << 8)
-                if b2 in [0, 1, 2] and 0 < val < len(tur_raw) and val != idx:
-                    grp_name = "1.Anlam" if b2 == 0 else ("2.Anlam" if b2 == 1 else "Mecaz")
-                    cw = clean_turkish_synonym(tur_raw[val])
-                    if cw and cw.lower() != headword:
-                        word_thesaurus[headword][grp_name].add(cw.lower())
-                    p += 3
-                    continue
-                break
-
-    # Ground truth exact groupings for benchmark words from original Win16 memory dump (0x60348)
-    ground_truth = {
-        'yüz': {
-            '1.Anlam': {'beniz', 'bet', 'bet beniz', 'çehre', 'fizyonomi', 'sıfat', 'sima', 'surat', 'vecih'},
-            '2.Anlam': {'yüzey', 'satıh'},
-            'Mecaz': {'alın damarı', 'ar', 'arlanma', 'haya', 'hicap', 'mahcubiyet', 'sıkılganlık', 'sıkılma', 'utanç', 'utangaçlık', 'utanma'},
-        },
-        'yüzlemek': {
-            '1.Anlam': {'ayıplamak', 'atıp tutmak', 'batırmak', 'beğenmemek', 'çirkinsemek', 'diliyle sokmak', 'itham etmek', 'kınamak', 'kötülemek', 'kötü saymak', 'rezil etmek', 'suçlamak', 'takbih etmek', 'taşlamak', 'utandırmak', 'yermek', 'yüzüne çarpmak', 'yüzüne vurmak'},
-        },
-        'yüzsüzce': {
-            '1.Anlam': {'arlanmadan', 'arsızca', 'hayasızca', 'sıkılmadan', 'utanmadan', 'yüzü kızarmadan'},
-        },
-        'yüzsüz': {
-            '1.Anlam': {'alınlı', 'arsız', 'hayasız', 'küstah', 'pişkin', 'sıkılmaz', 'sıyrık', 'terbiyesiz', 'utanmaz', 'yırtık', 'yüzü pek'},
-        }
-    }
-    for gw, ggroups in ground_truth.items():
-        word_thesaurus[gw] = ggroups
-
-    # 3. Format entries for UI
-    for word_lower, groups_dict in word_thesaurus.items():
+    for word_lower in all_known_words:
+        groups_dict = word_thesaurus.get(word_lower, {})
         formatted_groups = []
         all_syns = set()
 
-        # Sort group names: 1.Anlam, 2.Anlam, ... Mecaz
         ordered_grp_names = []
         num_grps = [g for g in groups_dict.keys() if '.Anlam' in g]
         num_grps.sort(key=lambda x: int(x.split('.')[0]) if x.split('.')[0].isdigit() else 99)
@@ -285,12 +276,11 @@ def load_synonyms():
                 formatted_groups.append(f"{grp_name}::{','.join(syn_list)}")
                 all_syns.update(syn_list)
 
-        if formatted_groups:
-            entries.append({
-                "word": word_lower,
-                "synonyms": ' | '.join(sorted(all_syns, key=turkish_sort_key)),
-                "groups": ' | '.join(formatted_groups),
-            })
+        entries.append({
+            "word": word_lower,
+            "synonyms": ' | '.join(sorted(all_syns, key=turkish_sort_key)),
+            "groups": ' | '.join(formatted_groups),
+        })
 
     return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
 def get_turkish_stem(word):
@@ -2534,7 +2524,7 @@ function getTurkishStem(word) {
   return word;
 }
 
-// ─── Synonyms Trigger & Search Logic ──────────────────────────────────────
+// ─── Türkçe Eş Anlamlı Sözcükler Logic ────────────────────────────────────
 function synTriggerSearch(winId) {
   const input = document.getElementById(winId + '-search');
   const q = input ? input.value.trim() : '';
@@ -2544,7 +2534,6 @@ function synTriggerSearch(winId) {
   if (!fullData || !fullData.length) return;
   
   const qnNorm = normalizeSearch(q);
-  // Exact match first, then stem match, then prefix match
   let match = fullData.find(e => normalizeSearch(e.word) === qnNorm);
   if (!match) {
     const stemNorm = normalizeSearch(getTurkishStem(q));
@@ -2555,16 +2544,13 @@ function synTriggerSearch(winId) {
   }
   
   if (match) {
-    // Update inputs: Sözcük shows user input, Kök Sözcük shows the root word
     document.getElementById(winId + '-search').value = q;
     document.getElementById(winId + '-stem').value = match.word;
     
-    // Populate Anlam Grupları (Primary Meaning Groups + Derived Words)
     const grp = document.getElementById(winId + '-groups');
     const groups = match.groups || '';
     let clusters = [];
 
-    // 1. Primary Meaning Groups (1.Anlam, 2.Anlam, Mecaz...)
     if (groups) {
       const parts = groups.split(' | ').filter(Boolean);
       clusters = parts.map((p, ci) => {
@@ -2591,11 +2577,9 @@ function synTriggerSearch(winId) {
         return `<div class="dict-meaning${ci===0?' meaning-sel':''}" style="cursor:pointer; border-bottom:none; font-weight:bold; font-family:inherit; padding:3px 6px;"
           onclick="synFilterGroup('${winId}', ${ci}, this)">${c.label}</div>`;
       }).join('');
-      // Show first cluster's synonyms by default
       synFilterGroup(winId, 0, grp.querySelector('.dict-meaning'));
     }
   } else {
-    // Not found
     document.getElementById(winId + '-stem').value = '';
     document.getElementById(winId + '-groups').innerHTML = '<div style="color:#888;padding:8px;">Sonuç bulunamadı</div>';
     document.getElementById(winId + '-defn').innerHTML = '<div style="color:#888;padding:8px;">Sonuç bulunamadı</div>';
@@ -2603,19 +2587,16 @@ function synTriggerSearch(winId) {
   }
 }
 
-// Called when user clicks an Anlam Grubu — filters Eş Anlamları to that cluster
 function synFilterGroup(winId, clusterIdx, el) {
   const clusters = state.synClusters && state.synClusters[winId];
   if (!clusters || !clusters[clusterIdx]) return;
 
-  // Highlight selected group
   const grp = document.getElementById(winId + '-groups');
   if (grp) {
     grp.querySelectorAll('.dict-meaning').forEach(e => e.classList.remove('meaning-sel'));
     if (el) el.classList.add('meaning-sel');
   }
 
-  // Show only the Turkish synonyms from this cluster
   const df = document.getElementById(winId + '-defn');
   if (!df) return;
   const trWords = clusters[clusterIdx].tr;
@@ -2633,7 +2614,6 @@ function synFilterGroup(winId, clusterIdx, el) {
     return `<div class="dict-word${i===0?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit; cursor:pointer;" onclick="synonymSelect('${winId}',${i},'${m}')" ondblclick="synonymDblClick('${winId}','${m}')">${m}</div>`;
   }).join('');
   
-  // Set default selected word to the first one in the cluster
   state.synSelectedWord = state.synSelectedWord || {};
   state.synSelectedWord[winId] = displayWords[0] || '';
   synSetReplaceEnabled(winId, false);
@@ -2666,7 +2646,7 @@ function synSetReplaceEnabled(winId, enabled) {
 }
 
 function synTriggerReplace(winId) {
-  // Değiştir is disabled
+  // Win16 editor replace placeholder
 }
 
 // ─── Dictionary Window ───────────────────────────────────────────────────
