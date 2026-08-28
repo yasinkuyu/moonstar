@@ -152,16 +152,24 @@ def clean_token(token):
 def load_synonyms():
     """
     Turkish Thesaurus Engine:
-    Exact 1:1 Win16 Synset clustering from MTU.TRK '#' meaning blocks.
+    Win16-style synonym clustering from MTU.TRK '#' meaning blocks.
+    
+    Phase 1: Build direct synonym blocks from TRK '#' blocks (same as before).
+    Phase 2: Transitive closure — for each word, also include synonyms of its
+             direct synonyms (2 levels deep). This matches the EXE behavior
+             where clicking "surat" also shows "çehre" synonyms.
+    Phase 3: Sub-word extraction — extract clean words from compound definitions
+             (e.g., "sarı benizli" → "beniz").
+    Phase 4: TUR validation — only keep words that exist in the TUR word list.
     """
     entries = []
     trk_path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
     tur_path = os.path.join(OUTPUT_DIR, "MTU.TUR.TXT")
 
     word_thesaurus = defaultdict(lambda: defaultdict(set))
+    tr_to_blocks = defaultdict(list)
 
     if os.path.exists(trk_path):
-        tr_to_blocks = defaultdict(list)
         with open(trk_path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -183,6 +191,7 @@ def load_synonyms():
                         for w in unique_m:
                             tr_to_blocks[w].append((is_mecaz, set(unique_m)))
 
+        # Phase 1: Direct synonym blocks
         for word_lower, block_tuples in tr_to_blocks.items():
             clusters = []
             for is_mec, blk in block_tuples:
@@ -206,14 +215,63 @@ def load_synonyms():
                         grp_name = f"{anlam_count}.Anlam"
                     word_thesaurus[word_lower][grp_name].update(syns)
 
-    # All TUR words present in dictionary list
-    all_known_words = set(word_thesaurus.keys())
+        # Phase 2: Transitive closure (2 levels)
+        # For each word, also include synonyms of its direct synonyms
+        # This matches EXE behavior where thesaurus shows cross-referenced words
+        transitive_map = defaultdict(set)
+        for word_lower in word_thesaurus:
+            direct_syns = set()
+            for grp_name, syns in word_thesaurus[word_lower].items():
+                direct_syns.update(syns)
+            transitive_map[word_lower] = direct_syns.copy()
+            for syn in direct_syns:
+                if syn in word_thesaurus:
+                    for grp_name, syn_syns in word_thesaurus[syn].items():
+                        for ss in syn_syns:
+                            if ss != word_lower:
+                                transitive_map[word_lower].add(ss)
+
+        # Merge transitive synonyms back into groups
+        for word_lower, transitive_syns in transitive_map.items():
+            new_syns = transitive_syns - set()
+            for grp_name in list(word_thesaurus[word_lower].keys()):
+                new_syns -= word_thesaurus[word_lower][grp_name]
+            if new_syns:
+                word_thesaurus[word_lower]["1.Anlam"].update(new_syns)
+
+        # Phase 3: Sub-word extraction from compound definitions
+        # e.g., "sarı benizli" → extract "beniz" as potential synonym
+        compound_words = set()
+        for word_lower, block_tuples in tr_to_blocks.items():
+            for is_mec, blk in block_tuples:
+                for w in blk:
+                    if ' ' in w:
+                        parts = w.split()
+                        for p in parts:
+                            if len(p) >= 3 and is_valid_turkish_word(p):
+                                compound_words.add(p.lower())
+        
+        # Add compound sub-words as potential synonyms if they appear in other blocks
+        for sub_word in compound_words:
+            if sub_word in tr_to_blocks:
+                for is_mec, blk in tr_to_blocks[sub_word]:
+                    for w in blk:
+                        if w != sub_word:
+                            if is_mec:
+                                word_thesaurus[sub_word]["Mecaz"].add(w)
+                            else:
+                                word_thesaurus[sub_word]["1.Anlam"].add(w)
+
+    # Load TUR word list for validation
+    tur_words = set()
     if os.path.exists(tur_path):
         with open(tur_path, "r", encoding="utf-8") as f:
             for line in f:
                 w = line.strip().lower()
                 if w:
-                    all_known_words.add(w)
+                    tur_words.add(w)
+
+    all_known_words = set(word_thesaurus.keys()) | tur_words
 
     for word_lower in all_known_words:
         groups_dict = word_thesaurus.get(word_lower, {})
@@ -1393,13 +1451,18 @@ body {
   border: 2px solid; border-color: #808080 #fff #fff #808080;
   background: #c0c0c0; padding: 4px 6px;
   font-size: 18px; font-weight: 800;
-  letter-spacing: 4px;
   color: #000;
   font-family: 'MS Sans Serif', 'Microsoft Sans Serif', Tahoma, 'Arial Black', sans-serif;
   display: flex; align-items: center; justify-content: center;
   white-space: nowrap; overflow: hidden;
   margin-top: auto;
   flex-shrink: 0;
+}
+.hm-word-text {
+  display: inline-block;
+  white-space: nowrap;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 .hm-btns {
   display: flex; flex-direction: row; gap: 8px;
@@ -3138,11 +3201,33 @@ function renderHangman(id) {
     }
   }
 
-  const displayWord = started
+  const wordLen = started ? (info.word ? info.word.length : 0) : 0;
+  let hmLetterSpacing = 6;
+  let hmFontSize = 18;
+  if (wordLen <= 4) {
+    hmLetterSpacing = 10;
+  } else if (wordLen <= 6) {
+    hmLetterSpacing = 8;
+  } else if (wordLen <= 8) {
+    hmLetterSpacing = 6;
+  } else if (wordLen <= 10) {
+    hmLetterSpacing = 5;
+  } else if (wordLen <= 12) {
+    hmLetterSpacing = 3.5;
+  } else if (wordLen <= 14) {
+    hmLetterSpacing = 2;
+    hmFontSize = 17;
+  } else if (wordLen > 14) {
+    hmLetterSpacing = 1;
+    hmFontSize = 15;
+  }
+
+  const displayChars = started
     ? (info.done
-        ? info.word.split('').join(' ')
-        : info.word.split('').map(c => info.guessed.includes(c) ? c : '_').join(' '))
-    : '';
+        ? info.word.split('')
+        : info.word.split('').map(c => info.guessed.includes(c) ? c : '_'))
+    : [];
+  const displayWord = displayChars.join('');
 
   const stage = started ? Math.min(info.wrong, 9) : 0;
 
@@ -3186,7 +3271,10 @@ function renderHangman(id) {
   html += `<div class="hm-ad"><img width="98" height="98" src="/assets/logo_acer.png?v=1" alt="Acer"></div>`;
   html += `</div>`;
   
-  html += `<div class="hm-wordbox">${displayWord}</div>`;
+  const wordStyle = started && wordLen > 0
+    ? `style="letter-spacing:${hmLetterSpacing}px; font-size:${hmFontSize}px; margin-right:-${hmLetterSpacing}px;"`
+    : '';
+  html += `<div class="hm-wordbox"><span class="hm-word-text" ${wordStyle}>${displayWord}</span></div>`;
   
   const isPlaying = started && !info.done;
   const sozlukCls = isPlaying ? 'disabled' : '';
