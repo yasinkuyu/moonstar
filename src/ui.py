@@ -2159,6 +2159,15 @@ function bringToFront(winId) {
       }
     }
   });
+
+  // Auto-focus primary input in the active window
+  setTimeout(() => {
+    const searchInput = document.getElementById(winId + '-search') || (win && win.querySelector('input[type="text"]:not([readonly])'));
+    if (searchInput) {
+      searchInput.focus();
+      searchInput.select();
+    }
+  }, 50);
 }
 
 function makeDraggable(winEl, handleEl) {
@@ -2645,37 +2654,35 @@ function dictSelect(winId, key2, idx) {
       renderMeanings(winId, val);
     }
   }
-  // Anlam Grupları: show Turkish synonym sub-clusters (grouped by shared English concept)
-  // Format: "en_word::tr1,tr2,tr3" — show only Turkish words, use en_word as tooltip
+  // Anlam Grupları
   const grp = document.getElementById(winId + '-groups');
   if (grp && wd && wd[idx]) {
     const groups = wd[idx]['groups'] || '';
     if (groups && isSyn) {
       const parts = groups.split(' | ').filter(Boolean);
-      const clusters = parts.map(p => {
-        const sep = p.indexOf('::');
-        if (sep === -1) return null;
-        const enWord = p.substring(0, sep);
-        const trWords = p.substring(sep + 2).split(',').filter(Boolean);
-        return { en: enWord, tr: trWords };
+      const clusters = parts.map((p, ci) => {
+        const segs = p.split('::');
+        if (segs.length < 2) return null;
+        let label = segs[0].trim();
+        if (!label.includes('.Anlam') && label !== 'Mecaz' && label !== 'Argo') {
+          label = (ci + 1) + '.Anlam';
+        }
+        const trWords = segs[1].split(',').map(s => s.trim()).filter(Boolean);
+        return { label: label, tr: trWords };
       }).filter(Boolean);
+
+      state.synClusters = state.synClusters || {};
+      state.synClusters[winId] = clusters;
 
       if (clusters.length === 0) {
         grp.innerHTML = '<div style="color:#888;padding:8px;">Grup yok</div>';
       } else {
         grp.innerHTML = clusters.map((c, ci) =>
-          `<div class="dict-meaning${ci===0?' meaning-sel':''}" title="${c.en}" style="cursor:pointer"
-            onclick="synFilterGroup('${winId}', ${ci}, this)">${c.tr.join(' · ')}</div>`
+          `<div class="dict-meaning${ci===0?' meaning-sel':''}" style="cursor:pointer; border-bottom:none; font-weight:bold; font-family:inherit; padding:3px 6px;"
+            onclick="synFilterGroup('${winId}', ${ci}, this)">${c.label}</div>`
         ).join('');
-        // Show first cluster's synonyms by default
-        if (clusters.length > 0) {
-          synFilterGroup(winId, 0, grp.querySelector('.dict-meaning'));
-        }
+        synFilterGroup(winId, 0, grp.querySelector('.dict-meaning'));
       }
-
-      // Store clusters on window state for filtering
-      state.synClusters = state.synClusters || {};
-      state.synClusters[winId] = clusters;
     } else if (grp) {
       grp.innerHTML = '';
     }
