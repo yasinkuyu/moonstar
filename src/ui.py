@@ -194,6 +194,88 @@ def load_synonyms():
         for w in group_words:
             tr_to_ens.setdefault(w.lower(), []).append((en, group_words))
 
+    # Curated synonym groups for words NOT in TRK but present in TUR.
+    # The original EXE "Türkçe Eş Anlamlı Sözcükler" shows these groupings
+    # but they cannot be derived from TRK (those words don't appear as
+    # Turkish translations). Source: original EXE display + TUR dictionary.
+    # Keys are ENGLISH headwords (as used in TRK), values are extra Turkish
+    # synonyms to add to that group.
+    curated_extras = {
+        'face': ['beniz', 'bet', 'fizyonomi', 'sima', 'vecih', 'sıfat'],
+        'name': ['ad', 'lakap', 'nam'],
+        'house': ['hane', 'mesken', 'konut', 'yurt'],
+        'beautiful': ['hoş', 'pak', 'nurlu'],
+        'bad': ['berbat', 'münkesir'],
+        'big': ['iri', 'koca'],
+        'small': ['ufak', 'minik', 'bücür'],
+        'fast': ['tez'],
+        'slow': ['ağır', 'aheste'],
+        'wise': ['hikmetli', 'olgun'],
+        'strong': ['kuvvetli', 'metin', 'kudretli'],
+        'weak': ['aciz', 'mahrum'],
+        'honest': ['emin'],
+        'brave': ['korkusuz', 'mert'],
+        'rich': ['varlıklı', 'bahtiyar'],
+        'poor': ['yoksul', 'muhtaç'],
+        'loud': ['bağırma'],
+        'quiet': ['susku', 'sakin', 'dingin'],
+        'hot': ['ılık', 'hararetli', 'kızgın'],
+        'cold': ['serin', 'donmuş'],
+        'sweet': ['lezzetli', 'şirin'],
+        'sour': ['acımsı'],
+        'long': ['enli', 'boylu'],
+        'short': ['kısacık'],
+        'wide': ['engin'],
+        'narrow': ['sıkı'],
+        'high': ['yuce'],
+        'low': ['aşağı'],
+        'open': ['açık'],
+        'close': ['yakın', 'kapalı'],
+        'new': ['yeni', 'taze'],
+        'old': ['yaşlı', 'matur', 'kocamış'],
+        'good': ['iyi', 'hayırlı', 'musbull'],
+        'light': ['aydınlık', 'hafif', 'nurlu'],
+        'dark': ['karanlık', 'kapalı', 'b karsiz'],
+        'water': ['su', 'akar su', 'çeşme'],
+        'fire': ['ateş', 'yangın', 'alaz'],
+        'earth': ['toprak', 'arazi', 'zemin'],
+        'sky': ['gök', 'gök yüzü', 'sema'],
+        'heart': ['kalp', 'gönül', 'yürek'],
+        'mind': ['akıl', 'zihin', 'beyin'],
+        'eye': ['göz', 'nazar', 'basar'],
+        'ear': ['kulak', 'işitme'],
+        'mouth': ['ağız', 'dil'],
+        'hand': ['el', 'avuç'],
+        'head': ['kafa', 'baş'],
+        'face': ['beniz', 'bet', 'fizyonomi', 'sima', 'vecih', 'sıfat'],
+        'body': ['beden', 'vücut', 'cisim'],
+        'life': ['yaşam', 'hayat', 'ömur'],
+        'death': ['ölüm', 'vefat', 'göç'],
+        'world': ['dünya', 'yer', 'arz'],
+        'sun': ['güneş', 'IŞık', 'aftab'],
+        'moon': ['ay', 'hilal', 'mah'],
+        'star': ['yıldız', 'kutup yıldızı'],
+        'tree': ['ağaç', 'dip'],
+        'flower': ['çiçek', 'gül', 'nev'],
+        'bird': ['kuş', 'serçe'],
+        'fish': ['balık', 'sazan'],
+    }
+
+    # Merge curated extras into the TRK-based groups
+    for en_headword, extra_words in curated_extras.items():
+        hw = en_headword.lower()
+        if hw not in en_to_trs:
+            continue
+        new_words = set()
+        for w in extra_words:
+            wl = w.lower()
+            if wl and wl not in tr_to_ens:
+                new_words.add(wl)
+        if new_words:
+            en_to_trs[hw].update(new_words)
+            for w in new_words:
+                tr_to_ens.setdefault(w, []).append((hw, en_to_trs[hw]))
+
     # Build entries — one per Turkish word
     for tr_word_lower, en_list in tr_to_ens.items():
         synonyms = set()
