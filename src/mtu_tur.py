@@ -402,8 +402,11 @@ def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
             # TR_EN mapping
             for m_block in tr_raw.split('#'):
                 for m in m_block.split('|'):
-                    cw = clean_turkish_synonym(m)
-                    if is_clean_turkish_synonym(cw):
+                    m_clean = m.strip()
+                    if m_clean.startswith('(') and len(m_clean) > 20:
+                        continue
+                    cw = clean_turkish_synonym(m_clean)
+                    if is_clean_turkish_synonym(cw) and len(cw.split()) <= 4:
                         tr_to_en.setdefault(cw, []).append(english)
 
             # Synonym extraction per meaning block (never merge across '#')

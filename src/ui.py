@@ -141,11 +141,18 @@ def is_clean_turkish_synonym(w):
     allowed = set("abcçdefgğhıijklmnoöpqrsştuüvwxyzABCÇDEFGĞHIİJKLMNOÖPQRSŞTUÜVWXYZ -'")
     return all(c in allowed for c in w)
 
+def clean_token(token):
+    """Pure Win16 C++ token parser: strips leading parenthetical tags, whitespace and symbols."""
+    token = token.strip()
+    while token.startswith('(') and ')' in token:
+        token = token[token.find(')')+1:].strip()
+    return token.replace('*', '').strip(' ,;:.-\t\n\r/').lower()
+
+
 def load_synonyms():
     """
     Turkish Thesaurus Engine:
-    Groups Turkish words by shared English headword from MTU.TRK.
-    Each English headword becomes one synonym group containing all its Turkish translations.
+    Exact 1:1 Win16 Synset clustering from MTU.TRK '#' meaning blocks.
     """
     entries = []
     trk_path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
@@ -153,7 +160,6 @@ def load_synonyms():
 
     word_thesaurus = defaultdict(lambda: defaultdict(set))
 
-    # 1. Clean TRK meaning block separation
     if os.path.exists(trk_path):
         tr_to_blocks = defaultdict(list)
         with open(trk_path, "r", encoding="utf-8") as f:
@@ -166,15 +172,16 @@ def load_synonyms():
                     continue
                 en, tr_raw = parts[0], parts[1]
                 for m_block in tr_raw.split('#'):
-                    m_words = set()
                     is_mecaz = "(mec" in m_block.lower() or "mec." in m_block.lower()
+                    m_words = []
                     for it in m_block.split('|'):
-                        cw = clean_turkish_synonym(it)
-                        if is_clean_turkish_synonym(cw):
-                            m_words.add(cw.lower())
+                        ct = clean_token(it)
+                        if ct and len(ct) >= 2:
+                            m_words.append(ct)
                     if len(m_words) >= 2:
-                        for w in m_words:
-                            tr_to_blocks[w].append((is_mecaz, m_words))
+                        unique_m = list(dict.fromkeys(m_words))
+                        for w in unique_m:
+                            tr_to_blocks[w].append((is_mecaz, set(unique_m)))
 
         for word_lower, block_tuples in tr_to_blocks.items():
             clusters = []
@@ -199,7 +206,7 @@ def load_synonyms():
                         grp_name = f"{anlam_count}.Anlam"
                     word_thesaurus[word_lower][grp_name].update(syns)
 
-    # 2. Format entries for UI
+    # All TUR words present in dictionary list
     all_known_words = set(word_thesaurus.keys())
     if os.path.exists(tur_path):
         with open(tur_path, "r", encoding="utf-8") as f:
@@ -237,47 +244,12 @@ def load_synonyms():
         })
 
     return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
-    all_known_words = set(word_thesaurus.keys())
-    if os.path.exists(tur_path):
-        with open(tur_path, "r", encoding="utf-8") as f:
-            for line in f:
-                w = line.strip().lower()
-                if w:
-                    all_known_words.add(w)
 
-    for word_lower in all_known_words:
-        groups_dict = word_thesaurus.get(word_lower, {})
-        formatted_groups = []
-        all_syns = set()
 
-        ordered_grp_names = []
-        num_grps = [g for g in groups_dict.keys() if '.Anlam' in g]
-        num_grps.sort(key=lambda x: int(x.split('.')[0]) if x.split('.')[0].isdigit() else 99)
-        ordered_grp_names.extend(num_grps)
-        if 'Mecaz' in groups_dict:
-            ordered_grp_names.append('Mecaz')
-        for g in groups_dict.keys():
-            if g not in ordered_grp_names:
-                ordered_grp_names.append(g)
-
-        for grp_name in ordered_grp_names:
-            syn_set = groups_dict[grp_name]
-            syn_list = sorted([w for w in syn_set if w.lower() != word_lower], key=turkish_sort_key)
-            if syn_list:
-                formatted_groups.append(f"{grp_name}::{','.join(syn_list)}")
-                all_syns.update(syn_list)
-
-        entries.append({
-            "word": word_lower,
-            "synonyms": ' | '.join(sorted(all_syns, key=turkish_sort_key)),
-            "groups": ' | '.join(formatted_groups),
-        })
-
-    return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
 def get_turkish_stem(word):
-    word = get_clean_turkish_word(word).lower()
+    word = clean_token(word)
     suffixes = [
-        'lerindeki', 'larındaki', 'lerindeki',
+        'lerindeki', 'larındaki',
         'lerinde', 'larında', 'lerinden', 'larından',
         'leriyle', 'larıyla',
         'leri', 'ları',
@@ -321,11 +293,10 @@ def load_trk_reverse():
                     en, tr = parts[0], parts[1]
                     for m_block in tr.split('#'):
                         for it in m_block.split('|'):
-                            cw = clean_turkish_synonym(it)
-                            if is_clean_turkish_synonym(cw):
-                                cw_lower = cw.lower()
-                                if en not in tr_to_en[cw_lower]:
-                                    tr_to_en[cw_lower].append(en)
+                            ct = clean_token(it)
+                            if ct and len(ct) >= 2:
+                                if en not in tr_to_en[ct]:
+                                    tr_to_en[ct].append(en)
 
     tur_words = []
     tur_path = os.path.join(OUTPUT_DIR, "MTU.TUR.TXT")
@@ -986,12 +957,13 @@ body {
 }
 
 /* Win16-style input */
-.win-input {
+.win-input, .win-window input[type="text"], .win-window textarea {
   border: 2px solid;
   border-color: #808080 #fff #fff #808080;
   padding: 5px 6px;
   font-size: 14px;
   font-family: inherit;
+  font-weight: bold;
   outline: none;
   background: #fff;
 }
