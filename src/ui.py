@@ -96,7 +96,7 @@ def load_trk():
                 tr = parts[1] if len(parts) == 2 else ""
                 if en:
                     entries.append({"en": en, "tr": tr})
-    return entries
+    return sorted(entries, key=lambda x: x["en"].lower())
 
 
 def load_tur():
@@ -305,142 +305,42 @@ def get_turkish_stem(word):
 
 def load_trk_reverse():
     """
-    Load Turkish→English (reverse of TRK) merged with TUR word list.
-    
-    NOTE: TUR word list is authoritative for what words exist.
-    TRK reverse provides English meanings where available.
-    Words in TUR but not in TRK appear with empty English field.
+    Load Turkish→English dictionary (direct reverse of TRK + TUR word list).
+    Sorted strictly by Turkish alphabetical collation.
     """
-    trk_defs = {}
-    pairs = {}
+    tr_to_en = defaultdict(list)
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if line:
-                    parts = line.split(None, 1)
-                    if len(parts) == 2:
-                        en, tr = parts[0], parts[1]
-                        # Store groups and their condition status
-                        groups = []
-                        for grp in tr.split('#'):
-                            grp = grp.strip()
-                            if grp:
-                                # A group starting with parenthetical is conditional (e.g. phrasal verb meaning)
-                                is_cond = grp.startswith('(') or grp.startswith('#(')
-                                meanings = [get_clean_turkish_word(m) for m in grp.split('|') if get_clean_turkish_word(m)]
-                                if meanings:
-                                    groups.append((meanings, is_cond))
-                        if groups:
-                            trk_defs[en] = groups
+                if not line:
+                    continue
+                parts = line.split(None, 1)
+                if len(parts) == 2:
+                    en, tr = parts[0], parts[1]
+                    for m_block in tr.split('#'):
+                        for it in m_block.split('|'):
+                            cw = clean_turkish_synonym(it)
+                            if is_clean_turkish_synonym(cw):
+                                cw_lower = cw.lower()
+                                if en not in tr_to_en[cw_lower]:
+                                    tr_to_en[cw_lower].append(en)
 
-                        # Normal flat lookup registration (with stemming)
-                        for grp_words, is_cond in groups:
-                            for m in grp_words:
-                                m_clean = m.lower()
-                                if en not in pairs.setdefault(m_clean, []):
-                                    pairs[m_clean].append(en)
-                                # Register stemmed words to support morphological lookup
-                                for word in m_clean.split():
-                                    stem = get_turkish_stem(word)
-                                    if stem and stem != m_clean:
-                                        if en not in pairs.setdefault(stem, []):
-                                            pairs[stem].append(en)
-
-    # Build en_to_trs mapping for synonym resolution, excluding conditional translations (with stemming)
-    en_to_trs = defaultdict(set)
-    for en, groups in trk_defs.items():
-        for grp_words, is_cond in groups:
-            if not is_cond:
-                for m in grp_words:
-                    m_clean = m.lower()
-                    en_to_trs[en].add(m_clean)
-                    for word in m_clean.split():
-                        stem = get_turkish_stem(word)
-                        if stem:
-                            en_to_trs[en].add(stem)
-
-    precise_en_to_trs = {en: trs for en, trs in en_to_trs.items() if len(trs) <= 9}
-
-    # Build en_str for each TRK-reverse pair using synonym-aware lookup
-    trk_rev_entries = {}
-    for tr_word, en_list in pairs.items():
-        # Get Hop-1 synonyms (words sharing at least one translation)
-        hop1 = set()
-        for en in en_list:
-            hop1.update(precise_en_to_trs.get(en, []))
-        hop1.discard(tr_word)
-
-        all_syns = hop1
-        if len(all_syns) > 100:
-            all_syns = set(list(all_syns)[:100])
-
-        # Candidate English translations and their specificity-weighted synonym scores
-        candidate_scores = defaultdict(float)
-        
-        # Score Hop-1 synonym translations
-        for s in hop1:
-            for en in pairs.get(s, []):
-                spec = 1.0 / max(1, len(en_to_trs[en]))
-                candidate_scores[en] = max(candidate_scores[en], 10.0 * spec)
-
-        # Remove direct translations from candidate scores so we can score them separately
-        for en in en_list:
-            candidate_scores.pop(en, None)
-
-        # Rank synonym candidates by score
-        sorted_candidates = sorted(candidate_scores.items(), key=lambda x: x[1], reverse=True)
-        
-        # Keep direct translations, and append at most 12 highest scoring synonyms (with score >= 0.5)
-        expanded_ens = list(en_list)
-        syn_added = 0
-        for en, score in sorted_candidates:
-            if score >= 0.5 and syn_added < 12:
-                expanded_ens.append(en)
-                syn_added += 1
-
-        # Group the English words based on their definitions structure in trk_defs
-        grp_to_ens = {}
-        for en in expanded_ens:
-            defn = trk_defs.get(en, [])
-            matched_grp = 1
-            found = False
-            for grp_idx, (grp_words, is_cond) in enumerate(defn):
-                if any(tr_word == w or tr_word in w or w in all_syns for w in grp_words):
-                    matched_grp = grp_idx + 1
-                    found = True
-                    break
-            if not found:
-                matched_grp = len(grp_to_ens) + 1
-            if matched_grp not in grp_to_ens:
-                grp_to_ens[matched_grp] = []
-            grp_to_ens[matched_grp].append(en)
-
-        # Flat format: each English word on its own pipe-separated item
-        # renderMeanings will add 1. 2. 3. numbers automatically
-        flat_ens = []
-        for g in sorted(grp_to_ens.keys()):
-            flat_ens.extend(sorted(list(set(grp_to_ens[g]))))
-        en_str = '|'.join(flat_ens) if flat_ens else '|'.join(sorted(expanded_ens))
-        trk_rev_entries[tr_word] = en_str
-
-    # Load TUR word list as the authoritative source
     tur_words = []
     tur_path = os.path.join(OUTPUT_DIR, "MTU.TUR.TXT")
     if os.path.exists(tur_path):
         with open(tur_path, "r", encoding="utf-8") as f:
             for line in f:
-                word = line.strip()
+                word = line.strip().lower()
                 if word:
                     tur_words.append(word)
 
-    # Merge: all TUR words + TRK-only words, both sorted by Turkish collation
-    all_tr_words = set(tur_words) | set(trk_rev_entries.keys())
+    all_tr_words = set(tur_words) | set(tr_to_en.keys())
     entries = []
     for tr_word in sorted(all_tr_words, key=turkish_sort_key):
-        en_str = trk_rev_entries.get(tr_word, "")
-        entries.append({"tr": tr_word, "en": en_str})
+        en_list = tr_to_en.get(tr_word, [])
+        entries.append({"tr": tr_word, "en": ' | '.join(en_list)})
     return entries
 
 
@@ -2821,20 +2721,20 @@ function dictSearch(winId) {
     filtered = fullData.filter(e => normalizeSearch(e[key1] || '').startsWith(qnNorm));
   }
 
-  // Sıralama: tam eşleşme önce, sonra Türkçe alfabetik
-  const turkishSortKey = (s) => {
-    const w = { 'a':1,'b':2,'c':3,'ç':4,'d':5,'e':6,'f':7,'g':8,'ğ':9,'h':10,
-                'ı':11,'i':12,'j':13,'k':14,'l':15,'m':16,'n':17,'o':18,'ö':19,
-                'p':20,'r':21,'s':22,'ş':23,'t':24,'u':25,'ü':26,'v':27,'y':28,'z':29 };
-    return s.split('').map(c => String.fromCharCode(65 + (w[c] || 0))).join('');
-  };
-
   filtered.sort((a, b) => {
-    const va = turkishLowercase(a[key1] || '');
-    const vb = turkishLowercase(b[key1] || '');
-    if (va === qnStrict && vb !== qnStrict) return -1;
-    if (vb === qnStrict && va !== qnStrict) return 1;
-    return turkishSortKey(va).localeCompare(turkishSortKey(vb));
+    const va = (a[key1] || '').trim();
+    const vb = (b[key1] || '').trim();
+    const vaLow = va.toLowerCase();
+    const vbLow = vb.toLowerCase();
+    
+    if (vaLow === qnStrict && vbLow !== qnStrict) return -1;
+    if (vbLow === qnStrict && vaLow !== qnStrict) return 1;
+    
+    if (win.type === 'trk') {
+      return vaLow.localeCompare(vbLow, 'en');
+    } else {
+      return vaLow.localeCompare(vbLow, 'tr');
+    }
   });
 
   state.activeData[winId] = filtered;

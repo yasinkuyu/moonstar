@@ -24,6 +24,40 @@ from collections import defaultdict
 # is 'b' and so on.
 alphabet = "abcçdefgğhıijklmnoöpqrsştuüvwxyzâ..........î..............û"
 
+def TurkishSortKey(s):
+    mapping = {
+        'a': 'a0', 'A': 'a0',
+        'b': 'b0', 'B': 'b0',
+        'c': 'c0', 'C': 'c0',
+        'ç': 'c1', 'Ç': 'c1',
+        'd': 'd0', 'D': 'd0',
+        'e': 'e0', 'E': 'e0',
+        'f': 'f0', 'F': 'f0',
+        'g': 'g0', 'G': 'g0',
+        'ğ': 'g1', 'Ğ': 'g1',
+        'h': 'h0', 'H': 'h0',
+        'ı': 'i0', 'I': 'i0',
+        'i': 'i1', 'İ': 'i1',
+        'j': 'j0', 'J': 'j0',
+        'k': 'k0', 'K': 'k0',
+        'l': 'l0', 'L': 'l0',
+        'm': 'm0', 'M': 'm0',
+        'n': 'n0', 'N': 'n0',
+        'o': 'o0', 'O': 'o0',
+        'ö': 'o1', 'Ö': 'o1',
+        'p': 'p0', 'P': 'p0',
+        'r': 'r0', 'R': 'r0',
+        's': 's0', 'S': 's0',
+        'ş': 's1', 'Ş': 's1',
+        't': 't0', 'T': 't0',
+        'u': 'u0', 'U': 'u0',
+        'ü': 'u1', 'Ü': 'u1',
+        'v': 'v0', 'V': 'v0',
+        'y': 'y0', 'Y': 'y0',
+        'z': 'z0', 'Z': 'z0'
+    }
+    return [mapping.get(c, c) for c in s.lower()]
+
 # EXE lookup tables for Section 3 decoding (MTU.EXE file offsets)
 # table_A: EXE 0x1B388 (DGROUP+0x1588) — extra index for double-lookup
 # table_B: EXE 0x1A7CA (DGROUP+0x09CA) — main character lookup (CP857)
@@ -366,86 +400,38 @@ def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
             english, tr_raw = parts[0], parts[1]
             
             # TR_EN mapping
-            for m in tr_raw.split('|'):
-                clean_m = m.strip().lstrip('#').strip()
-                if clean_m:
-                    tr_to_en.setdefault(clean_m, []).append(english)
+            for m_block in tr_raw.split('#'):
+                for m in m_block.split('|'):
+                    cw = clean_turkish_synonym(m)
+                    if is_clean_turkish_synonym(cw):
+                        tr_to_en.setdefault(cw, []).append(english)
 
-            # Synonym extraction per meaning block
+            # Synonym extraction per meaning block (never merge across '#')
             for m_block in tr_raw.split('#'):
                 m_words = set()
                 for it in m_block.split('|'):
                     cw = clean_turkish_synonym(it)
                     if is_clean_turkish_synonym(cw):
                         m_words.add(cw)
-                if m_words:
+                if len(m_words) >= 2:
                     en_meanings[english].append(m_words)
 
     if synonyms_dict is not None:
-        # ─── Native MTU.TES Binary Thesaurus Decoder ──────────────────────────
-        # MTU.TES contains 26,774 slots indexed by MTU.TUR word indices.
-        # Each slot encodes synonym pointers as 3-byte sequences [0x00, lo, hi]
-        # where lo | (hi << 8) is the target MTU.TUR word index.
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        data_dir = os.path.join(script_dir, '..', 'data')
-        tes_path = os.path.join(data_dir, "MTU.TES")
-        tur_path = os.path.join(data_dir, "MTU.TUR")
-
-        tur_words = []
-        if os.path.exists(tur_path):
-            dict_tur = []
-            Import(dict_tur, tur_path)
-            tur_words = [w.lower() for w in dict_tur]
-
-        # Build clean merged groups per English headword
-        en_groups = {}
         for en, meanings in en_meanings.items():
-            merged = set()
-            for m in meanings:
-                merged.update(m)
-            if len(merged) >= 2:
-                en_groups[en] = merged
-
-        # Also load native TES links into en_groups
-        if os.path.exists(tes_path) and tur_words:
-            with open(tes_path, "rb") as f:
-                tes_data = f.read()
-            for i in range(len(tur_words)):
-                headword = tur_words[i]
-                if i * 3 + 3 > 96003:
-                    break
-                off = struct.unpack('<L', tes_data[i*3:(i+1)*3] + b'\x00')[0]
-                if off < 96003 or off >= len(tes_data):
-                    continue
-                next_off = struct.unpack('<L', tes_data[(i+1)*3:(i+2)*3] + b'\x00')[0] if (i+1)*3+3 <= 96003 else len(tes_data)
-                slot_len = next_off - off if next_off > off else min(500, len(tes_data) - off)
-                chunk = tes_data[off:off+slot_len]
-                native_syns = set()
-                for p in range(0, len(chunk)-2):
-                    if chunk[p] == 0x00:
-                        val = chunk[p+1] | (chunk[p+2] << 8)
-                        if 0 < val < len(tur_words) and val != i:
-                            target_w = tur_words[val]
-                            if target_w != headword and len(target_w) >= 2:
-                                cw = clean_turkish_synonym(target_w)
-                                if cw:
-                                    native_syns.add(cw)
-                if native_syns:
-                    en_groups[f"tes_{headword}"] = native_syns | {headword}
-
-        for en, group_words in en_groups.items():
-            sorted_words = sorted(group_words)
-            for i, tw in enumerate(sorted_words):
-                others = [w for j, w in enumerate(sorted_words) if j != i]
-                if tw not in synonyms_dict:
-                    synonyms_dict[tw] = {'synonyms': set(others), 'via': [en]}
-                else:
-                    synonyms_dict[tw]['synonyms'].update(others)
-                    if en not in synonyms_dict[tw]['via']:
-                        synonyms_dict[tw]['via'].append(en)
+            for m_words in meanings:
+                sorted_words = sorted(m_words)
+                for i, tw in enumerate(sorted_words):
+                    others = [w for j, w in enumerate(sorted_words) if j != i]
+                    if tw not in synonyms_dict:
+                        synonyms_dict[tw] = {'synonyms': set(others), 'via': [en]}
+                    else:
+                        synonyms_dict[tw]['synonyms'].update(others)
+                        if en not in synonyms_dict[tw]['via']:
+                            synonyms_dict[tw]['via'].append(en)
     else:
-        for turkish, english_list in sorted(tr_to_en.items()):
-            dictionary.append((turkish, ', '.join(english_list)))
+        for turkish, english_list in sorted(tr_to_en.items(), key=lambda x: TurkishSortKey(x[0])):
+            unique_ens = sorted(list(dict.fromkeys(english_list)))
+            dictionary.append((turkish, ', '.join(unique_ens)))
 
 
 def GetDataPath(filename):
