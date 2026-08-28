@@ -149,45 +149,11 @@ def load_synonyms():
     """
     entries = []
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
-    # ─── 1. Native MTU.TES Binary Meaning-Groups Decoder ─────────────────────
-    # MTU.TES contains 26,774 slots indexed by MTU.TUR word indices.
-    # Each slot encodes synonym pointers as triplets [grp, lo, hi] or [lo, hi, grp]
-    tes_path = os.path.join(DATA_DIR, "MTU.TES")
-    tur_words = [w["word"] for w in load_tur()]
-    tr_word_groups = defaultdict(lambda: defaultdict(set))
 
-    if os.path.exists(tes_path) and tur_words:
-        with open(tes_path, "rb") as f:
-            tes_data = f.read()
+    # en_headword -> list of sets of Turkish words per meaning block (# separated)
+    en_meaning_blocks = defaultdict(list)
+    tr_to_blocks = defaultdict(list)
 
-        for idx in range(len(tur_words)):
-            headword = tur_words[idx].lower()
-            if idx * 3 + 3 > 96003:
-                break
-            off = struct.unpack('<L', tes_data[idx*3:(idx+1)*3] + b'\x00')[0]
-            if off < 96003 or off >= len(tes_data):
-                continue
-
-            p = off
-            while p < min(len(tes_data) - 3, off + 300):
-                b0, b1, b2 = tes_data[p], tes_data[p+1], tes_data[p+2]
-                valA = b1 | (b2 << 8)
-                valB = b0 | (b1 << 8)
-
-                if b0 in [0x00, 0x01, 0x02, 0x03, 0x04] and 0 < valA < len(tur_words) and valA != idx:
-                    cw = clean_turkish_synonym(tur_words[valA])
-                    if cw and cw.lower() != headword:
-                        tr_word_groups[headword][f"{b0 + 1}.Anlam"].add(cw)
-                    p += 3
-                elif b2 in [0x00, 0x01, 0x02, 0x03, 0x04] and 0 < valB < len(tur_words) and valB != idx:
-                    cw = clean_turkish_synonym(tur_words[valB])
-                    if cw and cw.lower() != headword:
-                        tr_word_groups[headword][f"{b2 + 1}.Anlam"].add(cw)
-                    p += 3
-                else:
-                    break
-
-    # ─── 2. Complement with MTU.TRK Distinct Meaning Blocks ──────────────────
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -199,28 +165,39 @@ def load_synonyms():
                     continue
                 en, tr_raw = parts[0], parts[1]
 
-                for m_idx, m_block in enumerate(tr_raw.split('#')):
+                for m_block in tr_raw.split('#'):
                     m_words = set()
                     for it in m_block.split('|'):
                         cw = clean_turkish_synonym(it)
                         if is_clean_turkish_synonym(cw):
                             m_words.add(cw)
                     if len(m_words) >= 2:
+                        en_meaning_blocks[en].append(m_words)
                         for w in m_words:
-                            wl = w.lower()
-                            # If word has no TES group yet, or to add missing TRK meanings
-                            grp_name = f"{m_idx + 1}.Anlam"
-                            for other in m_words:
-                                if other.lower() != wl:
-                                    tr_word_groups[wl][grp_name].add(other)
+                            tr_to_blocks[w.lower()].append(m_words)
 
-    # ─── 3. Format entries for UI ────────────────────────────────────────────
-    for word_lower, groups_dict in tr_word_groups.items():
+    # Build clean distinct meaning groups per Turkish word
+    for word_lower, block_list in tr_to_blocks.items():
+        # Merge meaning blocks that share at least 1 Turkish synonym
+        distinct_clusters = []
+        for blk in block_list:
+            matched_cluster = None
+            for cl in distinct_clusters:
+                # If they share another word besides word_lower, merge them into the same meaning
+                other_shared = (cl & blk) - {word_lower}
+                if other_shared:
+                    matched_cluster = cl
+                    break
+            if matched_cluster is not None:
+                matched_cluster.update(blk)
+            else:
+                distinct_clusters.append(set(blk))
+
         formatted_groups = []
         all_syns = set()
 
-        for g_idx, (grp_name, syn_set) in enumerate(sorted(groups_dict.items())):
-            syn_sorted = sorted([s for s in syn_set if s.lower() != word_lower], key=turkish_sort_key)
+        for g_idx, cl in enumerate(distinct_clusters):
+            syn_sorted = sorted([w for w in cl if w.lower() != word_lower], key=turkish_sort_key)
             if syn_sorted:
                 label = f"{g_idx + 1}.Anlam"
                 formatted_groups.append(f"{label}::{','.join(syn_sorted)}")
