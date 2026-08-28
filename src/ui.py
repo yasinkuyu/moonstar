@@ -149,14 +149,45 @@ def load_synonyms():
     """
     entries = []
     path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
+    # ─── 1. Native MTU.TES Binary Meaning-Groups Decoder ─────────────────────
+    # MTU.TES contains 26,774 slots indexed by MTU.TUR word indices.
+    # Each slot encodes synonym pointers as triplets [grp, lo, hi] or [lo, hi, grp]
+    tes_path = os.path.join(DATA_DIR, "MTU.TES")
+    tur_words = [w["word"] for w in load_tur()]
+    tr_word_groups = defaultdict(lambda: defaultdict(set))
 
-    # en_headword -> list of (set of Turkish words per meaning)
-    en_meanings = defaultdict(list)
-    # en_headword -> union of all Turkish words across meanings
-    en_to_trs = defaultdict(set)
-    # tr_word -> set of English headwords
-    tr_to_ens = defaultdict(set)
+    if os.path.exists(tes_path) and tur_words:
+        with open(tes_path, "rb") as f:
+            tes_data = f.read()
 
+        for idx in range(len(tur_words)):
+            headword = tur_words[idx].lower()
+            if idx * 3 + 3 > 96003:
+                break
+            off = struct.unpack('<L', tes_data[idx*3:(idx+1)*3] + b'\x00')[0]
+            if off < 96003 or off >= len(tes_data):
+                continue
+
+            p = off
+            while p < min(len(tes_data) - 3, off + 300):
+                b0, b1, b2 = tes_data[p], tes_data[p+1], tes_data[p+2]
+                valA = b1 | (b2 << 8)
+                valB = b0 | (b1 << 8)
+
+                if b0 in [0x00, 0x01, 0x02, 0x03, 0x04] and 0 < valA < len(tur_words) and valA != idx:
+                    cw = clean_turkish_synonym(tur_words[valA])
+                    if cw and cw.lower() != headword:
+                        tr_word_groups[headword][f"{b0 + 1}.Anlam"].add(cw)
+                    p += 3
+                elif b2 in [0x00, 0x01, 0x02, 0x03, 0x04] and 0 < valB < len(tur_words) and valB != idx:
+                    cw = clean_turkish_synonym(tur_words[valB])
+                    if cw and cw.lower() != headword:
+                        tr_word_groups[headword][f"{b2 + 1}.Anlam"].add(cw)
+                    p += 3
+                else:
+                    break
+
+    # ─── 2. Complement with MTU.TRK Distinct Meaning Blocks ──────────────────
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -168,131 +199,39 @@ def load_synonyms():
                     continue
                 en, tr_raw = parts[0], parts[1]
 
-                for m in tr_raw.split('#'):
-                    meaning_words = set()
-                    for it in m.split('|'):
+                for m_idx, m_block in enumerate(tr_raw.split('#')):
+                    m_words = set()
+                    for it in m_block.split('|'):
                         cw = clean_turkish_synonym(it)
                         if is_clean_turkish_synonym(cw):
-                            meaning_words.add(cw)
-                    if meaning_words:
-                        en_meanings[en].append(meaning_words)
-                        en_to_trs[en].update(meaning_words)
+                            m_words.add(cw)
+                    if len(m_words) >= 2:
+                        for w in m_words:
+                            wl = w.lower()
+                            # If word has no TES group yet, or to add missing TRK meanings
+                            grp_name = f"{m_idx + 1}.Anlam"
+                            for other in m_words:
+                                if other.lower() != wl:
+                                    tr_word_groups[wl][grp_name].add(other)
 
-    # For each English headword, merge meanings that share Turkish words
-    # into a single group (like the original EXE)
-    en_groups = {}
-    for en, meanings in en_meanings.items():
-        # Merge all meanings into one group per headword
-        merged = set()
-        for m in meanings:
-            merged.update(m)
-        if len(merged) >= 2:
-            en_groups[en] = merged
+    # ─── 3. Format entries for UI ────────────────────────────────────────────
+    for word_lower, groups_dict in tr_word_groups.items():
+        formatted_groups = []
+        all_syns = set()
 
-    # Build reverse lookup: tr_word -> list of (en, group_words)
-    for en, group_words in en_groups.items():
-        for w in group_words:
-            tr_to_ens.setdefault(w.lower(), []).append((en, group_words))
+        for g_idx, (grp_name, syn_set) in enumerate(sorted(groups_dict.items())):
+            syn_sorted = sorted([s for s in syn_set if s.lower() != word_lower], key=turkish_sort_key)
+            if syn_sorted:
+                label = f"{g_idx + 1}.Anlam"
+                formatted_groups.append(f"{label}::{','.join(syn_sorted)}")
+                all_syns.update(syn_sorted)
 
-    # Curated synonym groups for words NOT in TRK but present in TUR.
-    # The original EXE "Türkçe Eş Anlamlı Sözcükler" shows these groupings
-    # but they cannot be derived from TRK (those words don't appear as
-    # Turkish translations). Source: original EXE display + TUR dictionary.
-    # Keys are ENGLISH headwords (as used in TRK), values are extra Turkish
-    # synonyms to add to that group.
-    curated_extras = {
-        'face': ['beniz', 'bet', 'bet beniz', 'fizyonomi', 'sima', 'vecih', 'sıfat', 'satıh'],
-        'name': ['ad', 'lakap', 'nam'],
-        'house': ['hane', 'mesken', 'konut', 'yurt'],
-        'beautiful': ['hoş', 'pak', 'nurlu'],
-        'bad': ['berbat', 'münkesir'],
-        'big': ['iri', 'koca'],
-        'small': ['ufak', 'minik', 'bücür'],
-        'fast': ['tez'],
-        'slow': ['ağır', 'aheste'],
-        'wise': ['hikmetli', 'olgun'],
-        'strong': ['kuvvetli', 'metin', 'kudretli'],
-        'weak': ['aciz', 'mahrum'],
-        'honest': ['emin'],
-        'brave': ['korkusuz', 'mert'],
-        'rich': ['varlıklı', 'bahtiyar'],
-        'poor': ['yoksul', 'muhtaç'],
-        'loud': ['bağırma'],
-        'quiet': ['susku', 'sakin', 'dingin'],
-        'hot': ['ılık', 'hararetli', 'kızgın'],
-        'cold': ['serin', 'donmuş'],
-        'sweet': ['lezzetli', 'şirin'],
-        'sour': ['acımsı'],
-        'long': ['enli', 'boylu'],
-        'short': ['kısacık'],
-        'wide': ['engin'],
-        'narrow': ['sıkı'],
-        'high': ['yuce'],
-        'low': ['aşağı'],
-        'open': ['açık'],
-        'close': ['yakın', 'kapalı'],
-        'new': ['yeni', 'taze'],
-        'old': ['yaşlı', 'matur', 'kocamış'],
-        'good': ['iyi', 'hayırlı', 'musbull'],
-        'light': ['aydınlık', 'hafif', 'nurlu'],
-        'dark': ['karanlık', 'kapalı', 'b karsiz'],
-        'water': ['su', 'akar su', 'çeşme'],
-        'fire': ['ateş', 'yangın', 'alaz'],
-        'earth': ['toprak', 'arazi', 'zemin'],
-        'sky': ['gök', 'gök yüzü', 'sema'],
-        'heart': ['kalp', 'gönül', 'yürek'],
-        'mind': ['akıl', 'zihin', 'beyin'],
-        'eye': ['göz', 'nazar', 'basar'],
-        'ear': ['kulak', 'işitme'],
-        'mouth': ['ağız', 'dil'],
-        'hand': ['el', 'avuç'],
-        'head': ['kafa', 'baş'],
-        'face': ['beniz', 'bet', 'fizyonomi', 'sima', 'vecih', 'sıfat'],
-        'body': ['beden', 'vücut', 'cisim'],
-        'life': ['yaşam', 'hayat', 'ömur'],
-        'death': ['ölüm', 'vefat', 'göç'],
-        'world': ['dünya', 'yer', 'arz'],
-        'sun': ['güneş', 'IŞık', 'aftab'],
-        'moon': ['ay', 'hilal', 'mah'],
-        'star': ['yıldız', 'kutup yıldızı'],
-        'tree': ['ağaç', 'dip'],
-        'flower': ['çiçek', 'gül', 'nev'],
-        'bird': ['kuş', 'serçe'],
-        'fish': ['balık', 'sazan'],
-    }
-
-    # Merge curated extras into the TRK-based groups
-    for en_headword, extra_words in curated_extras.items():
-        hw = en_headword.lower()
-        if hw not in en_to_trs:
-            continue
-        new_words = set()
-        for w in extra_words:
-            wl = w.lower()
-            if wl and wl not in tr_to_ens:
-                new_words.add(wl)
-        if new_words:
-            en_to_trs[hw].update(new_words)
-            for w in new_words:
-                tr_to_ens.setdefault(w, []).append((hw, en_to_trs[hw]))
-
-    # Build entries — one per Turkish word
-    for tr_word_lower, en_list in tr_to_ens.items():
-        synonyms = set()
-        group_strs = []
-        for en, group_words in en_list:
-            synonyms.update(group_words)
-            group_strs.append(en + '::' + ','.join(sorted(group_words, key=turkish_sort_key)))
-        synonyms.discard(tr_word_lower)
-
-        # Find the representative word (matching the search key)
-        rep_word = tr_word_lower
-        syns_sorted = sorted(synonyms, key=turkish_sort_key)
-        entries.append({
-            "word": rep_word,
-            "synonyms": ' | '.join(syns_sorted),
-            "groups": ' | '.join(group_strs),
-        })
+        if formatted_groups:
+            entries.append({
+                "word": word_lower,
+                "synonyms": ' | '.join(sorted(all_syns, key=turkish_sort_key)),
+                "groups": ' | '.join(formatted_groups),
+            })
 
     return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
 def get_turkish_stem(word):
@@ -2566,13 +2505,15 @@ function synTriggerSearch(winId) {
     const groups = match.groups || '';
     if (groups) {
       const parts = groups.split(' | ').filter(Boolean);
-      const clusters = parts.map(p => {
+      const clusters = parts.map((p, ci) => {
         const segs = p.split('::');
         if (segs.length < 2) return null;
-        const enWord = segs[0];
-        const tag = segs.length >= 3 ? segs[1] : '1.Anlam';
-        const trWords = (segs.length >= 3 ? segs[2] : segs[1]).split(',').filter(Boolean);
-        return { en: enWord, tag: tag, tr: trWords };
+        let label = segs[0].trim();
+        if (!label.includes('.Anlam') && label !== 'Mecaz' && label !== 'Argo') {
+          label = (ci + 1) + '.Anlam';
+        }
+        const trWords = segs[1].split(',').map(s => s.trim()).filter(Boolean);
+        return { label: label, tr: trWords };
       }).filter(Boolean);
       
       state.synClusters = state.synClusters || {};
@@ -2581,21 +2522,9 @@ function synTriggerSearch(winId) {
       if (clusters.length === 0) {
         grp.innerHTML = '<div style="color:#888;padding:8px;">Grup yok</div>';
       } else {
-        let anlamCount = 0;
         grp.innerHTML = clusters.map((c, ci) => {
-          let label = '';
-          if (c.tag && (c.tag.includes('.Anlam') || c.tag === 'Mecaz' || c.tag === 'Argo')) {
-            label = c.tag;
-          } else if (c.tag === 'Mecaz' || c.en.toLowerCase().includes('mecaz')) {
-            label = 'Mecaz';
-          } else if (c.tag === 'Argo' || c.en.toLowerCase().includes('argo')) {
-            label = 'Argo';
-          } else {
-            anlamCount++;
-            label = anlamCount + '.Anlam';
-          }
-          return `<div class="dict-meaning${ci===0?' meaning-sel':''}" title="${c.en}" style="cursor:pointer; border-bottom:none; font-weight:bold; font-family:inherit;"
-            onclick="synFilterGroup('${winId}', ${ci}, this)">${label}</div>`;
+          return `<div class="dict-meaning${ci===0?' meaning-sel':''}" style="cursor:pointer; border-bottom:none; font-weight:bold; font-family:inherit; padding:3px 6px;"
+            onclick="synFilterGroup('${winId}', ${ci}, this)">${c.label}</div>`;
         }).join('');
         // Show first cluster's synonyms by default
         synFilterGroup(winId, 0, grp.querySelector('.dict-meaning'));

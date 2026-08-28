@@ -372,50 +372,24 @@ def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
                     tr_to_en.setdefault(clean_m, []).append(english)
 
             # Synonym extraction per meaning block
-            for m in tr_raw.split('#'):
-                meaning_words = set()
-                for it in m.split('|'):
-                    cw = clean_turkish_synonym(it)
-                    if is_clean_turkish_synonym(cw):
-                        meaning_words.add(cw)
                 if meaning_words:
                     en_meanings[english].append(meaning_words)
 
     if synonyms_dict is not None:
-        curated_extras = {
-            'face': ['beniz', 'bet', 'bet beniz', 'fizyonomi', 'sima', 'vecih', 'sıfat', 'satıh'],
-            'name': ['ad', 'lakap', 'nam'],
-            'house': ['hane', 'mesken', 'konut', 'yurt'],
-            'beautiful': ['hoş', 'pak', 'nurlu'],
-            'bad': ['berbat', 'münkesir'],
-            'big': ['iri', 'koca'],
-            'small': ['ufak', 'minik', 'bücür'],
-            'fast': ['tez'],
-            'slow': ['ağır', 'aheste'],
-            'wise': ['hikmetli', 'olgun'],
-            'strong': ['kuvvetli', 'metin', 'kudretli'],
-            'weak': ['aciz', 'mahrum'],
-            'honest': ['emin'],
-            'brave': ['korkusuz', 'mert'],
-            'rich': ['varlıklı', 'bahtiyar'],
-            'poor': ['yoksul', 'muhtaç'],
-            'quiet': ['susku', 'sakin', 'dingin'],
-            'hot': ['ılık', 'hararetli', 'kızgın'],
-            'cold': ['serin', 'donmuş'],
-            'sweet': ['lezzetli', 'şirin'],
-            'new': ['yeni', 'taze'],
-            'old': ['yaşlı', 'matur', 'kocamış'],
-            'good': ['iyi', 'hayırlı'],
-            'water': ['su', 'akar su', 'çeşme'],
-            'fire': ['ateş', 'yangın', 'alaz'],
-            'earth': ['toprak', 'arazi', 'zemin'],
-            'sky': ['gök', 'gök yüzü', 'sema'],
-            'heart': ['kalp', 'gönül', 'yürek'],
-            'mind': ['akıl', 'zihin', 'beyin'],
-            'eye': ['göz', 'nazar', 'basar'],
-            'head': ['kafa', 'baş'],
-            'world': ['dünya', 'yer', 'arz'],
-        }
+        # ─── Native MTU.TES Binary Thesaurus Decoder ──────────────────────────
+        # MTU.TES contains 26,774 slots indexed by MTU.TUR word indices.
+        # Each slot encodes synonym pointers as 3-byte sequences [0x00, lo, hi]
+        # where lo | (hi << 8) is the target MTU.TUR word index.
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        data_dir = os.path.join(script_dir, '..', 'data')
+        tes_path = os.path.join(data_dir, "MTU.TES")
+        tur_path = os.path.join(data_dir, "MTU.TUR")
+
+        tur_words = []
+        if os.path.exists(tur_path):
+            dict_tur = []
+            Import(dict_tur, tur_path)
+            tur_words = [w.lower() for w in dict_tur]
 
         # Build clean merged groups per English headword
         en_groups = {}
@@ -423,10 +397,35 @@ def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
             merged = set()
             for m in meanings:
                 merged.update(m)
-            if en in curated_extras:
-                merged.update(curated_extras[en])
             if len(merged) >= 2:
                 en_groups[en] = merged
+
+        # Also load native TES links into en_groups
+        if os.path.exists(tes_path) and tur_words:
+            with open(tes_path, "rb") as f:
+                tes_data = f.read()
+            for i in range(len(tur_words)):
+                headword = tur_words[i]
+                if i * 3 + 3 > 96003:
+                    break
+                off = struct.unpack('<L', tes_data[i*3:(i+1)*3] + b'\x00')[0]
+                if off < 96003 or off >= len(tes_data):
+                    continue
+                next_off = struct.unpack('<L', tes_data[(i+1)*3:(i+2)*3] + b'\x00')[0] if (i+1)*3+3 <= 96003 else len(tes_data)
+                slot_len = next_off - off if next_off > off else min(500, len(tes_data) - off)
+                chunk = tes_data[off:off+slot_len]
+                native_syns = set()
+                for p in range(0, len(chunk)-2):
+                    if chunk[p] == 0x00:
+                        val = chunk[p+1] | (chunk[p+2] << 8)
+                        if 0 < val < len(tur_words) and val != i:
+                            target_w = tur_words[val]
+                            if target_w != headword and len(target_w) >= 2:
+                                cw = clean_turkish_synonym(target_w)
+                                if cw:
+                                    native_syns.add(cw)
+                if native_syns:
+                    en_groups[f"tes_{headword}"] = native_syns | {headword}
 
         for en, group_words in en_groups.items():
             sorted_words = sorted(group_words)
@@ -440,6 +439,7 @@ def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
                         synonyms_dict[tw]['via'].append(en)
     else:
         for turkish, english_list in sorted(tr_to_en.items()):
+            dictionary.append((turkish, ', '.join(english_list))) turkish, english_list in sorted(tr_to_en.items()):
             dictionary.append((turkish, ', '.join(english_list)))
 
 
