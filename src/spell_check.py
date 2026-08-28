@@ -198,6 +198,15 @@ class TurkishSpellChecker:
         if os.path.exists(tur_path):
             self._load_suffix_table(tur_path)
 
+        soz_path = os.path.join(self.data_dir, 'MTU.SOZ')
+        self.soz_checker = None
+        if os.path.exists(soz_path):
+            try:
+                from mtu_soz import SozPlaceSpellChecker
+                self.soz_checker = SozPlaceSpellChecker(soz_path)
+            except Exception:
+                self.soz_checker = None
+
         self._build_suffix_list()
 
     def _build_suffix_list(self):
@@ -351,7 +360,8 @@ class TurkishSpellChecker:
         has_any_stem = len(stems) > 0
 
         is_valid = (word in self.word_set or word_lower in self.word_lower or
-                    has_any_stem)
+                    has_any_stem or
+                    (self.soz_checker and self.soz_checker.check(word_lower)))
 
         is_inflected = has_any_stem and not (word in self.word_set or word_lower in self.word_lower)
 

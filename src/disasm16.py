@@ -1217,7 +1217,9 @@ def main():
     output_text = '\n'.join(all_lines)
 
     # Write to file
-    output_path = os.path.join(output_dir, 'DISASM_SEG3.TXT')
+    debug_dir = os.path.join(output_dir, 'debug')
+    os.makedirs(debug_dir, exist_ok=True)
+    output_path = os.path.join(debug_dir, 'DISASM_SEG3.TXT')
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(output_text)
         f.write('\n')

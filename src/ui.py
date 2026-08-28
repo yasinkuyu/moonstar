@@ -201,7 +201,7 @@ def load_synonyms():
     # Keys are ENGLISH headwords (as used in TRK), values are extra Turkish
     # synonyms to add to that group.
     curated_extras = {
-        'face': ['beniz', 'bet', 'fizyonomi', 'sima', 'vecih', 'sıfat'],
+        'face': ['beniz', 'bet', 'bet beniz', 'fizyonomi', 'sima', 'vecih', 'sıfat', 'satıh'],
         'name': ['ad', 'lakap', 'nam'],
         'house': ['hane', 'mesken', 'konut', 'yurt'],
         'beautiful': ['hoş', 'pak', 'nurlu'],

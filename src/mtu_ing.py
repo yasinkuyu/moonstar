@@ -201,14 +201,15 @@ def main():
                         trk_dict[idx] = ''
 
     # Export meaningful output organized by topic
-    topic_path = os.path.join(output_dir, "MTU.ING.BY_TOPIC.TXT")
+    topic_path = os.path.join(output_dir, "MTU.ING.TXT")
     export_by_topic(entries, trk_words, trk_dict, topic_path)
+    topic_path_legacy = os.path.join(output_dir, "MTU.ING.BY_TOPIC.TXT")
+    export_by_topic(entries, trk_words, trk_dict, topic_path_legacy)
     print(f"Exported {len(entries)} entries to {topic_path}")
 
     # Debug export
-    debug_path = os.path.join(output_dir, "MTU.ING.DEBUG.TXT")
+    debug_path = os.path.join(output_dir, "debug", "MTU.ING.DEBUG.TXT")
     export_debug(entries, trk_words, debug_path)
-    print(f"Exported debug data to {debug_path}")
 
     # Print summary
     topic_counts = {}

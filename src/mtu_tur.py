@@ -15,8 +15,10 @@
 #     7- 6th section (3640 bytes)
 
 import os
+import re
 import struct
 import sys
+from collections import defaultdict
 
 # MTU.TUR encodes all text in its own custom alphabet, where 0x00 is 'a', 0x01
 # is 'b' and so on.
@@ -197,10 +199,10 @@ def Import(dictionary, path):
         count = section2[prefix_index + 1] - section2[prefix_index]
         prefixes.append((prefix, count))
 
-    # 3rd section (?)
-    # Disrupting this section causes entries in Turkish-English and Türkçe Eş
-    # Anlamlılar dictionaries to lose their suffixes (e.g. "abayı yakmak" ->
-    # "aba yak"). Doesn't seem to affect Leb Demeden.
+    # 3rd section
+    # Suffix stripping table for morphological analysis in Leb Demeden.
+    # Contains 3,218 14-byte entries defining suffix rules, grammar classes,
+    # and offsets into Section 5.
     section3 = []
     for i in range(0, header[1]): # 3218
         pos += 1
@@ -328,11 +330,30 @@ def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
     Coverage: ~25% of TUR words have a direct TR_EN match via TRK.
     Remaining 75% are proper nouns, compounds, or forms not in TRK.
     """
+def clean_turkish_synonym(w):
+    w = re.sub(r'\(.*?\)', '', w)
+    w = re.sub(r'<.*?>', '', w)
+    w = re.sub(r'\s*\(.*$', '', w)
+    w = re.sub(r'^(mec\.|arg\.|esk\.|tıp\.|huk\.|tic\.|bot\.|hayv\.|anat\.|kim\.|fiz\.|astr\.|mat\.|den\.|ask\.|mus\.|dilb\.|edeb\.|biy\.|jeol\.|felsefe|sosyol\.|argo|mecaz|İİ|s\.|i\.|f\.|zf\.|zam\.|bağ\.|ünl\.|ed\.)\s*', '', w)
+    w = re.sub(r'^[-\.][a-zçğıöşü]+\s*', '', w)
+    w = re.sub(r'\s*ile$', '', w)
+    w = w.strip(' ,;:.-\t\n\r/')
+    return w
+
+def is_clean_turkish_synonym(w):
+    if not w or len(w) < 2 or len(w) > 25:
+        return False
+    if any(ch in w for ch in ['/', '\\', ':', ';', '!', '?', '=', '<', '>', '{', '}', '_', '@', '%', '$']):
+        return False
+    allowed = set("abcçdefgğhıijklmnoöpqrsştuüvwxyzABCÇDEFGĞHIİJKLMNOÖPQRSŞTUÜVWXYZ -'")
+    return all(c in allowed for c in w)
+
+def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
     if not os.path.exists(trk_path):
         return
 
-    tr_to_en = {}   # turkish_meaning → [english_headword, ...]
-    en_to_tr = {}   # english → set of turkish meanings (for synonyms)
+    tr_to_en = {}
+    en_meanings = defaultdict(list)
 
     with open(trk_path, 'r', encoding='utf-8') as f:
         for line in f:
@@ -342,38 +363,82 @@ def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
             parts = line.split(None, 1)
             if len(parts) != 2:
                 continue
-            english, meanings = parts[0], parts[1]
-            en_to_tr[english] = set()
-            for meaning in meanings.split('|'):
-                meaning = meaning.strip().lstrip('#').strip()
-                if not meaning:
-                    continue
-                en_to_tr[english].add(meaning)
-                if meaning not in tr_to_en:
-                    tr_to_en[meaning] = []
-                if english not in tr_to_en[meaning]:
-                    tr_to_en[meaning].append(english)
+            english, tr_raw = parts[0], parts[1]
+            
+            # TR_EN mapping
+            for m in tr_raw.split('|'):
+                clean_m = m.strip().lstrip('#').strip()
+                if clean_m:
+                    tr_to_en.setdefault(clean_m, []).append(english)
+
+            # Synonym extraction per meaning block
+            for m in tr_raw.split('#'):
+                meaning_words = set()
+                for it in m.split('|'):
+                    cw = clean_turkish_synonym(it)
+                    if is_clean_turkish_synonym(cw):
+                        meaning_words.add(cw)
+                if meaning_words:
+                    en_meanings[english].append(meaning_words)
 
     if synonyms_dict is not None:
-        # ES_ANLAM: Turkish words sharing the same English headword are synonyms
-        seen = set()
-        for english, tr_words in en_to_tr.items():
-            if len(tr_words) < 2:
-                continue
-            sorted_words = sorted(tr_words)
-            key = '|'.join(sorted_words)
-            if key in seen:
-                continue
-            seen.add(key)
+        curated_extras = {
+            'face': ['beniz', 'bet', 'bet beniz', 'fizyonomi', 'sima', 'vecih', 'sıfat', 'satıh'],
+            'name': ['ad', 'lakap', 'nam'],
+            'house': ['hane', 'mesken', 'konut', 'yurt'],
+            'beautiful': ['hoş', 'pak', 'nurlu'],
+            'bad': ['berbat', 'münkesir'],
+            'big': ['iri', 'koca'],
+            'small': ['ufak', 'minik', 'bücür'],
+            'fast': ['tez'],
+            'slow': ['ağır', 'aheste'],
+            'wise': ['hikmetli', 'olgun'],
+            'strong': ['kuvvetli', 'metin', 'kudretli'],
+            'weak': ['aciz', 'mahrum'],
+            'honest': ['emin'],
+            'brave': ['korkusuz', 'mert'],
+            'rich': ['varlıklı', 'bahtiyar'],
+            'poor': ['yoksul', 'muhtaç'],
+            'quiet': ['susku', 'sakin', 'dingin'],
+            'hot': ['ılık', 'hararetli', 'kızgın'],
+            'cold': ['serin', 'donmuş'],
+            'sweet': ['lezzetli', 'şirin'],
+            'new': ['yeni', 'taze'],
+            'old': ['yaşlı', 'matur', 'kocamış'],
+            'good': ['iyi', 'hayırlı'],
+            'water': ['su', 'akar su', 'çeşme'],
+            'fire': ['ateş', 'yangın', 'alaz'],
+            'earth': ['toprak', 'arazi', 'zemin'],
+            'sky': ['gök', 'gök yüzü', 'sema'],
+            'heart': ['kalp', 'gönül', 'yürek'],
+            'mind': ['akıl', 'zihin', 'beyin'],
+            'eye': ['göz', 'nazar', 'basar'],
+            'head': ['kafa', 'baş'],
+            'world': ['dünya', 'yer', 'arz'],
+        }
+
+        # Build clean merged groups per English headword
+        en_groups = {}
+        for en, meanings in en_meanings.items():
+            merged = set()
+            for m in meanings:
+                merged.update(m)
+            if en in curated_extras:
+                merged.update(curated_extras[en])
+            if len(merged) >= 2:
+                en_groups[en] = merged
+
+        for en, group_words in en_groups.items():
+            sorted_words = sorted(group_words)
             for i, tw in enumerate(sorted_words):
                 others = [w for j, w in enumerate(sorted_words) if j != i]
                 if tw not in synonyms_dict:
-                    synonyms_dict[tw] = {'synonyms': others, 'via': english}
+                    synonyms_dict[tw] = {'synonyms': set(others), 'via': [en]}
                 else:
-                    synonyms_dict[tw]['synonyms'] = list(
-                        set(synonyms_dict[tw]['synonyms']) | set(others))
+                    synonyms_dict[tw]['synonyms'].update(others)
+                    if en not in synonyms_dict[tw]['via']:
+                        synonyms_dict[tw]['via'].append(en)
     else:
-        # TR_EN: sorted by Turkish word
         for turkish, english_list in sorted(tr_to_en.items()):
             dictionary.append((turkish, ', '.join(english_list)))
 
@@ -414,7 +479,8 @@ def main():
     with open(GetOutputPath('MTU.TUR_ES_ANLAM.TXT'), 'w', encoding='utf-8') as f:
         for turkish, data in sorted(synonyms.items()):
             syns = ' | '.join(sorted(data['synonyms']))
-            f.write(f'{turkish:<30} {syns}  [{data["via"]}]\n')
+            via_str = ', '.join(data['via'])
+            f.write(f'{turkish:<30} {syns}  [{via_str}]\n')
     print(f'Exported {len(synonyms)} eş anlamlılar entries.')
 
 if __name__ == '__main__':
