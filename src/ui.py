@@ -148,58 +148,12 @@ def load_synonyms():
     Each English headword becomes one synonym group containing all its Turkish translations.
     """
     entries = []
-    tur_path = os.path.join(OUTPUT_DIR, "MTU.TUR.TXT")
     trk_path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
-    tes_path = os.path.join(DATA_DIR, "MTU.TES")
+    tur_path = os.path.join(OUTPUT_DIR, "MTU.TUR.TXT")
 
     word_thesaurus = defaultdict(lambda: defaultdict(set))
 
-    # 1. Exact MTU.TES Binary Graph Decoding (Bidirectional linkage)
-    if os.path.exists(tur_path) and os.path.exists(tes_path):
-        with open(tur_path, "r", encoding="utf-8") as f:
-            tur_raw = [line.strip() for line in f if line.strip()]
-        if len(tur_raw) > 288 and tur_raw[288].lower() == 'akıl':
-            tur_raw[288] = 'ağıl'
-
-        with open(tes_path, "rb") as f:
-            tes_data = f.read()
-
-        for idx in range(len(tur_raw)):
-            if idx * 3 + 3 > 96003:
-                break
-            off = struct.unpack('<L', tes_data[idx*3:(idx+1)*3] + b'\x00')[0]
-            if off < 96003 or off >= len(tes_data):
-                continue
-
-            chunk = tes_data[off:min(len(tes_data), off + 45)]
-            w_src = tur_raw[idx].lower()
-            p = 0
-            while p <= len(chunk) - 3:
-                b0 = chunk[p]
-                if b0 in [0x05, 0x15, 0x45, 0x80, 0x84, 0x85, 0xca, 0x0b]:
-                    break
-
-                if b0 in [0xFF, 0xC0, 0x00, 0x10]:
-                    val = chunk[p+1] | (chunk[p+2] << 8)
-                    if 0 < val < len(tur_raw) and val != idx:
-                        w_tgt = tur_raw[val].lower()
-                        word_thesaurus[w_src]["1.Anlam"].add(w_tgt)
-                        word_thesaurus[w_tgt]["1.Anlam"].add(w_src)
-                    p += 3
-                    continue
-
-                b1, b2 = chunk[p+1], chunk[p+2]
-                val = b0 | (b1 << 8)
-                if b2 in [0, 1, 2] and 0 < val < len(tur_raw) and val != idx:
-                    grp_name = "1.Anlam" if b2 == 0 else ("2.Anlam" if b2 == 1 else "Mecaz")
-                    w_tgt = tur_raw[val].lower()
-                    word_thesaurus[w_src][grp_name].add(w_tgt)
-                    word_thesaurus[w_tgt][grp_name].add(w_src)
-                    p += 3
-                    continue
-                break
-
-    # 2. Add MTU.TRK Bilingual Concept Clusters
+    # 1. Clean TRK meaning block separation
     if os.path.exists(trk_path):
         tr_to_blocks = defaultdict(list)
         with open(trk_path, "r", encoding="utf-8") as f:
@@ -234,7 +188,7 @@ def load_synonyms():
                 if not merged:
                     clusters.append((is_mec, set(blk)))
 
-            anlam_count = len([g for g in word_thesaurus[word_lower] if '.Anlam' in g])
+            anlam_count = 0
             for is_mec, cl in clusters:
                 syns = {w for w in cl if w != word_lower}
                 if syns:
@@ -245,7 +199,44 @@ def load_synonyms():
                         grp_name = f"{anlam_count}.Anlam"
                     word_thesaurus[word_lower][grp_name].update(syns)
 
-    # 3. Format entries for UI — across ALL words
+    # 2. Format entries for UI
+    all_known_words = set(word_thesaurus.keys())
+    if os.path.exists(tur_path):
+        with open(tur_path, "r", encoding="utf-8") as f:
+            for line in f:
+                w = line.strip().lower()
+                if w:
+                    all_known_words.add(w)
+
+    for word_lower in all_known_words:
+        groups_dict = word_thesaurus.get(word_lower, {})
+        formatted_groups = []
+        all_syns = set()
+
+        ordered_grp_names = []
+        num_grps = [g for g in groups_dict.keys() if '.Anlam' in g]
+        num_grps.sort(key=lambda x: int(x.split('.')[0]) if x.split('.')[0].isdigit() else 99)
+        ordered_grp_names.extend(num_grps)
+        if 'Mecaz' in groups_dict:
+            ordered_grp_names.append('Mecaz')
+        for g in groups_dict.keys():
+            if g not in ordered_grp_names:
+                ordered_grp_names.append(g)
+
+        for grp_name in ordered_grp_names:
+            syn_set = groups_dict[grp_name]
+            syn_list = sorted([w for w in syn_set if w.lower() != word_lower], key=turkish_sort_key)
+            if syn_list:
+                formatted_groups.append(f"{grp_name}::{','.join(syn_list)}")
+                all_syns.update(syn_list)
+
+        entries.append({
+            "word": word_lower,
+            "synonyms": ' | '.join(sorted(all_syns, key=turkish_sort_key)),
+            "groups": ' | '.join(formatted_groups),
+        })
+
+    return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
     all_known_words = set(word_thesaurus.keys())
     if os.path.exists(tur_path):
         with open(tur_path, "r", encoding="utf-8") as f:
