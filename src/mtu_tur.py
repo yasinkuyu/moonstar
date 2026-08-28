@@ -118,56 +118,58 @@ def GetSuffix(data, instructions, base_offset):
     return suffix
 
 def ApplyModifications(data, prefix, suffix):
-    '''
+    """
     Applies modifications to prefix and suffix based on Section 6 data.
 
-    data[0] - Modifications:
-    - 0x00: Normal (most common: 76%)
-    - 0x0f: Capitalize first letter
-    - 0x20: Contains â, î, û (circumflex check?)
-    - 0x80: ğ -> k conversion
-    - Others: Under analysis
+    data[0] - Capitalization & Special Flags:
+    - 0x0B, 0x0F, 0x2F, 0x4B, 0x4F, 0x6F: Proper nouns / Capitalize first letter
+    - 0x20, 0x2F: Contains circumflex (â, î, û)
+    - 0x80: Compound word flag
 
-    data[1] - Additional flags:
-    - 0x00: Normal
-    - 0x41: Capitalize first letter
-    - 0x49: Capitalize first letter (for some suffixes)
-    - 0x51: Capitalize first letter (special case)
-    - 0x59: Capitalize first letter
-    - Others: Under analysis
+    data[1] - Morphology & Hardness:
+    - bit 0 (0x01): Capitalization flag
+    - bit 4 (0x10): Hardened stem indicator (e.g. 0x50, 0x51, 0x58, 0x59)
 
-    data[2-3]: Additional modification parameters (under analysis)
-    '''
+    data[2] - Suffix Class & Mutation:
+    - bit 7 (0x80): Soft/mutated stem in morphological database (e.g. 0x8b, 0x8a)
+    - 0x06, 0x07: Hard stem
+    """
+    # 1. Consonant hardening for base forms
+    # When Section 6 indicates hard/base form (bit 7 of byte 2 not set, and hardened flag set)
+    is_hard = (data[2] & 0x80 == 0) and ((data[1] & 0x10) != 0 or data[2] in [6, 7])
+    if is_hard:
+        if suffix.endswith('ğ'):
+            suffix = suffix[:-1] + 'k'
+        elif not suffix and prefix.endswith('ğ'):
+            prefix = prefix[:-1] + 'k'
+        elif suffix.endswith('b'):
+            suffix = suffix[:-1] + 'p'
+        elif not suffix and prefix.endswith('b'):
+            prefix = prefix[:-1] + 'p'
+        elif suffix.endswith('c'):
+            suffix = suffix[:-1] + 'ç'
+        elif not suffix and prefix.endswith('c'):
+            prefix = prefix[:-1] + 'ç'
+        elif suffix.endswith('d'):
+            suffix = suffix[:-1] + 't'
+        elif not suffix and prefix.endswith('d'):
+            prefix = prefix[:-1] + 't'
+        elif suffix.endswith('g'):
+            suffix = suffix[:-1] + 'k'
+        elif not suffix and prefix.endswith('g'):
+            prefix = prefix[:-1] + 'k'
 
-    should_capitalize = False
-
-    # Check capitalization flags
-    if data[0] == 0x0f:
-        should_capitalize = True
-    elif data[1] in [0x41, 0x49, 0x51, 0x59]:
-        should_capitalize = True
-    elif data[0] == 0x2f and data[1] == 0x59:
-        should_capitalize = True
+    # 2. Capitalization check
+    should_capitalize = (data[0] in [0x0b, 0x0f, 0x2f, 0x4b, 0x4f, 0x6f]) or ((data[1] & 0x01) != 0)
 
     # Apply capitalization to prefix
     if should_capitalize and prefix:
-        # Capitalize first letter, handling Turkish characters
-        if len(prefix) > 0:
-            first_char = prefix[0]
-            # Handle Turkish lowercase characters
-            turkish_lower = {'ı': 'I', 'i': 'İ', 'ğ': 'Ğ', 'ü': 'Ü',
-                           'ş': 'Ş', 'ö': 'Ö', 'ç': 'Ç'}
-            if first_char in turkish_lower:
-                prefix = turkish_lower[first_char] + prefix[1:]
-            else:
-                prefix = prefix[0].upper() + prefix[1:]
-
-    # Apply ğ -> k conversion (if needed)
-    if data[0] == 0x80:
-        if suffix and suffix.endswith('ğ'):
-            suffix = suffix[:-1] + 'k'
-        elif prefix and prefix.endswith('ğ'):
-            prefix = prefix[:-1] + 'k'
+        turkish_lower = {'ı': 'I', 'i': 'İ', 'ğ': 'Ğ', 'ü': 'Ü', 'ş': 'Ş', 'ö': 'Ö', 'ç': 'Ç'}
+        first_char = prefix[0]
+        if first_char in turkish_lower:
+            prefix = turkish_lower[first_char] + prefix[1:]
+        else:
+            prefix = prefix[0].upper() + prefix[1:]
 
     return prefix, suffix
 
