@@ -372,8 +372,14 @@ def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
                     tr_to_en.setdefault(clean_m, []).append(english)
 
             # Synonym extraction per meaning block
-                if meaning_words:
-                    en_meanings[english].append(meaning_words)
+            for m_block in tr_raw.split('#'):
+                m_words = set()
+                for it in m_block.split('|'):
+                    cw = clean_turkish_synonym(it)
+                    if is_clean_turkish_synonym(cw):
+                        m_words.add(cw)
+                if m_words:
+                    en_meanings[english].append(m_words)
 
     if synonyms_dict is not None:
         # ─── Native MTU.TES Binary Thesaurus Decoder ──────────────────────────
@@ -439,7 +445,6 @@ def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
                         synonyms_dict[tw]['via'].append(en)
     else:
         for turkish, english_list in sorted(tr_to_en.items()):
-            dictionary.append((turkish, ', '.join(english_list))) turkish, english_list in sorted(tr_to_en.items()):
             dictionary.append((turkish, ', '.join(english_list)))
 
 
