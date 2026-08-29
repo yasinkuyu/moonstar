@@ -345,27 +345,6 @@ def DecodeSection3Entry(byte0, val, bytes11, section4_data, base_offset):
     except:
         return ''
 
-def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
-    """
-    Build Türkçe→İngilizce dictionary by reversing the TRK (İngilizce→Türkçe) file.
-
-    MTU.TUR Section 3 is a SUFFIX STRIPPING TABLE for Leb Demeden (NOT TR_EN data):
-      - Each entry = [byte0: count][val: Section5 offset][bytes11: morphological class]
-      - Section5[val:val+count] = Turkish suffix string (e.g. 'acak', 'mak', 'ımdan')
-      - Section1 = fast lookup index by first letter of suffix
-      - bytes11[2] = grammatical class code (3=aorist, 5=future/ability stems, etc.)
-      - DecodeSection3Entry() using table_A/table_B produces garbled output because
-        Section3 stores suffix morphology instructions, NOT English character data.
-
-    Correct TR_EN source: reverse the TRK file (İngilizce→Türkçe pairs).
-    Each Turkish definition in TRK maps back to its English headword.
-
-    For synonyms (ES_ANLAM): Turkish words sharing the same English translation
-    are considered synonyms of each other.
-
-    Coverage: ~25% of TUR words have a direct TR_EN match via TRK.
-    Remaining 75% are proper nouns, compounds, or forms not in TRK.
-    """
 def clean_turkish_synonym(w):
     w = re.sub(r'\(.*?\)', '', w)
     w = re.sub(r'<.*?>', '', w)
@@ -385,6 +364,30 @@ def is_clean_turkish_synonym(w):
     return all(c in allowed for c in w)
 
 def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
+    """
+    Build Türkçe→İngilizce dictionary by reversing the TRK (İngilizce→Türkçe) file.
+
+    MTU.TUR Section 3 is a SUFFIX STRIPPING TABLE for Leb Demeden (NOT TR_EN data):
+      - Each entry = [byte0: count][val: Section5 offset][bytes11: morphological class]
+      - Section5[val:val+count] = Turkish suffix string (e.g. 'acak', 'mak', 'ımdan')
+      - Section1 = fast lookup index by first letter of suffix
+      - bytes11[2] = grammatical class code (3=aorist, 5=future/ability stems, etc.)
+      - DecodeSection3Entry() using table_A/table_B produces garbled output because
+        Section3 stores suffix morphology instructions, NOT English character data.
+
+    Correct TR_EN source: reverse the TRK file (İngilizce→Türkçe pairs).
+    Each Turkish definition in TRK maps back to its English headword.
+
+    For synonyms (ES_ANLAM): Turkish words sharing the same English translation
+    are considered synonyms of each other. This is a SEPARATE, simpler
+    English-block co-occurrence method from mtu_thesaurus.py's 5-phase engine —
+    the two are not unified and can disagree. See mtu_thesaurus.py docstring.
+
+    Coverage: ~25% of TUR words have a direct TR_EN match via TRK.
+    Remaining 75% are proper nouns, compounds, or forms not in TRK — these
+    words (e.g. beniz, vecih, sima) cannot get synonyms from this method at all,
+    confirmed missing in the RAM-dump ground truth (test_comparison.py test_04).
+    """
     if not os.path.exists(trk_path):
         return
 

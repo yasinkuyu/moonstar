@@ -111,8 +111,12 @@ def load_all_synonyms(
         gm: Set[str] = set()
 
         # Adım 1: Doğrudan İki Yönlü İngilizce-Türkçe Anlam Blokları (1-Hop Çıkarım)
+        # NOT: yalnızca word_lower'ın bulunduğu blok (b_idx) taranır — "en" kelimesinin
+        # DİĞER anlam bloklarına (polisemi) sızma engellenir.
         for en, b_idx, is_mec in graph.tr_to_en.get(word_lower, ()):
             for blk_idx, blk_mec, tokens in graph.en_to_tr_blocks.get(en, ()):
+                if blk_idx != b_idx:
+                    continue
                 for t in tokens:
                     if t != word_lower:
                         if blk_mec or is_mec:
@@ -128,6 +132,8 @@ def load_all_synonyms(
             for en, b_idx, is_mec in graph.tr_to_en.get(w_suf, ()):
                 gm.add(w_suf)
                 for blk_idx, blk_mec, tokens in graph.en_to_tr_blocks.get(en, ()):
+                    if blk_idx != b_idx:
+                        continue
                     for t in tokens:
                         if t != word_lower:
                             gm.add(t)
@@ -138,6 +144,8 @@ def load_all_synonyms(
             for en, b_idx, is_mec in graph.tr_to_en.get(w_suf, ()):
                 g2.add(w_suf)
                 for blk_idx, blk_mec, tokens in graph.en_to_tr_blocks.get(en, ()):
+                    if blk_idx != b_idx:
+                        continue
                     for t in tokens:
                         if t != word_lower:
                             g2.add(t)
@@ -148,6 +156,8 @@ def load_all_synonyms(
             for en, b_idx, is_mec in graph.tr_to_en.get(w_suf, ()):
                 g1.add(w_suf)
                 for blk_idx, blk_mec, tokens in graph.en_to_tr_blocks.get(en, ()):
+                    if blk_idx != b_idx:
+                        continue
                     for t in tokens:
                         if t != word_lower:
                             g1.add(t)
