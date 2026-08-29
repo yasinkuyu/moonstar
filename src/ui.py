@@ -163,133 +163,26 @@ def clean_token(token):
 
 def load_synonyms():
     """
-    Turkish Thesaurus Engine — 4-Phase MoonStar Win16 Runtime Simulation
+    Turkish Thesaurus Engine — MTU.EXE Win16 runtime simulation.
 
-    Matches MTU.EXE runtime behavior verified via NTVDM RAM dump (0x60348):
+    Implemented in mtu_thesaurus.py (5 phases):
+      1. TRK direct block synonyms (# / | groups)
+      2. TRK homonym + semantic English fields (face / shame / reproach)
+      3. TUR Section 3 paradigm chain expansion (bytes11 morph_match)
+      4. TUR morphological cluster (sec4[1], sec6[2]) for Leb-Demeden-only words
+      5. Compound token extraction (bet beniz → beniz)
 
-    Phase 1 — TRK Direct Block Synonyms:
-        Each '#'-separated meaning block in TRK where the target word appears
-        contributes co-occurring words to 1.Anlam (block 0) or 2.Anlam (block 1+).
-        Mecaz-flagged blocks ('mec.', 'arg.') → Mecaz group.
-
-    Phase 2 — TRK Reverse Scan (key insight from RAM dump!):
-        For every TRK line, if word W appears in the *Turkish* definition text,
-        collect all co-occurring Turkish tokens in that block as synonyms of W.
-        This is how beniz/vecih/fizyonomi/satıh/hicap/arlanma appear under 'yüz' —
-        they co-occur with 'yüz' in the 'face' block of English headwords.
-
-    Phase 3 — TUR Morphological Derivatives:
-        Find all TUR words starting with W (derivatives: yüzsüz, yüzlemek, yüzey…).
-        Add them to groups based on semantic suffix class:
-          - *süz/siz → Mecaz  (shameless/negative)
-          - *mek/mak → 2.Anlam (verb form)
-          - others   → 1.Anlam (related noun/adj)
-        Also pull each derivative's own Phase-1 synonyms into the group.
-
-    Phase 4 — Compound Token Extraction:
-        Compound tokens like 'bet beniz' → extract 'beniz' sub-token.
-        Add sub-tokens to 1.Anlam.
+    Full RAM-dump parity for Leb-Demeden-only words (beniz, sima, vecih…) requires
+    complete decode of Section 3 bytes11 paradigm graph — see AGENTS.md Unknown #2.
     """
-    entries = []
+    try:
+        from mtu_thesaurus import load_all_synonyms
+    except ImportError:
+        from src.mtu_thesaurus import load_all_synonyms
+
     trk_path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
     tur_path = os.path.join(OUTPUT_DIR, "MTU.TUR.TXT")
-
-    # ── Pre-pass: build Phase-1 direct synonym map ───────────────────────────
-    word_thesaurus = defaultdict(lambda: {"1.Anlam": set(), "2.Anlam": set(), "Mecaz": set()})
-
-    # Also build: token -> list of (is_mecaz, block_idx, peer_set)
-    token_blocks = defaultdict(list)
-
-    if os.path.exists(trk_path):
-        with open(trk_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split(None, 1)
-                if len(parts) != 2:
-                    continue
-                en, tr_raw = parts[0], parts[1]
-
-                meaning_blocks = tr_raw.split('#')
-                for b_idx, m_block in enumerate(meaning_blocks):
-                    is_mecaz = any(kw in m_block.lower() for kw in ['(mec', 'mec.', 'argo', 'arg.'])
-
-                    m_words = []
-                    for it in m_block.split('|'):
-                        ct = clean_token(it)
-                        if ct and 2 <= len(ct) <= 30 and len(ct.split()) <= 3:
-                            m_words.append(ct)
-
-                    if len(m_words) >= 2:
-                        unique_m = list(dict.fromkeys(m_words))
-                        peer_set = set(unique_m)
-                        for w in unique_m:
-                            token_blocks[w].append((is_mecaz, b_idx, peer_set))
-                            syns = {o for o in peer_set if o != w}
-                            if is_mecaz:
-                                word_thesaurus[w]["Mecaz"].update(syns)
-                            elif b_idx == 0 or (b_idx == 1 and not word_thesaurus[w]["1.Anlam"]):
-                                word_thesaurus[w]["1.Anlam"].update(syns)
-                            else:
-                                word_thesaurus[w]["2.Anlam"].update(syns)
-
-    # ── Load TUR word list ───────────────────────────────────────────────────
-    tur_words = set()
-    if os.path.exists(tur_path):
-        with open(tur_path, "r", encoding="utf-8") as f:
-            for line in f:
-                w = line.strip().lower()
-                if w:
-                    tur_words.add(w)
-
-    # ── Phase 2: TRK reverse scan ────────────────────────────────────────────
-    # token_blocks[w] contains every TRK block where w appears as a token.
-    # Phase 2 is identical to Phase 1 in effect (both use the same inverted
-    # index built during the TRK parse pass), so no extra work needed here.
-    # NOTE: Phase 3 (TUR prefix derivatives) and Phase 4 (compound extraction)
-    # were REMOVED. They produce semantically incorrect synonyms for polysemous
-    # words — e.g. 'yüz' (face) prefix-expands into 'yüzbaşı' (captain) →
-    # 'komisyon/haşin', 'yüznumara' (toilet) → 'hela/tuvalet', 'yüzgeç' (fin)
-    # → 'amfibi'. Correct morphological expansion requires TUR Section 3
-    # bytes11 (grammatical class tree), which is not yet decoded. See Unknown #2.
-
-    all_known_words = set(word_thesaurus.keys()) | tur_words
-
-    for word_lower in all_known_words:
-        thesaurus = {
-            "1.Anlam": set(word_thesaurus[word_lower]["1.Anlam"]),
-            "2.Anlam": set(word_thesaurus[word_lower]["2.Anlam"]),
-            "Mecaz":   set(word_thesaurus[word_lower]["Mecaz"]),
-        }
-
-        # Remove self-references
-        for grp in thesaurus:
-            thesaurus[grp].discard(word_lower)
-
-        # Deduplicate across groups: 1.Anlam takes precedence, then 2.Anlam, then Mecaz
-        syns_1 = set(thesaurus["1.Anlam"])
-        thesaurus["2.Anlam"] -= syns_1
-        syns_1_2 = syns_1 | thesaurus["2.Anlam"]
-        thesaurus["Mecaz"] -= syns_1_2
-
-        formatted_groups = []
-        all_syns = set()
-
-        # MoonStar standard group ordering: 1.Anlam → 2.Anlam → Mecaz
-        for grp_name in ["1.Anlam", "2.Anlam", "Mecaz"]:
-            syn_set = thesaurus[grp_name]
-            syn_list = sorted([w for w in syn_set if w.lower() != word_lower], key=turkish_sort_key)
-            if syn_list:
-                formatted_groups.append(f"{grp_name}::{','.join(syn_list)}")
-                all_syns.update(syn_list)
-
-        entries.append({
-            "word": word_lower,
-            "synonyms": ' | '.join(sorted(all_syns, key=turkish_sort_key)),
-            "groups": ' | '.join(formatted_groups),
-        })
-
+    entries = load_all_synonyms(trk_path=trk_path, tur_txt_path=tur_path)
     return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
 
 
@@ -1028,36 +921,59 @@ body {
   border-color: #808080 #fff #fff #808080;
   background: #fff;
   overflow-y: auto;
+  overflow-x: hidden;
   position: relative;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 /* Dictionary split pane */
 .dict-word {
-  padding: 3px 6px;
+  padding: 2px 4px;
   cursor: pointer;
-  border-bottom: 1px dotted #ddd;
+  border-bottom: none;
   font-size: 14px;
   font-weight: bold;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  display: block;
 }
 .dict-word:hover { background: #e8e8ff; }
 
 .dict-sel { background: #000080; color: #fff; }
 .dict-sel:hover { background: #000080; }
 .dict-meaning {
-  padding: 4px 6px;
-  border-bottom: 1px solid #ccc;
+  padding: 2px 4px;
+  border-bottom: none;
   cursor: pointer;
   font-size: 14px;
   font-weight: bold;
   display: flex;
-  align-items: flex-start;
-  gap: 4px;
+  align-items: baseline;
+  gap: 5px;
+  color: #000;
+  user-select: none;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 .dict-meaning:hover { background: #e8e8ff; }
-.dict-meaning .row-num { flex-shrink: 0; min-width: 24px; color: #888; }
-.dict-meaning .meaning-content { flex: 1; display: flex; flex-direction: column; }
+.dict-meaning .row-num { flex-shrink: 0; min-width: auto; color: inherit; font-weight: inherit; }
+.dict-meaning .meaning-content {
+  flex: 1;
+  min-width: 0;
+  color: inherit;
+  font-weight: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .meaning-sel { background: #000080; color: #fff; }
-.meaning-sel .row-num { color: #88aaff; }
+.meaning-sel .row-num { color: #fff; }
+.meaning-sel .meaning-content { color: #fff; }
 .meaning-sel:hover { background: #000080; }
 
 /* 3D group box */
@@ -1189,6 +1105,57 @@ body {
   justify-content: center;
   flex-shrink: 0;
   line-height: 0;
+}
+
+/* ─── Main Menu Mini Mode ────────────────────────────────────────────────── */
+.welcome-mini {
+  width: auto !important;
+  min-width: 334px !important;
+  max-width: 340px !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+}
+.welcome-mini .welcome-body {
+  padding: 4px !important;
+  background: #c0c0c0 !important;
+  display: block !important;
+}
+.welcome-mini .welcome-panel {
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: block !important;
+  box-sizing: border-box !important;
+}
+.welcome-mini .welcome-grid {
+  display: flex !important;
+  flex-direction: row !important;
+  gap: 4px !important;
+  justify-content: center !important;
+  align-items: center !important;
+  grid-template-columns: none !important;
+  grid-template-rows: none !important;
+  width: auto !important;
+}
+.welcome-mini .btn-sprite-btn_denetim,
+.welcome-mini .btn-sprite-btn_klavye,
+.welcome-mini .btn-sprite-btn_adam_asma,
+.welcome-mini .welcome-sep,
+.welcome-mini .welcome-banner {
+  display: none !important;
+}
+.welcome-mini .btn-sprite-btn_en_tr {
+  display: inline-block !important;
+  order: 1 !important;
+}
+.welcome-mini .btn-sprite-btn_tr_en {
+  display: inline-block !important;
+  order: 2 !important;
+}
+.welcome-mini .btn-sprite-btn_esanlam {
+  display: inline-block !important;
+  order: 3 !important;
 }
 
 /* ─── CSS Sprites System ─────────────────────────────────────────────────── */
@@ -2302,6 +2269,10 @@ function openWindow(type, opts) {
   const id = 'win-' + (state.nextWindowId++);
   const workArea = document.getElementById('workArea');
 
+  // Input remembering: retrieve last searched query independently per window type
+  state.lastDictQuery = state.lastDictQuery || {};
+  const rememberedQuery = (opts && opts.query) || state.lastDictQuery[config.type] || '';
+
   let html = `<div class="win-window" id="${id}" style="width:${config.w}px;height:${config.h}px;${opts.keep ? 'top:36px;left:48px;transform:none;' : ''}">`;
   html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">${config.title}</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
@@ -2313,18 +2284,18 @@ function openWindow(type, opts) {
       <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-shrink:0;gap:8px;">
         <div style="flex:1;display:flex;flex-direction:column;gap:4px;">
           <div style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">Sözcük</div>
-          <input class="win-input" type="text" style="width:100%;background:#c0c0c0;" id="${id}-search" oninput="dictSearchDebounced('${id}')" onkeydown="if(event.key==='Enter') closeWindow('${id}')">
+          <input class="win-input" type="text" style="width:100%;background:#c0c0c0;" id="${id}-search" value="${rememberedQuery}" oninput="dictSearchDebounced('${id}')" onkeydown="if(event.key==='Enter') closeWindow('${id}')">
         </div>
         <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="closeWindow('${id}')" title="Tamam"></div>
       </div>
 
       <!-- Mid lists row: left listbox and right listbox -->
-      <div style="display:flex;gap:12px;flex:1;min-height:0;">
-        <div style="flex:1;display:flex;flex-direction:column;gap:4px;min-height:0;">
+      <div style="display:flex;gap:12px;flex:1;min-height:0;min-width:0;">
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;min-height:0;">
           <div style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">${config.type==='trk'?'İngilizce Sözcükler':'Türkçe Sözcükler'}</div>
           <div class="win-list" style="flex:1;overflow-y:auto;" id="${id}-list"></div>
         </div>
-        <div style="flex:1;display:flex;flex-direction:column;gap:4px;min-height:0;">
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;min-height:0;">
           <div style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">${config.type==='trk'?'Türkçe Karşılıklar':'İngilizce Karşılıklar'}</div>
           <div class="win-list" style="flex:1;overflow-y:auto;" id="${id}-defn"></div>
         </div>
@@ -2345,7 +2316,7 @@ function openWindow(type, opts) {
           <!-- Sözcük Row -->
           <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
             <div style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">Sözcük</div>
-            <input class="win-input" type="text" style="width:100%;background:#c0c0c0;font-weight:bold;font-family:inherit;" id="${id}-search" oninput="synTriggerSearch('${id}')" onkeydown="if(event.key==='Enter'){event.preventDefault();synTriggerSearch('${id}');}">
+            <input class="win-input" type="text" style="width:100%;background:#c0c0c0;font-weight:bold;font-family:inherit;" id="${id}-search" value="${rememberedQuery}" oninput="synTriggerSearch('${id}')" onkeydown="if(event.key==='Enter'){event.preventDefault();synTriggerSearch('${id}');}">
           </div>
           
           <!-- Kök Sözcük Row -->
@@ -2378,7 +2349,7 @@ function openWindow(type, opts) {
   } else if (config.type === 'tur') {
     html += `<div class="win-body" style="padding:4px;flex:1;display:flex;flex-direction:column;min-height:0;">
       <div style="margin-bottom:4px;flex-shrink:0;">
-        <input class="win-input" type="text" placeholder="Sözcük ara..." style="width:100%;" id="${id}-search" oninput="dictSearchDebounced('${id}')">
+        <input class="win-input" type="text" placeholder="Sözcük ara..." style="width:100%;" id="${id}-search" value="${rememberedQuery}" oninput="dictSearchDebounced('${id}')">
       </div>
       <div class="group-box" style="flex:1;display:flex;flex-direction:column;margin-bottom:4px;"><legend>Türkçe Sözcükler</legend>
         <div class="win-list" style="flex:1;overflow-y:auto;" id="${id}-list"></div>
@@ -2460,6 +2431,10 @@ function synTriggerSearch(winId) {
   const input = document.getElementById(winId + '-search');
   const q = input ? input.value.trim() : '';
   if (!q) return;
+
+  state.lastSearchQuery = q;
+  state.lastDictQuery = state.lastDictQuery || {};
+  state.lastDictQuery['syn'] = q;
   
   const fullData = state.windowData && state.windowData[winId];
   if (!fullData || !fullData.length) return;
@@ -2627,6 +2602,16 @@ function loadWindowDict(winId, type, apiUrl) {
           statusEl.textContent = `${d.total.toLocaleString()} kayıt`;
         }
       }
+
+      // If search input has a remembered query, trigger search immediately
+      const searchInput = document.getElementById(winId + '-search');
+      if (searchInput && searchInput.value.trim()) {
+        if (type === 'syn') {
+          synTriggerSearch(winId);
+        } else {
+          dictSearch(winId);
+        }
+      }
     });
 }
 
@@ -2747,6 +2732,12 @@ function dictSearch(winId) {
   const q = input ? input.value.trim() : '';
   const win = state.windows[winId];
   if (!win) return;
+
+  if (q) {
+    state.lastSearchQuery = q;
+    state.lastDictQuery = state.lastDictQuery || {};
+    state.lastDictQuery[win.type] = q;
+  }
 
   const key1 = { trk: 'en', rev: 'tr', syn: 'word', tur: 'word' }[win.type];
   const key2 = { trk: 'tr', rev: 'en', syn: 'synonyms' }[win.type];
@@ -3377,12 +3368,20 @@ function welcomeBtnPress(img, pressed) {
   img.src = pressed ? img.dataset.p : img.dataset.n;
 }
 
+function toggleWelcomeMiniMode() {
+  const win = document.getElementById('win-welcome');
+  if (!win) return;
+  win.classList.toggle('welcome-mini');
+  state.welcomeMiniMode = win.classList.contains('welcome-mini');
+}
+
 function showWelcomeWindow() {
   const id = 'win-welcome';
   if (document.getElementById(id)) return;
   const workArea = document.getElementById('workArea');
   state.windows[id] = { type: 'welcome', id: id };
 
+  const isMini = state.welcomeMiniMode || false;
   const v = '3';
   const modules = [
     { label: 'Türkçe Denetim', base: 'btn_denetim', action: 'openTextEditor()' },
@@ -3393,8 +3392,8 @@ function showWelcomeWindow() {
     { label: 'Adam Asma', base: 'btn_adam_asma', action: "openHangman()" },
   ];
 
-  let html = `<div class="win-window" id="${id}" style="width:372px;height:auto;">`;
-  html += `<div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">MoonStar Türkçe Dil Kılavuzu</span>`;
+  let html = `<div class="win-window${isMini ? ' welcome-mini' : ''}" id="${id}" style="${isMini ? 'width:auto;' : 'width:372px;'}height:auto;" ondblclick="toggleWelcomeMiniMode()">`;
+  html += `<div class="win-title" ondblclick="toggleWelcomeMiniMode()"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">MoonStar Türkçe Dil Kılavuzu</span>`;
   html += `<div class="win-title-btns"><button onclick="closeWindow('${id}')">✕</button></div></div>`;
   html += `<div class="win-body welcome-body" style="padding:6px;">`;
   html += `<div class="welcome-panel">`;
@@ -4480,41 +4479,25 @@ function getEditorSelectedOrWord(winId) {
 function editorLookupTur(winId) {
   closeAllMenus();
   const w = getEditorSelectedOrWord(winId);
-  openWindow('tr-tr');
-  if (w) setTimeout(() => {
-    const searchInput = document.getElementById('win-tr-tr-search');
-    if (searchInput) { searchInput.value = w; dictSearchDebounced('win-tr-tr'); }
-  }, 100);
+  openWindow('tr-tr', { query: w });
 }
 
 function editorLookupTrk(winId) {
   closeAllMenus();
   const w = getEditorSelectedOrWord(winId);
-  openWindow('ing-tr');
-  if (w) setTimeout(() => {
-    const searchInput = document.getElementById('win-ing-tr-search');
-    if (searchInput) { searchInput.value = w; dictSearchDebounced('win-ing-tr'); }
-  }, 100);
+  openWindow('ing-tr', { query: w });
 }
 
 function editorLookupSyn(winId) {
   closeAllMenus();
   const w = getEditorSelectedOrWord(winId);
-  openWindow('synonyms');
-  if (w) setTimeout(() => {
-    const searchInput = document.getElementById('win-syn-search');
-    if (searchInput) { searchInput.value = w; synTriggerSearch('win-syn'); }
-  }, 100);
+  openWindow('synonyms', { query: w });
 }
 
 function editorLookupRev(winId) {
   closeAllMenus();
   const w = getEditorSelectedOrWord(winId);
-  openWindow('tr-ing');
-  if (w) setTimeout(() => {
-    const searchInput = document.getElementById('win-tr-ing-search');
-    if (searchInput) { searchInput.value = w; dictSearchDebounced('win-tr-ing'); }
-  }, 100);
+  openWindow('tr-ing', { query: w });
 }
 
 function editorShowUserDict(winId) {
