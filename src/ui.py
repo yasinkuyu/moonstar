@@ -2430,7 +2430,15 @@ function getTurkishStem(word) {
 function synTriggerSearch(winId) {
   const input = document.getElementById(winId + '-search');
   const q = input ? input.value.trim() : '';
-  if (!q) return;
+  if (!q) {
+    const stemEl = document.getElementById(winId + '-stem');
+    if (stemEl) stemEl.value = '';
+    const grp = document.getElementById(winId + '-groups');
+    if (grp) grp.innerHTML = '';
+    const defn = document.getElementById(winId + '-defn');
+    if (defn) defn.innerHTML = '';
+    return;
+  }
 
   state.lastSearchQuery = q;
   state.lastDictQuery = state.lastDictQuery || {};
@@ -2440,17 +2448,18 @@ function synTriggerSearch(winId) {
   if (!fullData || !fullData.length) return;
   
   const qnNorm = normalizeSearch(q);
+  // 1. Exact match
   let match = fullData.find(e => normalizeSearch(e.word) === qnNorm);
-  if (!match) {
+  
+  // 2. Suffix-stripped stem match (e.g. 'yüzünde' -> 'yüz')
+  if (!match && q.length >= 3) {
     const stemNorm = normalizeSearch(getTurkishStem(q));
-    match = fullData.find(e => normalizeSearch(e.word) === stemNorm);
-  }
-  if (!match) {
-    match = fullData.find(e => normalizeSearch(e.word).startsWith(qnNorm));
+    if (stemNorm && stemNorm !== qnNorm) {
+      match = fullData.find(e => normalizeSearch(e.word) === stemNorm);
+    }
   }
   
   if (match) {
-    document.getElementById(winId + '-search').value = q;
     document.getElementById(winId + '-stem').value = match.word;
     
     const grp = document.getElementById(winId + '-groups');
@@ -2480,7 +2489,7 @@ function synTriggerSearch(winId) {
       synSetReplaceEnabled(winId, false);
     } else {
       grp.innerHTML = clusters.map((c, ci) => {
-        return `<div class="dict-meaning${ci===0?' meaning-sel':''}" style="cursor:pointer; border-bottom:none; font-weight:bold; font-family:inherit; padding:3px 6px;"
+        return `<div class="dict-meaning${ci===0?' meaning-sel':''}" style="cursor:pointer; border-bottom:none; font-weight:bold; font-family:inherit; padding:2px 4px;"
           onclick="synFilterGroup('${winId}', ${ci}, this)">${c.label}</div>`;
       }).join('');
       synFilterGroup(winId, 0, grp.querySelector('.dict-meaning'));
@@ -2785,7 +2794,7 @@ function dictSearch(winId) {
     }
   });
 
-  state.activeData[winId] = filtered;
+  state.activeData[winId] = filtered.slice(0, 100);
 
   const listEl = document.getElementById(winId + '-list');
   if (filtered.length === 0) {
@@ -2797,7 +2806,7 @@ function dictSearch(winId) {
     return;
   }
 
-  const listHtml = filtered.map((e, i) => {
+  const listHtml = state.activeData[winId].map((e, i) => {
     const label = e[key1] || '';
     return `<div class="dict-word${i===0?' dict-sel':''}" onclick="dictSelect('${winId}','${key2||''}',${i})">${label}</div>`;
   }).join('');
