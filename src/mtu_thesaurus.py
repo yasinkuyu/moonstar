@@ -4,9 +4,16 @@
 mtu_thesaurus.py — MoonStar Türkçe Eş Anlamlılar Motoru
 
 Orijinal MTU.EXE Win16 mimarisine uygun, tamamen dinamik, kural ve morfoloji tabanlı
-eş anlamlı motoru. Hiçbir kelime elle sabitlenmez (hardcoded değildir); tüm 30.000+
-Türkçe kelime için MTU.TRK (anlam blokları ve tersine indeks), MTU.TUR (morfolojik sözlük)
-ve Türkçe ek türetim kuralları (morfoloji grafı) üzerinden çalışma anında dinamik olarak üretilir.
+eş anlamlı motoru.
+
+Mimari:
+  1. TRK-Anchored 1-Hop BFS: Aranan kelimenin İngilizce karşılıkları üzerinden eş anlamlılar çekilir.
+     Polisemi kirlenmesini önlemek için yalnızca kelimenin bizzat yer aldığı alt anlam bloğu (b_idx == blk_idx) taranır.
+  2. Yokluk / Zıtlık Morfolojisi (-siz/-süz/-suz/-sız, -sizce, -sizlik) -> Mecaz grubuna köprü.
+  3. Eylem Türevi Morfolojisi (-le/-la, -lemek/-lamak, -lenmek) -> 2.Anlam grubuna köprü.
+  4. Alan / Yüzey Morfolojisi (-ey/-ay) -> 1.Anlam grubuna köprü.
+
+Ters dizin serbest tamlama taraması (Adım 5) gürültü oluşturduğu için tamamen kaldırılmıştır.
 """
 
 from __future__ import annotations
@@ -53,7 +60,6 @@ class TrkDynamicGraph:
     def __init__(self, trk_path: str, tur_txt_path: str):
         self.tr_to_en: Dict[str, Set[Tuple[str, int, bool]]] = defaultdict(set)
         self.en_to_tr_blocks: Dict[str, List[Tuple[int, bool, List[str]]]] = defaultdict(list)
-        self.all_compounds_by_word: Dict[str, Set[str]] = defaultdict(set)
         self.tur_words: Set[str] = set()
 
         if os.path.exists(tur_txt_path):
@@ -82,10 +88,6 @@ class TrkDynamicGraph:
                             ct = clean_tr_token(t)
                             if ct:
                                 cleaned.append(ct)
-                                if " " in ct:
-                                    for w in ct.split():
-                                        if len(w) >= 2:
-                                            self.all_compounds_by_word[w].add(ct)
                         if cleaned:
                             self.en_to_tr_blocks[en].append((b_idx, is_mec, cleaned))
                             for ct in cleaned:
@@ -111,8 +113,7 @@ def load_all_synonyms(
         gm: Set[str] = set()
 
         # Adım 1: Doğrudan İki Yönlü İngilizce-Türkçe Anlam Blokları (1-Hop Çıkarım)
-        # NOT: yalnızca word_lower'ın bulunduğu blok (b_idx) taranır — "en" kelimesinin
-        # DİĞER anlam bloklarına (polisemi) sızma engellenir.
+        # Yalnızca word_lower'ın bulunduğu blok (b_idx == blk_idx) taranarak polisemi engellenir.
         for en, b_idx, is_mec in graph.tr_to_en.get(word_lower, ()):
             for blk_idx, blk_mec, tokens in graph.en_to_tr_blocks.get(en, ()):
                 if blk_idx != b_idx:
@@ -161,16 +162,6 @@ def load_all_synonyms(
                     for t in tokens:
                         if t != word_lower:
                             g1.add(t)
-
-        # Adım 5: Ters Dizin Üzerinden Dinamik Deyim ve Tamlama Dağıtımı
-        for comp in graph.all_compounds_by_word.get(word_lower, ()):
-            if comp != word_lower:
-                if any(k in comp for k in ("siz", "süz", "suz", "sız", "meden", "madan", "olmayan", "pek")):
-                    gm.add(comp)
-                elif any(comp.endswith(v) for v in ("mek", "mak", "etmek", "olmak", "vurmak", "çarpmak", "tutmak", "sokmak")):
-                    g2.add(comp)
-                else:
-                    g1.add(comp)
 
         # Temizleme ve öncelikli ayrıştırma
         g1.discard(word_lower)
