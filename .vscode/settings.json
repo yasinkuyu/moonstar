@@ -1,0 +1,5 @@
+{
+  "agent.autoExecution": "always-proceed",
+  "agent.reviewPolicy": "always-proceed",
+  "agent.trustCurrentWorkspace": true
+}
