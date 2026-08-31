@@ -353,7 +353,8 @@ The 910 Section 6 entries (4 bytes each) encode root properties and phonetic rul
 | 5 | **0xFF/0x10/0x20 prefix slots** — 2,027 non-standard ING entries with unknown semantics | LOW |
 | 6 | **Full ING→UI mapping** — which format marker sequences produce which quiz question types (multiple choice, fill-in, synonym match, etc.) | LOW |
 | 7 | **KONTROL.SOZ** — 12 bytes: `MG2 1A 01 00 00 00 7F F1 10 45`. Too small for a dict. Possibly checksum or version stamp. | LOW |
-| 8 | **EXE Thesaurus Mechanism** — FULLY RESOLVED (2026-08-29). RAM dump at `0x60348` confirms 60 words for "yüz" across 3 groups (1.Anlam, 2.Anlam, Mecaz). `mtu_thesaurus.py` combines TRK block definitions, TUR morphemes, Section 6 phonetic rules, and semantic paradigm networks to achieve **60/60 (100%) match rate** against the live Windows XP NTVDM RAM dump. | RESOLVED |
+| 8 | **EXE Thesaurus TUR-only Connection** — PARTIALLY RESOLVED (2026-08-31). RAM dump at `0x60348` shows 61 words for "yüz". Current engine (`mtu_thesaurus.py` v3) achieves **37/61 (61%) match** via multi-hop BFS + compound root extraction. Missing 24 words: **(a)** 8 TUR-only archaic words (beniz, vecih, sima, fizyonomi, satıh, hicap, mahcubiyet, bet) — NOT in TRK standalone entries, EXE connects via unknown internal mechanism; **(b)** 9 compound phrases (alın damarı, bet beniz, etc.) — components exist but compounds not in vocabulary; **(c)** 6 TUR-root derivatives (arlanma, hayasız, sıkılma, etc.) — roots only in TUR, not reachable via TRK chain. The EXE's `0xD1EC` function does binary search on a runtime table at `[0x8b7e]` (523 entries × 6 bytes) built at window-open time — this table is NOT in the EXE binary. | MEDIUM |
+| 9 | **EXE Thesaurus Runtime Table** — At `0xD422`, thesaurus display reads from DGROUP `0x7AAB` (size 0xBB8 = 3000 bytes). This table is populated at runtime, not stored in binary. The `0xD1EC` binary search returns an index into this table. The 6-byte entries at `[0x8b7e]` encode: `[counter, lookup_result, word_offset_low, word_offset_high, category_low, category_high]`. | MEDIUM |
 
 
 
@@ -376,6 +377,15 @@ python3 src/ui.py          # Web UI server on port 8080
 ```
 
 ## Change Log (Recent Fixes)
+
+### 2026-08-31 (Thesaurus Engine v3 — Multi-Hop BFS + Compound Root Extraction)
+- **MULTI-HOP BFS**: Added query-time multi-hop traversal through TRK synonym graph (0.6s for 4-hop, ~1.7M words).
+- **COMPOUND ROOT EXTRACTION**: Split TRK multi-word tokens into components; extract roots from compound components (e.g., "sarı benizli" → "benizli" → "beniz").
+- **MORPHOLOGICAL GENERATION**: 30+ derivation suffixes (-sız/-siz, -sızca/-sizca, -leşme, -ılma, etc.) applied to expanded set at query time.
+- **COMPOUND PHRASE CONNECTION**: Phrases with components in expanded set automatically included.
+- **MATCH RATE**: 37/61 (61%) against live NTVDM RAM dump. Up from 2/61.
+- **REMAINING 24 WORDS**: Categorized as (a) 8 TUR-only archaic words — EXE connects via unknown runtime mechanism; (b) 9 compound phrases — idiomatic expressions not in TRK; (c) 6 TUR-root derivatives — roots only in TUR, not reachable via TRK chain.
+- **ALL 5 TESTS PASS**.
 
 ### 2026-08-29 (100% Dynamic Graph-Based Thesaurus Engine — Zero Hardcoding)
 - **DYNAMIC THESAURUS ENGINE**: Replaced static dictionary structures with a 100% dynamic, multi-hop morphological & inverted index graph in `src/mtu_thesaurus.py`.
