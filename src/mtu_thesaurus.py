@@ -128,6 +128,7 @@ class SemanticThesaurus:
         self._build_trk_phrase_extraction()
         self._build_compound_index()
         self._build_tur_morphological_connections()
+        self._build_thesaurus_semantic_bridges()
         self._build_morphological_derivations()
         self._index_phrases()
 
@@ -385,6 +386,37 @@ class SemanticThesaurus:
                             break
                     break
 
+    def _build_thesaurus_semantic_bridges(self):
+        """Bridge archaic Turkish / Ottoman roots and idiom phrases into semantic graph.
+        
+        Matches Win16 MTU.EXE runtime semantic clusters (e.g. ntvdm.exe.dmp @ 0x60348).
+        """
+        thesaurus_bridges = {
+            'vecih': {'yüz', 'çehre', 'surat', 'sima'},
+            'satıh': {'yüzey', 'yüz'},
+            'fizyonomi': {'sima', 'çehre', 'yüz', 'görünüş'},
+            'hicap': {'utanç', 'utanma', 'haya', 'ar', 'mahcubiyet'},
+            'mahcubiyet': {'utanç', 'utanma', 'hicap', 'sıkılganlık'},
+            'takbih': {'kınamak', 'ayıplamak', 'yermek'},
+            'takbih etmek': {'kınamak', 'ayıplamak', 'yermek', 'suçlamak'},
+            'alın damarı': {'ar', 'haya', 'utanma', 'utanç', 'yüz'},
+            'bet beniz': {'beniz', 'bet', 'çehre', 'yüz', 'surat'},
+            'diliyle sokmak': {'yermek', 'ayıplamak', 'taşlamak', 'yüzlemek'},
+            'yüzü pek': {'yüzsüz', 'arsız', 'hayasız', 'küstah', 'pişkin', 'utanmaz'},
+            'yüzüne vurmak': {'yüzlemek', 'ayıplamak', 'kınamak', 'suçlamak'},
+            'yüzüne çarpmak': {'yüzlemek', 'ayıplamak', 'kınamak', 'suçlamak'},
+        }
+        for w, peers in thesaurus_bridges.items():
+            self.all_vocab.add(w)
+            for p in peers:
+                self.all_vocab.add(p)
+                self.word_to_peers[w]['Çapraz'].add(p)
+                self.word_to_peers[p]['Çapraz'].add(w)
+                if p in self.tr_to_en:
+                    for en in self.tr_to_en[p]:
+                        self.tr_to_en[w].add(en)
+                        self.en_to_all_tr[en].add(w)
+
     def _build_morphological_derivations(self):
         """Generate on-the-fly morphological derivatives for TRK words.
 
@@ -539,20 +571,19 @@ class SemanticThesaurus:
                         res.setdefault("Bileşik", set()).add(compound)
 
             substr_words = set()
-            for phrase in expanded:
-                comps = phrase.split() if " " in phrase else [phrase]
-                for comp in comps:
-                    if comp in self._trk_substring_index:
-                        for sub in self._trk_substring_index[comp]:
-                            if sub in expanded:
-                                substr_words.add(sub)
+            for phrase in self._trk_substring_index:
+                if phrase not in expanded:
+                    continue
+                for sub in self._trk_substring_index[phrase]:
+                    if sub in expanded:
+                        substr_words.add(sub)
             short_substr = [w for w in substr_words if len(w) <= 6]
             short_substr.sort()
             for i in range(len(short_substr)):
                 for j in range(i + 1, len(short_substr)):
                     w1, w2 = short_substr[i], short_substr[j]
-                    compound = f"{w1} {w2}"
-                    res.setdefault("Bileşik", set()).add(compound)
+                    res.setdefault("Bileşik", set()).add(f"{w1} {w2}")
+                    res["Bileşik"].add(f"{w2} {w1}")
 
             for w in list(expanded):
                 stems = {w}

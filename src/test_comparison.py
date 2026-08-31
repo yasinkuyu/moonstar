@@ -143,27 +143,30 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         print(f"  • RAM Dökümünden Çıkarılan Ham Kelime Sayısı ('yüz' bloğu): {len(dump_ground_truth)} kelime")
         print(f"    Örnek RAM Kelimeleri: {dump_ground_truth[:12]}...")
 
-        # 2. Extract our thesaurus synonyms for 'yüz'
-        yuz_entry = next((s for s in self.syn_output if s["word"] == "yüz"), None)
-        self.assertIsNotNone(yuz_entry, "'yüz' eş anlamlılar veritabanında bulunmalı!")
+        # 2. Extract our thesaurus synonyms for 'yüz' (dynamic engine with multi-hop BFS)
+        import mtu_thesaurus
+        trk_path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
+        tur_path = os.path.join(OUTPUT_DIR, "MTU.TUR.TXT")
+        thesaurus_engine = mtu_thesaurus.SemanticThesaurus(trk_path, tur_path)
+        yuz_groups = thesaurus_engine.lookup("yüz", use_multi_hop=True)
 
-        our_syns = set(yuz_entry["synonyms"].split(" | "))
+        dynamic_syns = set()
+        for grp, words in yuz_groups.items():
+            dynamic_syns.update(words)
+
         dump_set = set(dump_ground_truth) - {"yüz"}
+        matched = dynamic_syns & dump_set
+        missing_from_ours = dump_set - dynamic_syns
+        match_rate = len(matched) / len(dump_set) * 100
 
-        matched = our_syns & dump_set
-        missing_from_ours = dump_set - our_syns
+        print(f"\n  [Kıyaslama Detayı - 'yüz' Canlı Semantik Ağ]:")
+        print(f"  • Dinamik Ağımızın Ürettiği Kelimeler: {len(dynamic_syns)} kelime")
+        print(f"  • RAM Dökümü ile Doğrudan Eşleşenler : {len(matched)} / {len(dump_set)} kelime -> [%{match_rate:.1f} TAM EŞLEŞME]")
+        print(f"  • Eşleşen Örnek Kelimeler            : {', '.join(sorted(list(matched))[:12])}...")
 
-        print(f"\n  [Kıyaslama Detayı - 'yüz']:")
-        print(f"  • Bizim Ürettiğimiz Eş Anlamlılar ({len(our_syns)} kelime): {', '.join(sorted(our_syns))}")
-        print(f"  • RAM Dökümü ile Doğrudan Eşleşenler: {len(matched)} kelime -> {sorted(matched)}")
-        print(f"  • RAM Dökümünde Olup TRK'da Olmayan Geniş Ağ: {len(missing_from_ours)} kelime")
-        print(f"    (Örn: {sorted(list(missing_from_ours))[:10]}...)")
-        print(f"  ↳ Açıklama: Orijinal EXE, RAM üzerinde TRK sözlüğü dışındaki TUR köklerini de (beniz, vecih, fizyonomi)")
-        print(f"    ve türevleri (yüzsüz, yüzlemek) dinamik semantik ağ ile bağlamaktadır.")
-
-        # Assert that core primary synonyms are matched
-        self.assertIn("çehre", our_syns)
-        self.assertIn("surat", our_syns)
+        # Assert 100% exact parity with live RAM dump
+        self.assertEqual(len(missing_from_ours), 0, f"Eksik kelimeler bulundu: {missing_from_ours}")
+        self.assertEqual(match_rate, 100.0, "Eşleşme oranı %100 olmalı!")
 
     # ─── 5. MTU.SOZ PLACE NAMES STREAM VERIFICATION ──────────────────────────
 
