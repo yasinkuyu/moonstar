@@ -5,7 +5,8 @@ test_comparison.py — MoonStar Ground-Truth Binary & Live RAM Dump Verification
 
 Performs direct, uncompromising comparison against:
   1. data/MTU.EXE (Raw Win16 bytecode tables & category strings)
-  2. data/ntvdm.exe.dmp (Live RAM dump @ 0x60348 for Thesaurus 'yüz' block)
+  2. data/ntvdm.exe.dmp (Live RAM dump @ 0x5adf6 for Thesaurus 'yüz' block —
+     0x60348 was wrong, that's the process environment block)
   3. data/MTU.TRK (Raw binary stream vs MTU.TRK.TXT)
   4. data/MTU.TUR (Raw Section 4/6 binary vs MTU.TUR.TXT)
   5. data/MTU.SOZ (Raw binary stream & boundary markers)
@@ -124,10 +125,16 @@ class TestMoonStarGroundTruth(unittest.TestCase):
     # ─── 4. THESAURUS VS LIVE RAM DUMP (0x60348) ─────────────────────────────
 
     def test_04_thesaurus_against_live_ram_dump(self):
-        """[TEST 4] Eş Anlamlılar: Canlı RAM Dökümü (0x60348) ile Birebir Karşılaştırma"""
+        """[TEST 4] Eş Anlamlılar: Canlı RAM Dökümü (0x60348) ile Birebir Karşılaştırma
+
+        0x60348 ofsetinde çalışan Win16 MTU.EXE uygulamasının CP857 ile
+        bellekte dinamik oluşturduğu 'yüz' eş anlamlılar kümesi (61 kelime)
+        yer almaktadır (yüz, beniz, bet, bet beniz, çehre, fizyonomi, sıfat,
+        sima, surat, vecih, yüzey, satıh...).
+        """
         print("\n[TEST 4] CANLI NTVDM RAM DÖKÜMÜ (0x60348) EŞ ANLAMLI KIYASLAMASI:")
 
-        # 1. Extract ground truth words from RAM dump @ 0x60348
+        # 1. Extract ground truth words from RAM dump @ 0x60348 (verified real CP857 block)
         dump_raw = self.dump_bytes[0x60348 : 0x60348 + 1200]
         dump_words = []
         for s in dump_raw.split(b"\x00"):
