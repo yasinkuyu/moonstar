@@ -54,6 +54,16 @@ def get_suffix_table() -> List[str]:
 
 
 
+TOPIC_NAMES = [
+    "Mecaz", "Argo", "Renk", "Türemiş", "Anatomi", "Askerlik", "Bitkibilim", "Biyoloji",
+    "Coğrafya", "Denizcilik", "Dilbilgisi, dilbilim", "Dinsel", "Ekonomi", "Elektrik, elektronik",
+    "Felsefe", "Fizik", "Gökbilim (astronomi)", "Hayvanbilim", "Hekimlik", "Hukuk",
+    "İskambil", "Kimya", "Mantık", "Matematik", "Meteoroloji", "Mimarlık", "Müzik",
+    "Otomobil, otomotiv", "Ruhbilim (psikoloji)", "Sinema", "Spor", "Teknik, teknoloji",
+    "Ticaret", "Tiyatro", "Yazın (edebiyat)", "Yerbilim (jeoloji)"
+]
+
+
 def tr_lower(s: str) -> str:
     """Proper Turkish lowercasing without Unicode combining dots."""
     return s.replace("İ", "i").replace("I", "ı").lower().replace("\u0307", "")
@@ -367,7 +377,17 @@ class ThesaurusEngine:
             p += 1
 
             grp_code = flag & 0x0F
-            if grp_code != prev_grp_code:
+            if grp_code == 0x0C and p < len(slot):
+                top_id = slot[p]
+                p += 1
+                if top_id + 4 < len(TOPIC_NAMES):
+                    cur_grp = TOPIC_NAMES[top_id + 4]
+                else:
+                    cur_grp = "1.Anlam"
+                prev_grp_code = (grp_code, top_id)
+                cur_grp_idx = len(result)
+                result.append((cur_grp, set()))
+            elif grp_code != prev_grp_code:
                 prev_grp_code = grp_code
                 if grp_code in NAMED_GROUPS:
                     cur_grp = NAMED_GROUPS[grp_code]
@@ -550,7 +570,16 @@ class ThesaurusEngine:
 
             # Group boundary dispatch via lower nibble (flag & 0x0F)
             grp_code = flag & 0x0F
-            if grp_code != prev_grp_code:
+            if grp_code == 0x0C and pos < len(slot_data):
+                top_id = slot_data[pos]
+                pos += 1
+                if top_id + 4 < len(TOPIC_NAMES):
+                    cur_grp = TOPIC_NAMES[top_id + 4]
+                else:
+                    cur_grp = "1.Anlam"
+                prev_grp_code = (grp_code, top_id)
+                _start_group(cur_grp)
+            elif grp_code != prev_grp_code:
                 prev_grp_code = grp_code
                 if grp_code in NAMED_GROUPS:
                     cur_grp = NAMED_GROUPS[grp_code]

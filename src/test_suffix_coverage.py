@@ -93,6 +93,8 @@ def run_coverage_test():
                     if not has_more:
                         break
                 continue
+            elif (b & 0x0F) == 0x0C and pos < len(slot):
+                pos += 1
 
             word_count = ((b >> 4) & 3) + 1
             for _ in range(word_count):
