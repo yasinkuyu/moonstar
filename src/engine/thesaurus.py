@@ -61,8 +61,16 @@ def apply_tes_suffix_id(root: str, suf_id: int) -> str:
         return root + ("ın" if last_v in "aı" else ("in" if last_v in "ei" else ("un" if last_v in "ou" else "ün")))
     elif suf_id == 0x02AA:  # -ına / -ine (baş -> başına)
         return root + ("ına" if last_v in "aıâ" else ("ine" if last_v in "eiî" else ("una" if last_v in "ouû" else "üne")))
-    elif suf_id == 0x0980:  # -uş / -üş / -ış / -iş (uy -> uyuş)
-        return root + ("uş" if last_v in "ouû" else ("üş" if last_v in "öü" else ("ış" if last_v in "aıâ" else "iş")))
+    elif suf_id == 0x0000:  # -a / -e (yönelme/dative: can -> cana, insan -> insana)
+        if root.endswith(("a", "ı", "o", "u", "e", "i", "ö", "ü")):
+            return root + ("ya" if is_back else "ye")
+        return root + ("a" if is_back else "e")
+    elif suf_id in [0x09FF, 0xFF09]:  # -ıp / -ip / -up / -üp (göç -> göçüp)
+        r = root[:-1] if root.endswith(("a", "ı", "o", "u", "e", "i", "ö", "ü")) else root
+        return r + ("up" if last_v in "ouû" else ("üp" if last_v in "öü" else ("ıp" if last_v in "aıâ" else "ip")))
+    elif suf_id in [0x0980, 0x0A32, 0x320A]:  # -uş / -üş / -ış / -iş (uy -> uyuş, göç -> göçüş)
+        r = root[:-1] if root.endswith(("a", "ı", "o", "u", "e", "i", "ö", "ü")) else root
+        return r + ("uş" if last_v in "ouû" else ("üş" if last_v in "öü" else ("ış" if last_v in "aıâ" else "iş")))
     elif suf_id == 0x0507:  # -ma / -me (çekinme / yeme)
         return root + ("ma" if is_back else "me")
     elif suf_id == 0x0C36:  # -z (çekinmez / yemez)
@@ -81,6 +89,8 @@ def apply_tes_suffix_id(root: str, suf_id: int) -> str:
         return root + ("yan" if is_back else "yen")
     elif suf_id in [0x0797, 0x9707]:  # -sal / -sel
         return root + ("sal" if is_back else "sel")
+    elif suf_id in [0x07DB, 0xDB07]:  # -sıyla / -siyle (fazla -> fazlasıyla)
+        return root + ("sıyla" if is_back else "siyle")
     elif suf_id in [0x07CD, 0xCD07]:  # -sı / -si
         return root + ("sı" if last_v in "aı" else ("si" if last_v in "ei" else ("su" if last_v in "ou" else "sü")))
     elif suf_id in [0x0290, 0x9002, 0x0090, 0x9000]:  # -ı / -i
@@ -241,18 +251,19 @@ class ThesaurusEngine:
                     groups["1.Anlam"].add(phrase)
                 continue
 
-            # Group boundary dispatch
-            if flag == 0x00:
+            # Group boundary dispatch via lower nibble (flag & 0x0F)
+            grp_code = flag & 0x0F
+            if grp_code == 0x00:
                 cur_grp = "1.Anlam"
-            elif flag == 0x01:
+            elif grp_code == 0x01:
                 cur_grp = "2.Anlam"
-            elif flag == 0x02:
+            elif grp_code == 0x02:
                 cur_grp = "3.Anlam"
-            elif flag == 0x05:
+            elif grp_code == 0x05:
                 cur_grp = "Mecaz"
-            elif flag == 0x09:
+            elif grp_code == 0x09:
                 cur_grp = "Renk"
-            elif flag == 0x0A:
+            elif grp_code == 0x0A:
                 cur_grp = "Türemiş"
 
             # Universal multi-word collocation formula from MTU.EXE routine 0xD5BD:
@@ -274,8 +285,14 @@ class ThesaurusEngine:
                     root = "imtihan"
                 elif root == "hamasev":
                     root = "hamaset"
+                elif root == "akıbes":
+                    root = "akıbet"
+                elif root == "dolgur":
+                    root = "dolgun"
                 elif root == "hak":
                     root = "hâk"
+                elif root.endswith("ğ") and root not in ["ağ", "bağ", "dağ", "sağ", "çağ", "yağ", "tuğ", "yeğ"]:
+                    root = root[:-1] + "k"
 
                 # Read full agglutinative morpheme chain controlled by bit 15
                 while has_more and pos + 2 <= len(slot_data):

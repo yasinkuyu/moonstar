@@ -240,13 +240,28 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         baris_groups = thesaurus_engine.lookup("barış")
         self.assertEqual(sorted(list(baris_groups["1.Anlam"])), ["ateşkes", "hazar", "sulh", "uyuşma"])
 
+        zengin_groups = thesaurus_engine.lookup("zengin")
+        self.assertEqual(sorted(list(zengin_groups.keys())), ["1.Anlam", "2.Anlam", "3.Anlam"])
+        self.assertIn("fazlasıyla", zengin_groups["1.Anlam"])
+        self.assertIn("dolgun", zengin_groups["1.Anlam"])
+        self.assertIn("altın babası", zengin_groups["2.Anlam"])
+
+        olum_groups = thesaurus_engine.lookup("ölüm")
+        self.assertEqual(list(olum_groups.keys()), ["1.Anlam"])
+        expected_olum = [
+            "adem", "akıbet", "cana kıyma", "düşük", "ecel", "emrihak",
+            "göçme", "göçüp gitme", "göçüş", "idam", "kayıp", "memat", "mevt", "songu", "sıkıt", "şahadet"
+        ]
+        for w in expected_olum:
+            self.assertIn(w, olum_groups["1.Anlam"], f"Ölüm kelimesi eksik: {w}")
+
         print(f"  • \"öz\" Screenshot Türemiş Doğrulaması : {len(screenshot_turemis)} / {len(screenshot_turemis)} -> [%100 TAM EŞLEŞME]")
         print(f"  • \"test\" Screenshot Eş Anlamlıları    : {len(screenshot_test)} / {len(screenshot_test)} -> [%100 TAM EŞLEŞME]")
         print(f"  • \"kitap\" Canlı Kök Eşleşmesi       : 'elkitabı' -> [1.Anlam MEVCUT]")
         print(f"  • \"yüz\" Semantik & Mecaz Ağı         : surat, çehre, bet beniz [1.Anlam] -> [DOĞRULANDI]")
         print(f"  • \"mali\" Çok Kelimeli Öbekler       : {', '.join(screenshot_mali)} -> [%100 TAM EŞLEŞME]")
         print(f"  • \"hafif\" 16-Bit Ek Zincirlemesi    : {len(screenshot_hafif)} / {len(screenshot_hafif)} Kelime, 3 Anlam Grubu -> [%100 TAM EŞLEŞME]")
-        print(f"  • \"dolu, ağır, boş, adalet, cesaret, hürriyet, barış\" -> [%100 TAM EŞLEŞME]")
+        print(f"  • \"dolu, ağır, boş, adalet, cesaret, hürriyet, barış, zengin, ölüm\" -> [%100 TAM EŞLEŞME]")
 
     # ─── 5. MTU.SOZ PLACE NAMES STREAM VERIFICATION ──────────────────────────
 

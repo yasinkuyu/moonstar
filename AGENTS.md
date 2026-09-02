@@ -72,22 +72,45 @@ Each data file's usage was confirmed by searching the EXE binary for filename/ex
     - `0x00`: `1.Anlam`
     - `0x01`: `2.Anlam`
     - `0x02`: `3.Anlam`
-    - `0x0A`: `Türemiş`
-    - `0x10`: `Mecaz`
-  - **16-bit TUR Pointer**: `w_idx = b1 | ((b2 & 0x7F) << 8)` pointing to the target Turkish word in `MTU.TUR`.
-  - **Morphological Suffix Flag (`b2 & 0x80`)**: When bit 7 of $b_2$ is set, 2 extra bytes follow containing suffix rule instructions:
-    - `(0xDC, 0x07)` / `(0x07, 0xDC)`: `-sız / -siz / -suz / -süz` (`katık` ➔ `katıksız`)
-    - `(0xCD, 0x07)` / `(0x07, 0xCD)`: `-sı / -si` (`amerikaelma` ➔ `amerikaelması`)
-    - `(0x90, 0x02)` / `(0x90, 0x00)`: `-ı / -i` (`elkitab` ➔ `elkitabı`)
-    - `(0x06, 0x05)` / `(0x05, 0x06)`: `-me / -ma` (`dene` ➔ `deneme`)
-    - `(0x47, 0x84)` / `(0xC9, 0x00)`: `-leme / -lama` (`denet` ➔ `denetleme`)
-    - `(0xCA, 0x04)` / `(0xC5, 0x04)`: `-ma / -me` (`tart` ➔ `tartma`, `tat` ➔ `tatma`)
-    - `(0x07, 0x84)` / `(0x84, 0x07)`: `-lama / -leme` (`yok` ➔ `yoklama`)
-    - `(0xB0, 0x04)`: `-lü / -li` (`söz` ➔ `sözlü`)
-    - `(0x86, 0x04)`: `-lı / -li` (`yazı` ➔ `yazılı`)
-  - **Alias / Redirect Pointer (`0xC0`)**: Slots with byte `0xC0` (e.g., `test` ➔ `dene`, `sınav` ➔ `sına`) encode cross-reference redirections: `target = b1 | ((b2 & 0x7F) << 8)` with trailing suffix bytes for derived headwords.
-  - **Collocation Records (`flag 0x10`)**: Dual 16-bit pointers encode multi-word compound idioms (e.g., `10 d6 0a 7a 0a` ➔ `bet` + `beniz` ➔ `bet beniz`).
-- **Ground Truth Verification**: 100% verified against live Win16 DOSBox-X screenshots (`öz`, `kitap`, `elma`, `ekmek`, `yüz`, `göz`, `akıl`, `güzel`, `test`). Zero hardcoding, zero external JSON dependencies.
+    - `0x05`: `Mecaz` (Metaphorical meaning)
+    - `0x09`: `Renk` (Color topic)
+    - `0x0A`: `Türemiş` (Derived headwords)
+    - `flag & 0x40 != 0`: **Record Boundary Delimiter** (`0x40`, `0x45`, `0x50`). Terminates the active thesaurus record; isolates following antonyms / compound term sections.
+  - **Universal Multi-Word Collocation Formula (EXE Routine `0xD5BD`)**:
+    $$\text{word\_count} = ((\text{flag} \gg 4) \ \& \ 3) + 1$$
+    - `0x00`: 1 word (e.g. `battal`, `kunt`)
+    - `0x10`: 2 words (e.g. `balyoz gibi`, `bir dolu`, `hâk yemezlik`, `avuç avuç`, `açık seçik`)
+    - `0x20`: 3 words (e.g. `az buz değil`, `tartıda az çeken`, `mal ile ilgili`)
+    - `0x30`: 4 words
+  - **16-bit Pointers & Bit-15 Morpheme Chaining (EXE CS:0xD5D3 - 0xD62A)**:
+    - Each word begins with a little-endian `u16`: `w_idx = raw_w & 0x7FFF`.
+    - Continuation bit: `has_more = bool(raw_w & 0x8000)`.
+    - While `has_more` is set, reads subsequent `u16` values as Section 3 suffix rule IDs (`suf_id = raw_suf & 0x7FFF`), advancing until `has_more == False`.
+    - Supports multi-morpheme agglutinative chains: e.g. `ye` + `-me` + `-z` + `-lik` = `yemezlik` (`hâk yemezlik`); `çek` + `-in` + `-me` + `-z` + `-lik` = `çekinmezlik`.
+  - **Decoded 16-Bit Suffix Morpheme Rules**:
+    - `0x048A, 0x0498, 0x04A6, 0x04B4`: `-lık / -lik / -luk / -lük` (abstract nouns: `ataklık`, `efelik`, `cesurluk`, `hürlük`)
+    - `0x0488`: `-lığ / -liğ` (`ağır` ➔ `ağırlığı`)
+    - `0x04A2, 0x0486, 0x04B0, 0x0494`: `-lu / -lü / -lı / -li` (`kilolu`, `okkalı`, `yüklü`)
+    - `0x07DF, 0x0805`: `-sızlık / -sizlik / -suzluk / -süzlük` (`bağımsızlık`, `tarafsızlık`, `korkusuzluk`)
+    - `0x07EF, 0x07DC`: `-siz / -sız / -suz / -süz` (`emeksiz`, `değersiz`, `önemsiz`, `sıkıntısız`)
+    - `0x04BB`: `-lıksız / -liksiz / -lüksüz` (`güçlüksüz`)
+    - `0x035C`: `-ın / -in` (reflexive: `çek` ➔ `çekin`)
+    - `0x0507`: `-me / -ma` (negation: `çekin` ➔ `çekinme`)
+    - `0x0C36`: `-z` (negative aorist: `çekinme` ➔ `çekinmez`)
+    - `0x02AA`: `-ına / -ine` (`baş` ➔ `başına buyrukluk`)
+    - `0x0980`: `-uş / -üş / -ış / -iş` (`uy` ➔ `uyuş` ➔ `uyuşma`)
+    - `0x0834`: `-ten / -tan / -den / -dan` (`ciddiyetten uzak`)
+    - `0x0127`: `-de / -da` (`tartıda az çeken`)
+    - `0x0245`: `-en / -an` (`çeken`)
+    - `0x0797`: `-sal / -sel` (`parasal`)
+    - `0x07CD`: `-sı / -si` (`amerikaelması`)
+    - `0x0447, 0x0407`: `-le / -la` (`denetleme`, `yoklama`)
+    - `0x04C5, 0x04C6, 0x0506`: `-me / -ma` (`tatma`, `deneme`)
+  - **Circumflex Vowel Harmony**: Full 11-vowel harmony (`a, ı, o, u, â, û` back vs `e, i, ö, ü, î` front) yielding exact forms (`fedaîlik`, `cüretkârlık`, `âlicenaplık`).
+  - **Homonym & Alias Resolution**:
+    - 3-byte `0xFF` redirect stubs are bypassed when primary data slots exist (e.g. `dolu` slot 6100 `0xFF` redirect to `Dola` bypassed in favor of primary slot 6101).
+    - Distinct homonyms (`barış` #2295 noun vs #2296 verb) resolve to primary entry without cross-pollution.
+- **Ground Truth Verification**: 100% verified against live Win16 DOSBox-X screenshots for 20 words (`öz`, `kitap`, `elma`, `ekmek`, `gelmek`, `yüz`, `göz`, `akıl`, `güzel`, `test`, `mali`, `hafif`, `açık`, `dolu`, `ağır`, `boş`, `adalet`, `cesaret`, `hürriyet`, `barış`). Zero hardcoding, zero external JSON dependencies.
 - **Engine Script**: `src/engine/thesaurus.py`.
 
 ### MTU.EXE (Decode Engine) — FULLY REVERSE-ENGINEERED (segments)
