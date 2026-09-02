@@ -31,9 +31,14 @@ from collections import defaultdict
 from typing import Dict, List, Optional, Set, Tuple
 
 
+def tr_lower(s: str) -> str:
+    """Proper Turkish lowercasing without Unicode combining dots."""
+    return s.replace("İ", "i").replace("I", "ı").lower().replace("\u0307", "")
+
+
 def clean_tr_token(token: str) -> Tuple[str, Optional[str]]:
     """Token normalizer."""
-    return token.strip().lower(), None
+    return tr_lower(token.strip()), None
 
 
 def apply_tes_suffix_id(root: str, suf_id: int) -> str:
@@ -68,9 +73,15 @@ def apply_tes_suffix_id(root: str, suf_id: int) -> str:
     elif suf_id in [0x09FF, 0xFF09]:  # -ıp / -ip / -up / -üp (göç -> göçüp)
         r = root[:-1] if root.endswith(("a", "ı", "o", "u", "e", "i", "ö", "ü")) else root
         return r + ("up" if last_v in "ouû" else ("üp" if last_v in "öü" else ("ıp" if last_v in "aıâ" else "ip")))
-    elif suf_id in [0x0980, 0x0A32, 0x320A]:  # -uş / -üş / -ış / -iş (uy -> uyuş, göç -> göçüş)
+    elif suf_id in [0x0292, 0x9202]:  # -ıl / -il / -ul / -ül (edilgen: aç -> açıl)
+        return root + ("ul" if last_v in "ouû" else ("ül" if last_v in "öü" else ("ıl" if last_v in "aıâ" else "il")))
+    elif suf_id in [0x0980, 0x0A32, 0x320A, 0x02F9, 0xF902, 0x03AC, 0xAC03]:  # -uş / -üş / -ış / -iş (uy -> uyuş, göç -> göçüş, aç -> açış, gir -> giriş)
         r = root[:-1] if root.endswith(("a", "ı", "o", "u", "e", "i", "ö", "ü")) else root
         return r + ("uş" if last_v in "ouû" else ("üş" if last_v in "öü" else ("ış" if last_v in "aıâ" else "iş")))
+    elif suf_id in [0x0B7E, 0x7E0B]:  # -yış / -yiş (başla -> başlayış)
+        return root + ("yış" if is_back else "yiş")
+    elif suf_id in [0x0831, 0x3108]:  # -ta / -te / -da / -de (baş -> başta)
+        return root + ("ta" if is_back else "te")
     elif suf_id == 0x0507:  # -ma / -me (çekinme / yeme)
         return root + ("ma" if is_back else "me")
     elif suf_id == 0x0C36:  # -z (çekinmez / yemez)
@@ -152,13 +163,14 @@ class ThesaurusEngine:
 
         self._load_tur()
         self._load_tes()
+        self._index_tes_derived_slots()
 
     def _load_tur(self):
         if not os.path.exists(self.tur_txt_path):
             return
         with open(self.tur_txt_path, "r", encoding="utf-8") as f:
             for idx, line in enumerate(f):
-                w = line.strip().lower()
+                w = tr_lower(line.strip())
                 if w:
                     self.tur_words.append(w)
                     self.word_to_tur_indices[w].append(idx)
@@ -187,6 +199,24 @@ class ThesaurusEngine:
             for i in range(num_slots):
                 off = struct.unpack("<L", self.tes_data[i * 3:(i + 1) * 3] + b"\x00")[0]
                 self.tes_offsets[i] = off
+
+    def _index_tes_derived_slots(self):
+        """
+        Indexes slots starting with 0x80 morphological header under their derived headwords.
+        E.g. Slot 8646 (root: Gir) has header [0x80, 0xAC, 0x03] -> Gir + 0x03AC = Giriş.
+        """
+        for s in range(min(len(self.tur_words), len(self.tes_offsets) - 1)):
+            off1 = self.tes_offsets[s]
+            off2 = self.tes_offsets[s + 1]
+            if off2 - off1 >= 3 and self.tes_data[off1] == 0x80:
+                raw_suf = struct.unpack("<H", self.tes_data[off1 + 1:off1 + 3])[0]
+                suf_id = raw_suf & 0x7FFF
+                root = self.tur_words[s]
+                derived = tr_lower(apply_tes_suffix_id(root, suf_id))
+                if derived and derived != root:
+                    self.word_to_tur_indices[derived].append(s)
+                    self.word_to_tur_idx[derived] = s
+                    self.all_vocab.add(derived)
 
     def _decode_tes_slot(self, slot_idx: int, visited: Optional[Set[int]] = None) -> Dict[str, Set[str]]:
         """
@@ -280,7 +310,7 @@ class ThesaurusEngine:
                 w_idx = raw_w & 0x7FFF
                 has_more = bool(raw_w & 0x8000)
 
-                root = self.tur_words[w_idx].lower() if w_idx < len(self.tur_words) else f"#{w_idx}"
+                root = tr_lower(self.tur_words[w_idx]) if w_idx < len(self.tur_words) else f"#{w_idx}"
                 if root == "imtihal":
                     root = "imtihan"
                 elif root == "hamasev":
@@ -323,7 +353,7 @@ class ThesaurusEngine:
         reconstruction and semantic group dispatching matching Win16 MTU.EXE.
         Fully generic with ZERO hardcoded word checks.
         """
-        query = word.strip().lower()
+        query = tr_lower(word.strip())
         norm_query = query.replace("î", "i").replace("â", "a").replace("û", "u")
 
         indices = self.word_to_tur_indices.get(query, [])
