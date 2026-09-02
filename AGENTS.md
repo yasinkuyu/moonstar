@@ -1,6 +1,8 @@
 ## Application Overview
 
 **Program**: MoonStar Türkçe Denetim Editörü (Turkish Spell Check Editor) — Borland C++ Win16 NE executable
+- **Original Author**: Alper Özer (@aozer8080)
+- **Data Source (Confirmed by Author)**: Digitized directly from **Fono Yayınları** (multi-volume English-Turkish and Turkish Synonyms dictionaries) entered via a custom in-house binary utility tool.
 - **Features**: Turkish spell checker, grammar checker, word game ("Kelime Oyunu"), text statistics, multiple dictionary views
 - **EXE format**: Win16 NE (New Executable) at file offset 0x250, 6 segments, 512B alignment
 - **Entry**: CS=1 IP=0, Auto data seg=6, Stack SS=6 SP=0

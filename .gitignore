@@ -78,7 +78,7 @@ output/
 *.dump
 *.bin
 
-assets/
+assets/screenshots
 dosbox_debug/
 
 # ==============================================================================

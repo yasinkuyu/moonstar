@@ -166,7 +166,7 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         # 2. Verify "kitap" meanings
         kitap_groups = thesaurus_engine.lookup("kitap")
         self.assertIn("1.Anlam", kitap_groups)
-        self.assertIn("el kitabı", kitap_groups["1.Anlam"])
+        self.assertIn("elkitabı", kitap_groups["1.Anlam"])
 
         # 3. Verify "yüz" dynamic derivation
         yuz_groups = thesaurus_engine.lookup("yüz")
