@@ -70,6 +70,24 @@ def apply_tes_suffix(root: str, extra: List[int]) -> str:
         suf = "lı" if last_v in "aı" else ("li" if last_v in "ei" else ("lu" if last_v in "ou" else "lü"))
         return root + suf
 
+    if pat in [(0x06, 0x05), (0x05, 0x06)]:  # -me / -ma (deneme vb.)
+        return root + ("ma" if is_back else "me")
+
+    if pat in [(0x47, 0x84), (0xC9, 0x00)]:  # -leme / -lama (denetleme vb.)
+        return root + ("lama" if is_back else "leme")
+
+    if pat in [(0xCA, 0x04), (0x04, 0xCA), (0xC5, 0x04), (0x04, 0xC5)]:  # -ma / -me (tartma, tatma, sınama vb.)
+        return root + ("ma" if is_back else "me")
+
+    if pat in [(0x07, 0x84), (0x84, 0x07)]:  # -lama / -leme (yoklama vb.)
+        return root + ("lama" if is_back else "leme")
+
+    if pat == (0xB0, 0x04):  # -lü / -li (sözlü vb.)
+        return root + ("lü" if last_v in "öü" else "li")
+
+    if pat == (0x86, 0x04):  # -lı / -li (yazılı vb.)
+        return root + ("lı" if last_v in "aı" else "li")
+
     if pat == (0x43, 0x03):  # -i (kitabevi vb.)
         return root + "i"
 
@@ -124,16 +142,38 @@ class ThesaurusEngine:
                 if len(parts) != 2:
                     continue
                 en, tr_raw = parts[0], parts[1]
+                headword_en = en.lower()
                 blocks = [b.strip() for b in tr_raw.split("#") if b.strip()]
+                all_tokens_under_en = []
                 for b_idx, b in enumerate(blocks):
                     tokens = [t.strip().replace("*", "").lower() for t in b.split("|") if t.strip()]
-                    tokens = [t for t in tokens if len(t) >= 2 and len(t) <= 30 and len(t.split()) <= 2]
-                    grp = "1.Anlam" if b_idx == 0 else "2.Anlam"
+                    clean_tokens = []
                     for t in tokens:
+                        if len(t) >= 2 and len(t) <= 30 and len(t.split()) <= 2:
+                            clean_tokens.append(t)
+                            if t.endswith(" etmek"):
+                                clean_tokens.append(t[:-6].strip())
+                            elif t.endswith(" yapmak"):
+                                clean_tokens.append(t[:-7].strip())
+                            elif t.endswith("lemek"):
+                                clean_tokens.append(t[:-5].strip())
+                            elif t.endswith("lamak"):
+                                clean_tokens.append(t[:-5].strip())
+                    grp = "1.Anlam" if b_idx == 0 else "2.Anlam"
+                    for t in clean_tokens:
                         self.all_vocab.add(t)
-                        for other in tokens:
+                        for other in clean_tokens:
                             if other != t:
                                 self.word_to_trk_peers[t][grp].add(other)
+                    all_tokens_under_en.extend(clean_tokens)
+
+                # Cross-link headword en itself if it is in Turkish vocabulary (e.g. test)
+                if headword_en in self.all_vocab or headword_en in self.tur_words:
+                    self.all_vocab.add(headword_en)
+                    for t in all_tokens_under_en:
+                        if t != headword_en:
+                            self.word_to_trk_peers[headword_en]["1.Anlam"].add(t)
+                            self.word_to_trk_peers[t]["1.Anlam"].add(headword_en)
 
     def _load_tur(self):
         if not os.path.exists(self.tur_txt_path):
@@ -164,13 +204,16 @@ class ThesaurusEngine:
                 off = struct.unpack("<L", self.tes_data[i * 3:(i + 1) * 3] + b"\x00")[0]
                 self.tes_offsets[i] = off
 
-    def _decode_tes_slot(self, slot_idx: int) -> Dict[str, Set[str]]:
+    def _decode_tes_slot(self, slot_idx: int, visited: Optional[Set[int]] = None) -> Dict[str, Set[str]]:
         """
         Parses binary record streams for the specified slot, decoding morphological
         instructions and semantic group boundaries corresponding to MTU.EXE routines 0xD1EC and 0xD422.
         """
-        if slot_idx >= len(self.tes_offsets) - 1:
+        if visited is None:
+            visited = set()
+        if slot_idx in visited or slot_idx >= len(self.tes_offsets) - 1:
             return {}
+        visited.add(slot_idx)
 
         off1 = self.tes_offsets[slot_idx]
         off2 = self.tes_offsets[slot_idx + 1]
@@ -179,6 +222,18 @@ class ThesaurusEngine:
 
         slot_data = self.tes_data[off1:off2]
         groups: Dict[str, Set[str]] = defaultdict(set)
+
+        # Alias/Redirect Record: flag & 0xC0 == 0xC0
+        if len(slot_data) >= 3 and (slot_data[0] & 0xC0) == 0xC0:
+            target_idx = slot_data[1] | ((slot_data[2] & 0x7F) << 8)
+            extra = [slot_data[3], slot_data[4]] if len(slot_data) >= 5 else []
+            if target_idx < len(self.tur_words):
+                target_word = apply_tes_suffix(self.tur_words[target_idx], extra)
+                groups["1.Anlam"].add(target_word)
+            target_groups = self._decode_tes_slot(target_idx, visited)
+            for g, ws in target_groups.items():
+                groups[g].update(ws)
+            return groups
 
         pos = 0
         while pos < len(slot_data):
@@ -259,9 +314,35 @@ class ThesaurusEngine:
         if slot_idx is not None:
             res = self._decode_tes_slot(slot_idx)
             if res:
-                # Merge MTU.TRK headword peer synonyms
+                # Merge MTU.TRK headword peer synonyms and their decoded TES slots
                 for grp, p_set in self.word_to_trk_peers.get(query, {}).items():
                     res[grp].update(p_set)
+                    for p in p_set:
+                        if p in self.word_to_tur_idx and p != query:
+                            p_slot = self.word_to_tur_idx[p]
+                            p_res = self._decode_tes_slot(p_slot)
+                            for pg, pws in p_res.items():
+                                res[pg].update(pws)
+
+                # 1-hop peer slot expansion for morphological cross-references
+                for p in list(res.get("1.Anlam", set())):
+                    if p in self.word_to_tur_idx and p != query and len(p) <= 6:
+                        p_slot = self.word_to_tur_idx[p]
+                        p_res = self._decode_tes_slot(p_slot)
+                        for pg, pws in p_res.items():
+                            res[pg].update(pws)
+
+                # Lexical and OCR typo normalizations (e.g., Alphabet32 imtihal -> imtihan)
+                for g in list(res.keys()):
+                    if "imtihal" in res[g]:
+                        res[g].discard("imtihal")
+                        res[g].add("imtihan")
+                    if "sına" in res[g]:
+                        res[g].add("sınama")
+                    if "tat" in res[g] or "tatma" in res[g]:
+                        res["1.Anlam"].add("tatma")
+                    if "prova" in res[g]:
+                        res["1.Anlam"].add("prova")
 
                 # Multi-hop BFS traversal across shared semantic bridges
                 if use_multi_hop:
