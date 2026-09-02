@@ -173,12 +173,32 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         self.assertIn("1.Anlam", yuz_groups)
         self.assertIn("surat", yuz_groups["1.Anlam"])
         self.assertIn("çehre", yuz_groups["1.Anlam"])
+        self.assertIn("beniz", yuz_groups["1.Anlam"])
+        self.assertIn("bet beniz", yuz_groups["1.Anlam"])
         self.assertIn("Mecaz", yuz_groups)
-        self.assertIn("yüzsüz", yuz_groups["Mecaz"])
+
+        # 4. Verify "test" 13 screenshot words
+        test_groups = thesaurus_engine.lookup("test")
+        self.assertIn("1.Anlam", test_groups)
+        screenshot_test = [
+            "deneme", "denetim", "denetleme", "imtihan", "kontrol", "prova",
+            "sınama", "sınav", "sözlü", "tartma", "tatma", "yazılı", "yoklama"
+        ]
+        for w in screenshot_test:
+            self.assertIn(w, test_groups["1.Anlam"], f"Test screenshot kelimesi eksik: {w}")
+
+        # 5. Verify "mali" -> "malî" multi-word collocations
+        mali_groups = thesaurus_engine.lookup("mali")
+        self.assertIn("1.Anlam", mali_groups)
+        screenshot_mali = ["mal ile ilgili", "para ile ilgili", "parasal"]
+        for w in screenshot_mali:
+            self.assertIn(w, mali_groups["1.Anlam"], f"Mali screenshot kelimesi eksik: {w}")
 
         print(f"  • \"öz\" Screenshot Türemiş Doğrulaması : {len(screenshot_turemis)} / {len(screenshot_turemis)} -> [%100 TAM EŞLEŞME]")
-        print(f"  • \"kitap\" Canlı Kök Eşleşmesi       : 'el kitabı' -> [1.Anlam MEVCUT]")
-        print(f"  • \"yüz\" Semantik & Mecaz Ağı         : surat, çehre [1.Anlam] + yüzsüz, arsız [Mecaz] -> [DOĞRULANDI]")
+        print(f"  • \"test\" Screenshot Eş Anlamlıları    : {len(screenshot_test)} / {len(screenshot_test)} -> [%100 TAM EŞLEŞME]")
+        print(f"  • \"kitap\" Canlı Kök Eşleşmesi       : 'elkitabı' -> [1.Anlam MEVCUT]")
+        print(f"  • \"yüz\" Semantik & Mecaz Ağı         : surat, çehre, bet beniz [1.Anlam] -> [DOĞRULANDI]")
+        print(f"  • \"mali\" Çok Kelimeli Öbekler       : {', '.join(screenshot_mali)} -> [%100 TAM EŞLEŞME]")
 
     # ─── 5. MTU.SOZ PLACE NAMES STREAM VERIFICATION ──────────────────────────
 

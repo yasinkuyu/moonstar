@@ -27,7 +27,7 @@ OUTPUT_DIR = os.path.join(SCRIPT_DIR, "..", "output")
 
 def normalize_tr(s):
     """Normalize Turkish characters to ASCII for search matching."""
-    tr_to_ascii = str.maketrans('ıİşŞçÇöÖüÜğĞ', 'iIsScCoOuUgG')
+    tr_to_ascii = str.maketrans('ıİşŞçÇöÖüÜğĞîÎâÂûÛ', 'iIsScCoOuUgGiIaAuU')
     return s.lower().translate(tr_to_ascii)
 
 
@@ -2735,7 +2735,9 @@ function dictSelect(winId, key2, idx) {
 }
 
 function normalizeSearch(s) {
-  return s.toLowerCase().replace(/ı/g,'i').replace(/ş/g,'s').replace(/ç/g,'c').replace(/ö/g,'o').replace(/ü/g,'u').replace(/ğ/g,'g');
+  return s.toLowerCase()
+    .replace(/î/g,'i').replace(/â/g,'a').replace(/û/g,'u')
+    .replace(/ı/g,'i').replace(/ş/g,'s').replace(/ç/g,'c').replace(/ö/g,'o').replace(/ü/g,'u').replace(/ğ/g,'g');
 }
 function dictSearch(winId) {
   const input = document.getElementById(winId + '-search');

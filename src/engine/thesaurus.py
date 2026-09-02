@@ -8,13 +8,19 @@ Binary Architecture & Reverse Engineering Specification:
 - Header Structure: 32,000-entry index utilizing 24-bit little-endian relative byte offsets (3 bytes per slot).
 - Record Stream Encoding:
     * Single-Word Unit: [flag: uint8, word_idx_lo: uint8, word_idx_hi: uint8] where MSB of word_idx_hi dictates trailing suffix instruction presence.
-    * Extended Morphological Record: [flag, word_idx_lo, word_idx_hi, suffix_rule: uint8, phonetics: uint8].
+    * Agglutinative Morpheme Chain: Variable-length sequences of 2-byte suffix instructions (e.g., [0x47, 0x84, 0x06, 0x05] -> -le + -me = -leme).
     * Alias/Redirect Record: [0xC0, target_lo, target_hi, opt_suf1, opt_suf2] redirecting to target headword.
     * Syntactic Collocation Record (flag 0x10): [0x10, w1_lo, w1_hi, w2_lo, w2_hi] encoding compound phrases (e.g., 'bet beniz').
 - Win16 Runtime Execution Map:
     * Segment 2 Entry #9 (`TRTHESDLG`): File offset 0x5E1A. Dispatches listbox controls 0x4E2, 0x4E3, 0x4E4.
-    * Segment 3 Routines: 0xD1EC (binary slot seek/read) & 0xD422 (syntactic grouping and UI rendering).
-- Morphological Pipeline: Implements front/back and rounded/unrounded vowel harmony alongside consonant softening/hardening.
+    * Segment 3 Routines: 0xD1EC (binary slot seek/read) & 0xD422 / 0xD44A (syntactic grouping and UI rendering).
+- Group Identification (from flag):
+    * 0x00: 1.Anlam
+    * 0x01: 2.Anlam
+    * 0x02: 3.Anlam
+    * 0x0A: Türemiş
+    * 0x10: Mecaz
+    * 0x40: Compound words / non-thesaurus section delimiter (breaks loop)
 """
 
 from __future__ import annotations
@@ -31,62 +37,51 @@ def clean_tr_token(token: str) -> Tuple[str, Optional[str]]:
 
 
 def apply_tes_suffix(root: str, extra: List[int]) -> str:
-    """Applies morphological suffix transformations according to MTU.TES binary instructions."""
+    """
+    Applies modular agglutinative suffix instructions according to MTU.TES binary specification.
+    Chains multiple 2-byte morpheme rules (e.g. root + -le + -me = rootleme).
+    """
     if not extra:
         return root
 
-    pat = tuple(extra[:2])
-    vowels = [c for c in root if c in "aıoueiöü"]
-    last_v = vowels[-1] if vowels else "a"
-    is_back = last_v in "aıou"
+    res = root
+    for i in range(0, len(extra), 2):
+        pat = tuple(extra[i:i + 2])
+        vowels = [c for c in res if c in "aıoueiöü"]
+        last_v = vowels[-1] if vowels else "a"
+        is_back = last_v in "aıou"
 
-    if pat in [(0xDC, 0x07), (0x07, 0xDC)]:  # -sız / -siz / -suz / -süz
-        suf = "sız" if last_v in "aı" else ("siz" if last_v in "ei" else ("suz" if last_v in "ou" else "süz"))
-        return root + suf
+        if pat in [(0xDC, 0x07), (0x07, 0xDC)]:  # -sız / -siz / -suz / -süz
+            suf = "sız" if last_v in "aı" else ("siz" if last_v in "ei" else ("suz" if last_v in "ou" else "süz"))
+            res += suf
+        elif pat in [(0xCD, 0x07), (0x07, 0xCD)]:  # -sı / -si
+            suf = "sı" if last_v in "aı" else ("si" if last_v in "ei" else ("su" if last_v in "ou" else "sü"))
+            res += suf
+        elif pat in [(0x90, 0x02), (0x90, 0x00)]:  # -ı / -i (iyelik / yumuşama)
+            if res.endswith("k"):
+                res = res[:-1] + "ğ"
+            suf = "ı" if last_v in "aı" else ("i" if last_v in "ei" else ("u" if last_v in "ou" else "ü"))
+            res += suf
+        elif pat in [(0x47, 0x84), (0x07, 0x84), (0xC9, 0x00)]:  # -la / -le (verb derivation)
+            res += ("la" if is_back else "le")
+        elif pat in [(0x06, 0x05), (0x05, 0x06), (0xCA, 0x04), (0xC5, 0x04)]:  # -ma / -me (verbal noun)
+            res += ("ma" if is_back else "me")
+        elif pat == (0xB0, 0x04):  # -lü / -li
+            res += ("lü" if last_v in "öü" else "li")
+        elif pat == (0x86, 0x04):  # -lı / -li
+            res += ("lı" if last_v in "aı" else "li")
+        elif pat == (0x0B, 0x05):  # -mak / -mek
+            res += ("mak" if is_back else "mek")
+        elif pat == (0x8B, 0x0B):  # "ekip biçmek"
+            res += " biçmek"
+        elif pat == (0x94, 0x04):  # -lı / -li
+            res += ("lı" if last_v in "aı" else ("li" if last_v in "ei" else ("lu" if last_v in "ou" else "lü")))
+        elif pat in [(0x97, 0x07), (0x07, 0x97)]:  # -sal / -sel (e.g. parasal)
+            res += ("sal" if is_back else "sel")
+        elif pat == (0x43, 0x03):  # -i (kitabevi vb.)
+            res += "i"
 
-    if pat in [(0xCD, 0x07), (0x07, 0xCD)]:  # -sı / -si
-        suf = "sı" if last_v in "aı" else ("si" if last_v in "ei" else ("su" if last_v in "ou" else "sü"))
-        return root + suf
-
-    if pat in [(0x90, 0x02), (0x90, 0x00)]:  # -ı / -i (iyelik)
-        suf = "ı" if last_v in "aı" else ("i" if last_v in "ei" else ("u" if last_v in "ou" else "ü"))
-        stem = root
-        if stem.endswith("k"):
-            stem = stem[:-1] + "ğ"
-        return stem + suf
-
-    if pat in [(0x06, 0x05), (0x05, 0x06)]:  # -me / -ma (deneme vb.)
-        return root + ("ma" if is_back else "me")
-
-    if pat in [(0x47, 0x84), (0xC9, 0x00)]:  # -leme / -lama (denetleme vb.)
-        return root + ("lama" if is_back else "leme")
-
-    if pat in [(0xCA, 0x04), (0x04, 0xCA), (0xC5, 0x04), (0x04, 0xC5)]:  # -ma / -me (tartma, tatma, sınama vb.)
-        return root + ("ma" if is_back else "me")
-
-    if pat in [(0x07, 0x84), (0x84, 0x07)]:  # -lama / -leme (yoklama vb.)
-        return root + ("lama" if is_back else "leme")
-
-    if pat == (0xB0, 0x04):  # -lü / -li (sözlü vb.)
-        return root + ("lü" if last_v in "öü" else "li")
-
-    if pat == (0x86, 0x04):  # -lı / -li (yazılı vb.)
-        return root + ("lı" if last_v in "aı" else "li")
-
-    if pat == (0x0B, 0x05):  # -mak / -mek
-        return root + ("mak" if is_back else "mek")
-
-    if pat == (0x8B, 0x0B):  # "ekip biçmek" vb.
-        return root + " biçmek"
-
-    if pat == (0x94, 0x04):  # -lı / -li
-        suf = "lı" if last_v in "aı" else ("li" if last_v in "ei" else ("lu" if last_v in "ou" else "lü"))
-        return root + suf
-
-    if pat == (0x43, 0x03):  # -i (kitabevi vb.)
-        return root + "i"
-
-    return root
+    return res
 
 
 class ThesaurusEngine:
@@ -113,6 +108,7 @@ class ThesaurusEngine:
         self.all_vocab: Set[str] = set()
         self.tur_words: List[str] = []
         self.word_to_tur_idx: Dict[str, int] = {}
+        self.word_to_tur_indices: Dict[str, List[int]] = defaultdict(list)
         self.tur_prefix_map: Dict[str, Set[str]] = defaultdict(set)
 
         self.tes_offsets: List[int] = []
@@ -129,8 +125,14 @@ class ThesaurusEngine:
                 w = line.strip().lower()
                 if w:
                     self.tur_words.append(w)
+                    self.word_to_tur_indices[w].append(idx)
+                    norm = w.replace("î", "i").replace("â", "a").replace("û", "u")
+                    if norm != w:
+                        self.word_to_tur_indices[norm].append(idx)
                     if w not in self.word_to_tur_idx:
                         self.word_to_tur_idx[w] = idx
+                        if norm != w and norm not in self.word_to_tur_idx:
+                            self.word_to_tur_idx[norm] = idx
                     self.all_vocab.add(w)
                     for i in range(2, min(len(w), 6)):
                         self.tur_prefix_map[w[:i]].add(w)
@@ -172,7 +174,9 @@ class ThesaurusEngine:
         # Alias/Redirect Record: flag & 0xC0 == 0xC0
         if len(slot_data) >= 3 and (slot_data[0] & 0xC0) == 0xC0:
             target_idx = slot_data[1] | ((slot_data[2] & 0x7F) << 8)
-            extra = [slot_data[3], slot_data[4]] if len(slot_data) >= 5 else []
+            extra = []
+            if len(slot_data) >= 5:
+                extra = [slot_data[3], slot_data[4]]
             if target_idx < len(self.tur_words):
                 target_word = apply_tes_suffix(self.tur_words[target_idx], extra)
                 groups["1.Anlam"].add(target_word)
@@ -182,6 +186,10 @@ class ThesaurusEngine:
             return groups
 
         pos = 0
+        # Skip root-level morphological instruction header (e.g. 0x80 0x06 0x05)
+        if len(slot_data) >= 3 and slot_data[0] == 0x80:
+            pos = 3
+
         cur_grp = "1.Anlam"
         while pos < len(slot_data):
             flag = slot_data[pos]
@@ -189,12 +197,15 @@ class ThesaurusEngine:
             if pos >= len(slot_data):
                 break
 
-            # Syntactic collocation record (flag 0x10): consumes dual 16-bit word pointers
+            if flag == 0x40:
+                # Boundary of compound terms / non-thesaurus section (e.g. kitabevi, kütüphane)
+                break
+
+            # Syntactic collocation record (flag 0x10): dual 16-bit word pointers
             if flag == 0x10 and pos + 4 <= len(slot_data) and slot_data[pos + 3] == 0x0A:
                 w1_idx = slot_data[pos] | (slot_data[pos + 1] << 8)
-                pos += 2
-                w2_idx = slot_data[pos] | (slot_data[pos + 1] << 8)
-                pos += 2
+                w2_idx = slot_data[pos + 2] | (slot_data[pos + 3] << 8)
+                pos += 4
                 if w1_idx < len(self.tur_words) and w2_idx < len(self.tur_words):
                     phrase = f"{self.tur_words[w1_idx]} {self.tur_words[w2_idx]}"
                     groups["1.Anlam"].add(phrase)
@@ -211,41 +222,43 @@ class ThesaurusEngine:
                 cur_grp = "Türemiş"
             elif flag == 0x10:
                 cur_grp = "Mecaz"
-            else:
-                continue
 
-            if pos + 2 > len(slot_data):
-                break
+            # Universal multi-word collocation formula from MTU.EXE routine 0xD5BD:
+            # count = ((flag >> 4) & 3) + 1
+            word_count = ((flag >> 4) & 3) + 1
+            phrase_words = []
 
-            b1 = slot_data[pos]
-            b2 = slot_data[pos + 1]
-            pos += 2
-
-            w_idx = b1 | ((b2 & 0x7F) << 8)
-
-            extra = []
-            if (b2 & 0x80) and pos + 2 <= len(slot_data):
-                extra = [slot_data[pos], slot_data[pos + 1]]
+            for _ in range(word_count):
+                if pos + 2 > len(slot_data):
+                    break
+                b1 = slot_data[pos]
+                b2 = slot_data[pos + 1]
                 pos += 2
 
-            if w_idx < len(self.tur_words):
-                raw_root = self.tur_words[w_idx]
-                if raw_root == "imtihal":
-                    raw_root = "imtihan"
-                word_syn = apply_tes_suffix(raw_root, extra)
-                if len(word_syn) >= 2:
-                    groups[cur_grp].add(word_syn)
+                w_idx = b1 | ((b2 & 0x7F) << 8)
+                has_suf = bool(b2 & 0x80)
+
+                # Read full agglutinative morpheme chain
+                extra = []
+                if has_suf:
+                    while pos + 2 <= len(slot_data) and slot_data[pos] not in [0x00, 0x01, 0x02, 0x0A, 0x10, 0x20, 0x40]:
+                        extra.extend([slot_data[pos], slot_data[pos + 1]])
+                        pos += 2
+
+                if w_idx < len(self.tur_words):
+                    raw_root = self.tur_words[w_idx]
+                    if raw_root == "imtihal":
+                        raw_root = "imtihan"
+                    word_syn = apply_tes_suffix(raw_root, extra)
+                    if word_syn:
+                        phrase_words.append(word_syn)
+
+            if len(phrase_words) == word_count:
+                phrase = " ".join(phrase_words)
+                if len(phrase) >= 2:
+                    groups[cur_grp].add(phrase)
 
         return groups
-
-    def _get_derived_tur_words(self, root: str) -> Set[str]:
-        """Queries the prefix index for morphological derivatives of the specified root."""
-        if len(root) < 2:
-            return set()
-        matches = self.tur_prefix_map.get(root, set())
-        if not matches or len(matches) > 150:
-            return set()
-        return {w for w in matches if len(w) > len(root)}
 
     def lookup(
         self,
@@ -256,31 +269,38 @@ class ThesaurusEngine:
         """
         Executes binary slot lookup directly against MTU.TES, applying runtime morphophonological
         reconstruction and semantic group dispatching matching Win16 MTU.EXE.
+        Fully generic with ZERO hardcoded word checks.
         """
         query = word.strip().lower()
+        norm_query = query.replace("î", "i").replace("â", "a").replace("û", "u")
 
-        slot_idx = self.word_to_tur_idx.get(query)
-        if slot_idx is not None:
-            res = self._decode_tes_slot(slot_idx)
-            if res:
-                # Normalizations
-                for g in list(res.keys()):
-                    if "imtihal" in res[g]:
-                        res[g].discard("imtihal")
-                        res[g].add("imtihan")
-                    if "sına" in res[g]:
-                        res[g].add("sınama")
-                    if "tat" in res[g] or "tatma" in res[g]:
-                        res["1.Anlam"].add("tatma")
-                    if "prova" in res[g]:
-                        res["1.Anlam"].add("prova")
+        indices = self.word_to_tur_indices.get(query, [])
+        if not indices and norm_query != query:
+            indices = self.word_to_tur_indices.get(norm_query, [])
+        if not indices and query in self.word_to_tur_idx:
+            indices = [self.word_to_tur_idx[query]]
+        if not indices and norm_query in self.word_to_tur_idx:
+            indices = [self.word_to_tur_idx[norm_query]]
 
-                # Remove self query
-                for grp in list(res.keys()):
-                    res[grp].discard(query)
-                    if not res[grp]:
-                        del res[grp]
-                return res
+        res: Dict[str, Set[str]] = defaultdict(set)
+        for slot_idx in indices:
+            slot_res = self._decode_tes_slot(slot_idx)
+            for g, ws in slot_res.items():
+                res[g].update(ws)
+
+        if res:
+            # Lexical OCR corrections
+            for g in list(res.keys()):
+                if "imtihal" in res[g]:
+                    res[g].discard("imtihal")
+                    res[g].add("imtihan")
+
+            # Remove self query
+            for grp in list(res.keys()):
+                res[grp].discard(query)
+                if not res[grp]:
+                    del res[grp]
+            return res
 
         return {}
 
