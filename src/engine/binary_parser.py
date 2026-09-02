@@ -194,6 +194,9 @@ class TesBinaryParser:
 
                     if found_sub:
                         return result
+                else:
+                    _start_group("1.Anlam")
+                    _add_word(root)
 
             # Fall through to target slot's full data
             target_groups = self.decode_slot(target_idx, visited)
