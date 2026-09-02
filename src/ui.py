@@ -988,14 +988,15 @@ body {
 }
 .group-box legend {
   position: absolute;
-  top: -9px;
+  top: -10px;
   left: 8px;
   background: #c0c0c0;
   padding: 0 4px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: bold;
   font-family: 'MS Sans Serif', Tahoma, Arial, sans-serif;
   color: #000;
+  text-shadow: 0.5px 0.5px #fff;
   white-space: nowrap;
   z-index: 5;
   line-height: 1;
@@ -2318,18 +2319,18 @@ function openWindow(type, opts) {
         <div style="width:230px;display:flex;flex-direction:column;gap:8px;flex-shrink:0;min-height:0;">
           <!-- Sözcük Row -->
           <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
-            <div style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">Sözcük</div>
+            <div style="font-size:14px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">Sözcük</div>
             <input class="win-input" type="text" style="width:100%;background:#c0c0c0;font-weight:bold;font-family:inherit;" id="${id}-search" value="${rememberedQuery}" oninput="synTriggerSearch('${id}')" onkeydown="if(event.key==='Enter'){event.preventDefault();synTriggerSearch('${id}');}">
           </div>
           
           <!-- Kök Sözcük Row -->
           <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
-            <div style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">Kök Sözcük</div>
+            <div style="font-size:14px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">Kök Sözcük</div>
             <input class="win-input" type="text" readonly style="width:100%;background:#c0c0c0;color:#000;font-weight:bold;font-family:inherit;" id="${id}-stem">
           </div>
           
           <!-- Anlam Grupları Group Box -->
-          <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;margin-top:8px;"><legend style="font-size:12px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;padding:0 4px;">Anlam Grupları</legend>
+          <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;margin-top:10px;"><legend style="font-size:14px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;padding:0 4px;">Anlam Grupları</legend>
             <div class="win-list" style="flex:1;overflow-y:auto;background:#fff;" id="${id}-groups"></div>
           </div>
           
@@ -2344,7 +2345,7 @@ function openWindow(type, opts) {
         </div>
         
         <!-- Right Column (Eş Anlamları Group Box) -->
-        <div class="group-box" style="flex:1;min-width:0;display:flex;flex-direction:column;margin-top:8px;"><legend style="font-size:12px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;padding:0 4px;">Eş Anlamları</legend>
+        <div class="group-box" style="flex:1;min-width:0;display:flex;flex-direction:column;margin-top:10px;"><legend style="font-size:14px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;padding:0 4px;">Eş Anlamları</legend>
           <div class="win-list" style="flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;background:#fff;" id="${id}-defn"></div>
         </div>
       </div>

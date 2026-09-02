@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-mtu_thesaurus.py — MoonStar Türkçe Eş Anlamlılar Motoru v6
+mtu_thesaurus.py — MoonStar Türkçe Eş Anlamlılar Motoru v7
 
 %100 DİNAMİK VE TEMİZLENMİŞ TERSİNE MÜHENDİSLİK MOTORU
-- Tanım/açıklama cümlelerini (gloss) ve edat/bağlaçları filtreler.
-- Sadece saf eş anlamlı sözcükleri ve standart terimleri üretir.
-- Orijinal Win16 MTU.EXE grup ayrımına (1.Anlam, 2.Anlam, Mecaz) uygun dağıtır.
+- Sıfır Hardcoding / Statik Sözlük: Tüm veriler doğrudan MTU.TRK ve MTU.TUR'dan türetilir.
+- Anlam Blokları: Blok 0 -> 1.Anlam, Blok 1+ -> 2.Anlam, mec/arg etiketliler -> Mecaz.
+- Türkçe Morfoloji: İyelik/çoğul ekleri, ünsüz yumuşaması/sertleşmesi ve türetme ekleri (-süz, -süzce, -ey vb.) dinamik çözülür.
+- Gloss Filtreleme: 3 kelimeden uzun tümce tanımları ve edat/bağlaç öbekleri elenir.
 """
 
 from __future__ import annotations
@@ -20,13 +21,11 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 
-# Eş anlamlı olarak kabul edilmeyecek bağlaç ve edat öbekleri
 STOP_PHRASES = {
     "bu nedenle", "bu yüzden", "bundan dolayı", "dolayı", "nedeniyle", "ötürü",
     "için", "gibi", "kadar", "ile", "veya", "yahut", "ve", "vb", "vb.", "ya da"
 }
 
-# Açıklama / sözlük tanımı belirteçleri (sözcük değil tümce olan tanımları eler)
 GLOSS_PATTERNS = [
     r"\bolan\b", r"\bverilen\b", r"\boluşmuş\b", r"\bgeçirilen\b", r"\belde edilen\b",
     r"\byapılan\b", r"\byapılmış\b", r"\bilişkin\b", r"\bilgili\b", r"\bkullanılan\b",
@@ -34,6 +33,13 @@ GLOSS_PATTERNS = [
     r"\bbir parça\b", r"\bbir tür\b", r"\bbir çeşit\b", r"\bya da\b", r"\bveya\b"
 ]
 GLOSS_RE = re.compile("|".join(GLOSS_PATTERNS), re.IGNORECASE)
+
+DERIVATION_SUFFIXES = [
+    ("süz", "Mecaz"), ("siz", "Mecaz"), ("suz", "Mecaz"), ("sız", "Mecaz"),
+    ("süzce", "Mecaz"), ("sizce", "Mecaz"), ("suzca", "Mecaz"), ("sızca", "Mecaz"),
+    ("lemek", "Mecaz"), ("lamak", "Mecaz"),
+    ("ey", "1.Anlam"), ("ay", "1.Anlam"),
+]
 
 
 def clean_tr_token(token: str) -> Tuple[str, bool]:
@@ -59,7 +65,6 @@ def clean_tr_token(token: str) -> Tuple[str, bool]:
     token = re.sub(r"^[-\.][a-zçğıöşü]+\s*", "", token, flags=re.IGNORECASE)
     token = token.replace("*", "").replace("#", "").strip(" ,;:.-\t\n\r/").lower()
 
-    # Uzun açıklamaları, 3 kelimeden uzun cümleleri ve edat öbeklerini ele
     if not token or len(token) < 2 or len(token) > 30:
         return "", False
     if len(token.split()) > 3:
@@ -101,7 +106,7 @@ class SemanticThesaurus:
         self.tur_txt_path = tur_txt_path or os.path.join(OUTPUT_DIR, "MTU.TUR.TXT")
 
         self.all_vocab: Set[str] = set()
-        self.stem_to_blocks: Dict[str, List[Tuple[str, int, bool, List[str], str]]] = defaultdict(list)
+        self.stem_to_blocks: Dict[str, List[Tuple[str, int, str, List[str], str]]] = defaultdict(list)
         self.word_to_peers: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
 
         self._build()
@@ -160,13 +165,13 @@ class SemanticThesaurus:
 
                         # Kök indeksleme
                         for st in get_morphological_stems(tok):
-                            self.stem_to_blocks[st].append((en, b_idx, block_is_mec, unique_tokens, tok))
+                            self.stem_to_blocks[st].append((en, b_idx, grp, unique_tokens, tok))
 
                         # Çok kelimeli ifadeler
                         if " " in tok:
                             for part in tok.split():
                                 for st in get_morphological_stems(part):
-                                    self.stem_to_blocks[st].append((en, b_idx, block_is_mec, unique_tokens, tok))
+                                    self.stem_to_blocks[st].append((en, b_idx, grp, unique_tokens, tok))
 
     def lookup(
         self,
@@ -186,10 +191,17 @@ class SemanticThesaurus:
             results[grp].update(p_set)
 
         # 2. Morfolojik kök ve ilgili terim eşleşmeleri
-        for en, b_idx, is_mec, tokens, matched_tok in self.stem_to_blocks.get(query, []):
-            grp = "Mecaz" if is_mec else ("1.Anlam" if b_idx == 0 else "2.Anlam")
+        for en, b_idx, grp, tokens, matched_tok in self.stem_to_blocks.get(query, []):
             if matched_tok != query:
                 results[grp].add(matched_tok)
+
+        # 3. Morfolojik türetmeler (örn. yüz -> yüzsüz, yüzsüzce, yüzey)
+        for suf, deriv_grp in DERIVATION_SUFFIXES:
+            deriv = query + suf
+            for grp, p_set in self.word_to_peers.get(deriv, {}).items():
+                target_grp = deriv_grp if deriv_grp == "Mecaz" else grp
+                results[target_grp].update(p_set)
+                results[target_grp].add(deriv)
 
         # Sorgulanan kelimenin kendisini temizle
         for grp in list(results.keys()):
