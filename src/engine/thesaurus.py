@@ -66,7 +66,7 @@ def apply_tes_suffix_id(root: str, suf_id: int) -> str:
         return root + ("ın" if last_v in "aı" else ("in" if last_v in "ei" else ("un" if last_v in "ou" else "ün")))
     elif suf_id == 0x02AA:  # -ına / -ine (baş -> başına)
         return root + ("ına" if last_v in "aıâ" else ("ine" if last_v in "eiî" else ("una" if last_v in "ouû" else "üne")))
-    elif suf_id == 0x0000:  # -a / -e (yönelme/dative: can -> cana, insan -> insana)
+    elif suf_id in [0x0000, 0x01FF, 0xFF01]:  # -a / -e (yönelme/dative: can -> cana, tarih -> tarihe)
         if root.endswith(("a", "ı", "o", "u", "e", "i", "ö", "ü")):
             return root + ("ya" if is_back else "ye")
         return root + ("a" if is_back else "e")
@@ -98,7 +98,7 @@ def apply_tes_suffix_id(root: str, suf_id: int) -> str:
         return root + ("ma" if is_back else "me")
     elif suf_id in [0x0AC1, 0xC10A]:  # -yen / -yan
         return root + ("yan" if is_back else "yen")
-    elif suf_id in [0x0797, 0x9707]:  # -sal / -sel
+    elif suf_id in [0x0797, 0x9707, 0x07B4, 0xB407]:  # -sal / -sel
         return root + ("sal" if is_back else "sel")
     elif suf_id in [0x07DB, 0xDB07]:  # -sıyla / -siyle (fazla -> fazlasıyla)
         return root + ("sıyla" if is_back else "siyle")
@@ -109,7 +109,7 @@ def apply_tes_suffix_id(root: str, suf_id: int) -> str:
         if res.endswith("k"):
             res = res[:-1] + "ğ"
         return res + ("ı" if last_v in "aı" else "i")
-    elif suf_id in [0x0447, 0x0407, 0x8447, 0x4784, 0x8407, 0x0784, 0x00C9, 0xC900]:  # -la / -le
+    elif suf_id in [0x0447, 0x0407, 0x8447, 0x4784, 0x8407, 0x0784, 0x00C9, 0xC900, 0x0446, 0x4604]:  # -la / -le
         return root + ("la" if is_back else "le")
     elif suf_id in [0x050B, 0x0B05, 0x04CA, 0xCA04]:  # -mak / -mek
         return root + ("mak" if is_back else "mek")
@@ -372,12 +372,36 @@ class ThesaurusEngine:
         # Alias/Redirect Record: flag & 0xC0 == 0xC0
         if len(slot_data) >= 3 and (slot_data[0] & 0xC0) == 0xC0:
             target_idx = slot_data[1] | ((slot_data[2] & 0x7F) << 8)
-            extra = []
+            sub_suf = 0
             if len(slot_data) >= 5:
-                extra = [slot_data[3], slot_data[4]]
+                sub_suf = slot_data[3] | ((slot_data[4] & 0x7F) << 8)
+
             if target_idx < len(self.tur_words):
-                target_word = apply_tes_suffix(self.tur_words[target_idx], extra)
-                groups["1.Anlam"].add(target_word)
+                if sub_suf > 0:
+                    target_word = apply_tes_suffix_id(tr_lower(self.tur_words[target_idx]), sub_suf)
+                    groups["1.Anlam"].add(target_word)
+
+                    # Check if target slot contains a matching sub-record for sub_suf
+                    if target_idx < len(self.tes_offsets) - 1:
+                        t_off1 = self.tes_offsets[target_idx]
+                        t_off2 = self.tes_offsets[target_idx + 1]
+                        t_slot = self.tes_data[t_off1:t_off2]
+                        pos = 0
+                        found_sub = False
+                        while pos < len(t_slot) - 3:
+                            if t_slot[pos] == 0x40:
+                                s_id = struct.unpack("<H", t_slot[pos + 1:pos + 3])[0] & 0x7FFF
+                                if s_id == sub_suf:
+                                    found_sub = True
+                                    sub_res = self._decode_subrecord(target_idx, pos + 3)
+                                    for g, ws in sub_res.items():
+                                        groups[g].update(ws)
+                                    break
+                            pos += 1
+
+                        if found_sub:
+                            return groups
+
             target_groups = self._decode_tes_slot(target_idx, visited)
             for g, ws in target_groups.items():
                 groups[g].update(ws)
@@ -524,9 +548,13 @@ class ThesaurusEngine:
                     res[g].discard("imtihal")
                     res[g].add("imtihan")
 
-            # Remove self query
+            # Remove self query and its circumflex variants
             for grp in list(res.keys()):
                 res[grp].discard(query)
+                res[grp].discard(norm_query)
+                for w in list(res[grp]):
+                    if w.replace("î", "i").replace("â", "a").replace("û", "u") == norm_query:
+                        res[grp].discard(w)
                 if not res[grp]:
                     del res[grp]
             return res
