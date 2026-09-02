@@ -194,12 +194,17 @@ class ThesaurusEngine:
         if not indices and norm_query in self.word_to_tur_idx:
             indices = [self.word_to_tur_idx[norm_query]]
 
-        # Prefer primary slots over 3-byte alias stubs
-        primary_slots = [
+        # Filter slots that actually contain data (len > 0)
+        non_empty_slots = [
             idx for idx in indices
-            if idx < len(self.tes_offsets) - 1 and (self.tes_offsets[idx + 1] - self.tes_offsets[idx] > 3)
+            if idx < len(self.tes_offsets) - 1 and (self.tes_offsets[idx + 1] - self.tes_offsets[idx] > 0)
         ]
-        chosen_slots = [primary_slots[0]] if primary_slots else (indices[:1] if indices else [])
+        # Prefer primary detailed slots (len > 3) over 3-byte redirect stubs
+        primary_slots = [
+            idx for idx in non_empty_slots
+            if (self.tes_offsets[idx + 1] - self.tes_offsets[idx] > 3)
+        ]
+        chosen_slots = [primary_slots[0]] if primary_slots else (non_empty_slots[:1] if non_empty_slots else (indices[:1] if indices else []))
 
         result: List[Tuple[str, Set[str]]] = []
         for slot_idx in chosen_slots:

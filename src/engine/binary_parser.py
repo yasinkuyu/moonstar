@@ -150,6 +150,17 @@ class TesBinaryParser:
                 if not found:
                     result.append((g, set(ws)))
 
+        # Root redirect stub (0xFF target_low target_high)
+        if len(slot_data) <= 3 and slot_data[0] == 0xFF:
+            target_idx = slot_data[1] | (slot_data[2] << 8) if len(slot_data) >= 3 else None
+            if target_idx is not None and target_idx < len(self.tur_words) and target_idx not in visited:
+                root = tr_lower(self.tur_words[target_idx])
+                _start_group("1.Anlam")
+                _add_word(root)
+                target_groups = self.decode_slot(target_idx, visited)
+                _merge_result(target_groups)
+            return result
+
         # Alias/Redirect Record: flag & 0xC0 == 0xC0
         if len(slot_data) >= 3 and (slot_data[0] & 0xC0) == 0xC0:
             target_idx = slot_data[1] | ((slot_data[2] & 0x7F) << 8)
