@@ -1,25 +1,27 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-engine — MoonStar Tersine Mühendislik Çekirdek Motor Paketi
+engine — MoonStar Core Reverse-Engineered Linguistic Engine
 """
 
-from .morphology import (
-    apply_compound_possessive,
-    get_morphological_stems,
-    normalize_turkish,
+from .binary_parser import TesBinaryParser
+from .phonetics import (
+    attach_suffix_phonetically,
+    get_last_vowel,
+    harden_final_consonant,
+    is_back_vowel,
+    soften_final_consonant,
 )
-from .thesaurus import (
-    ThesaurusEngine,
-    clean_tr_token,
-    load_all_synonyms,
-)
+from .suffix import SuffixEngine, get_suffix_table
+from .thesaurus import ThesaurusEngine
 
 __all__ = [
     "ThesaurusEngine",
-    "normalize_turkish",
-    "get_morphological_stems",
-    "apply_compound_possessive",
-    "clean_tr_token",
-    "load_all_synonyms",
+    "TesBinaryParser",
+    "SuffixEngine",
+    "get_suffix_table",
+    "soften_final_consonant",
+    "harden_final_consonant",
+    "attach_suffix_phonetically",
+    "is_back_vowel",
+    "get_last_vowel",
 ]

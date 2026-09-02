@@ -2175,30 +2175,40 @@ function bringToFront(winId) {
 function makeDraggable(winEl, handleEl) {
   if (!winEl || !handleEl) return;
   handleEl.style.cursor = 'move';
+  handleEl.style.userSelect = 'none';
+  handleEl.style.webkitUserSelect = 'none';
+
   handleEl.addEventListener('mousedown', function(e) {
-    if (e.target.tagName === 'BUTTON' || e.target.closest('.win-title-btns')) return;
+    if (e.button !== 0) return;
+    if (e.target.tagName === 'BUTTON' || e.target.closest('.win-title-btns') || e.target.closest('button')) return;
+    
+    e.preventDefault();
     bringToFront(winEl.id);
     
-    const scale = state.uiScale || 1.0;
+    const scale = (typeof state !== 'undefined' && state.uiScale) ? state.uiScale : 1.0;
     const rect = winEl.getBoundingClientRect();
-    const workRect = document.getElementById('workArea').getBoundingClientRect();
+    const workArea = document.getElementById('workArea') || document.body;
+    const workRect = workArea.getBoundingClientRect();
     
-    if (winEl.style.transform && winEl.style.transform.includes('translate')) {
-      winEl.style.left = ((rect.left - workRect.left) / scale) + 'px';
-      winEl.style.top = ((rect.top - workRect.top) / scale) + 'px';
-      winEl.style.transform = 'none';
-    }
+    // Compute current position relative to workArea in CSS pixels
+    const initialLeft = (rect.left - workRect.left) / scale;
+    const initialTop = (rect.top - workRect.top) / scale;
+    
+    // Explicitly convert from CSS centering transforms to absolute positioning
+    winEl.style.position = 'absolute';
+    winEl.style.transform = 'none';
+    winEl.style.margin = '0';
+    winEl.style.left = initialLeft + 'px';
+    winEl.style.top = initialTop + 'px';
     
     const startX = e.clientX;
     const startY = e.clientY;
-    const initialLeft = parseFloat(winEl.style.left) || 0;
-    const initialTop = parseFloat(winEl.style.top) || 0;
     
     function onMouseMove(moveEvent) {
       const dx = (moveEvent.clientX - startX) / scale;
       const dy = (moveEvent.clientY - startY) / scale;
-      winEl.style.left = Math.max(0, initialLeft + dx) + 'px';
-      winEl.style.top = Math.max(0, initialTop + dy) + 'px';
+      winEl.style.left = (initialLeft + dx) + 'px';
+      winEl.style.top = (initialTop + dy) + 'px';
     }
     
     function onMouseUp() {
