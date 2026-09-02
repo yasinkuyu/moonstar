@@ -75,7 +75,11 @@ Each data file's usage was confirmed by searching the EXE binary for filename/ex
     - `0x05`: `Mecaz` (Metaphorical meaning)
     - `0x09`: `Renk` (Color topic)
     - `0x0A`: `Türemiş` (Derived headwords)
-    - `flag & 0x40 != 0`: **Record Boundary Delimiter** (`0x40`, `0x45`, `0x50`). Terminates the active thesaurus record; isolates following antonyms / compound term sections.
+    - `flag & 0x40 != 0`: **Record Boundary Delimiter & Deverbal Sub-Record Prefix** (`0x40`, `0x45`, `0x50`).
+      - Inside root verb slots (e.g. `çık`, `gir`, `aç`, `acı`), `0x40` initiates embedded **deverbal sub-records** (1,906 distinct sub-records across `MTU.TES`).
+      - `0x40` is immediately followed by 16-bit suffix IDs defining the derived headword: e.g. `çık` + `0x02F9` (-ış) = `çıkış` (`çıkak, çıkıt, kaynak, köken, mahreç, menşe, orijin, öz, soy, töz`); `çık` + `-maz` = `çıkmaz` (`arapsaçı, kördüğüm, problem...`).
+  - **Morphological Slot Headers (`0x80`)**:
+    - Exactly 1,727 slots begin with `0x80` followed by a 16-bit suffix ID defining the primary derived headword: e.g. Slot 8646 (`Gir`) has `[0x80, 0xAC, 0x03]` = `Gir` + `0x03AC` (-iş) ➔ **`Giriş`** (`açılış, açış, aralık, aşama, atılım, basamak, başlama, başlangıç...`).
   - **Universal Multi-Word Collocation Formula (EXE Routine `0xD5BD`)**:
     $$\text{word\_count} = ((\text{flag} \gg 4) \ \& \ 3) + 1$$
     - `0x00`: 1 word (e.g. `battal`, `kunt`)
@@ -98,7 +102,13 @@ Each data file's usage was confirmed by searching the EXE binary for filename/ex
     - `0x0507`: `-me / -ma` (negation: `çekin` ➔ `çekinme`)
     - `0x0C36`: `-z` (negative aorist: `çekinme` ➔ `çekinmez`)
     - `0x02AA`: `-ına / -ine` (`baş` ➔ `başına buyrukluk`)
-    - `0x0980`: `-uş / -üş / -ış / -iş` (`uy` ➔ `uyuş` ➔ `uyuşma`)
+    - `0x0980, 0x0A32, 0x02F9, 0x03AC`: `-uş / -üş / -ış / -iş` (`uy` ➔ `uyuş`, `göç` ➔ `göçüş`, `gir` ➔ `giriş`, `aç` ➔ `açış`)
+    - `0x0292`: `-ıl / -il / -ul / -ül` (`aç` ➔ `açıl`)
+    - `0x09FF`: `-ıp / -ip / -up / -üp` (`göç` ➔ `göçüp`)
+    - `0x0B7E`: `-yış / -yiş` (`başla` ➔ `başlayış`)
+    - `0x0831`: `-ta / -te / -da / -de` (`baş` ➔ `başta`)
+    - `0x0000`: `-a / -e` (yönelme/dative: `can` ➔ `cana`)
+    - `0x07DB`: `-sıyla / -siyle` (`fazla` ➔ `fazlasıyla`)
     - `0x0834`: `-ten / -tan / -den / -dan` (`ciddiyetten uzak`)
     - `0x0127`: `-de / -da` (`tartıda az çeken`)
     - `0x0245`: `-en / -an` (`çeken`)
@@ -110,7 +120,7 @@ Each data file's usage was confirmed by searching the EXE binary for filename/ex
   - **Homonym & Alias Resolution**:
     - 3-byte `0xFF` redirect stubs are bypassed when primary data slots exist (e.g. `dolu` slot 6100 `0xFF` redirect to `Dola` bypassed in favor of primary slot 6101).
     - Distinct homonyms (`barış` #2295 noun vs #2296 verb) resolve to primary entry without cross-pollution.
-- **Ground Truth Verification**: 100% verified against live Win16 DOSBox-X screenshots for 20 words (`öz`, `kitap`, `elma`, `ekmek`, `gelmek`, `yüz`, `göz`, `akıl`, `güzel`, `test`, `mali`, `hafif`, `açık`, `dolu`, `ağır`, `boş`, `adalet`, `cesaret`, `hürriyet`, `barış`). Zero hardcoding, zero external JSON dependencies.
+- **Ground Truth Verification**: 100% verified against live Win16 DOSBox-X screenshots for 22 words (`öz`, `kitap`, `elma`, `ekmek`, `gelmek`, `yüz`, `göz`, `akıl`, `güzel`, `test`, `mali`, `hafif`, `açık`, `dolu`, `ağır`, `boş`, `adalet`, `cesaret`, `hürriyet`, `barış`, `zengin`, `ölüm`, `giriş`, `çıkış`). Zero hardcoding, zero external JSON dependencies.
 - **Engine Script**: `src/engine/thesaurus.py`.
 
 ### MTU.EXE (Decode Engine) — FULLY REVERSE-ENGINEERED (segments)

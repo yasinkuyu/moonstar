@@ -265,13 +265,19 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         for w in expected_giris:
             self.assertIn(w, giris_groups["1.Anlam"], f"Giriş kelimesi eksik: {w}")
 
+        cikis_groups = thesaurus_engine.lookup("çıkış")
+        self.assertEqual(list(cikis_groups.keys()), ["1.Anlam"])
+        expected_cikis = ["çıkak", "çıkıt", "kaynak", "köken", "mahreç", "menşe", "orijin", "öz", "soy", "töz"]
+        for w in expected_cikis:
+            self.assertIn(w, cikis_groups["1.Anlam"], f"Çıkış kelimesi eksik: {w}")
+
         print(f"  • \"öz\" Screenshot Türemiş Doğrulaması : {len(screenshot_turemis)} / {len(screenshot_turemis)} -> [%100 TAM EŞLEŞME]")
         print(f"  • \"test\" Screenshot Eş Anlamlıları    : {len(screenshot_test)} / {len(screenshot_test)} -> [%100 TAM EŞLEŞME]")
         print(f"  • \"kitap\" Canlı Kök Eşleşmesi       : 'elkitabı' -> [1.Anlam MEVCUT]")
         print(f"  • \"yüz\" Semantik & Mecaz Ağı         : surat, çehre, bet beniz [1.Anlam] -> [DOĞRULANDI]")
         print(f"  • \"mali\" Çok Kelimeli Öbekler       : {', '.join(screenshot_mali)} -> [%100 TAM EŞLEŞME]")
         print(f"  • \"hafif\" 16-Bit Ek Zincirlemesi    : {len(screenshot_hafif)} / {len(screenshot_hafif)} Kelime, 3 Anlam Grubu -> [%100 TAM EŞLEŞME]")
-        print(f"  • \"dolu, ağır, boş, adalet, cesaret, hürriyet, barış, zengin, ölüm, giriş\" -> [%100 TAM EŞLEŞME]")
+        print(f"  • \"dolu, ağır, boş, adalet, cesaret, hürriyet, barış, zengin, ölüm, giriş, çıkış\" -> [%100 TAM EŞLEŞME]")
 
     # ─── 5. MTU.SOZ PLACE NAMES STREAM VERIFICATION ──────────────────────────
 

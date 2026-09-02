@@ -111,10 +111,47 @@ def apply_tes_suffix_id(root: str, suf_id: int) -> str:
         return res + ("ı" if last_v in "aı" else "i")
     elif suf_id in [0x0447, 0x0407, 0x8447, 0x4784, 0x8407, 0x0784, 0x00C9, 0xC900]:  # -la / -le
         return root + ("la" if is_back else "le")
-    elif suf_id in [0x050B, 0x0B05]:  # -mak / -mek
+    elif suf_id in [0x050B, 0x0B05, 0x04CA, 0xCA04]:  # -mak / -mek
         return root + ("mak" if is_back else "mek")
-    elif suf_id in [0x0343, 0x4303]:  # -i
-        return root + "i"
+    elif suf_id in [0x04FE, 0xFE04, 0x053F, 0x3F05, 0x0C33, 0x330C]:  # -maz / -mez
+        return root + ("maz" if is_back else "mez")
+    elif suf_id in [0x0097, 0x00A9, 0x00BB, 0x00CD, 0x00E3, 0x00F5, 0x0107, 0x0119]:  # -cık / -cik / -cuk / -cük / -çık / -çik / -çuk / -çük
+        c = "ç" if root.endswith(("p", "ç", "t", "k", "s", "ş", "h", "f")) else "c"
+        v = "u" if last_v in "ouû" else ("ü" if last_v in "öü" else ("ı" if last_v in "aıâ" else "i"))
+        return root + c + v + "k"
+    elif suf_id in [0x008E, 0x0091]:  # -cağız / -ceğiz
+        return root + ("cağız" if is_back else "ceğiz")
+    elif suf_id == 0x0046:  # -daş / -deş / -taş / -teş
+        d = "t" if root.endswith(("p", "ç", "t", "k", "s", "ş", "h", "f")) else "d"
+        return root + d + ("aş" if is_back else "eş")
+    elif suf_id in [0x040D, 0x040E, 0x044D, 0x044E]:  # -ler / -lar
+        return root + ("lar" if is_back else "ler")
+    elif suf_id in [0x0543, 0x0544, 0x0545, 0x0598, 0x0599, 0x059A]:  # -mış / -miş / -muş / -müş
+        v = "u" if last_v in "ouû" else ("ü" if last_v in "öü" else ("ı" if last_v in "aıâ" else "i"))
+        return root + "m" + v + "ş"
+    elif suf_id in [0x0408, 0x0448]:  # -lan / -len
+        return root + ("lan" if is_back else "len")
+    elif suf_id in [0x043F, 0x047F]:  # -laş / -leş
+        return root + ("laş" if is_back else "leş")
+    elif suf_id in [0x094D, 0x094E]:  # -ca / -ce
+        c = "ç" if root.endswith(("p", "ç", "t", "k", "s", "ş", "h", "f")) else "c"
+        return root + c + ("a" if is_back else "e")
+    elif suf_id == 0x03F5:  # -ken
+        return root + "ken"
+    elif suf_id == 0x0345:  # -ci / -cı / -cu / -cü
+        c = "ç" if root.endswith(("p", "ç", "t", "k", "s", "ş", "h", "f")) else "c"
+        v = "u" if last_v in "ouû" else ("ü" if last_v in "öü" else ("ı" if last_v in "aıâ" else "i"))
+        return root + c + v
+    elif suf_id == 0x0802:  # -suz / -süz / -sız / -siz
+        return root + ("suz" if last_v in "ouû" else ("süz" if last_v in "öü" else ("sız" if last_v in "aıâ" else "siz")))
+    elif suf_id in [0x0342, 0x0343, 0x4303, 0x0915, 0x0916, 0x01FF]:  # -ı / -i / -u / -ü (tamlanan / iyelik)
+        res = root
+        if res.endswith("k") and res not in ["ok", "kök", "ek", "ak"]:
+            res = res[:-1] + "ğ"
+        v = "u" if last_v in "ouû" else ("ü" if last_v in "öü" else ("ı" if last_v in "aıâ" else "i"))
+        if res.endswith(("a", "ı", "o", "u", "e", "i", "ö", "ü")):
+            return res + "s" + v
+        return res + v
     elif suf_id in [0x0B8B, 0x8B0B]:  # " biçmek"
         return root + " biçmek"
     return root
@@ -161,9 +198,12 @@ class ThesaurusEngine:
         self.tes_offsets: List[int] = []
         self.tes_data: bytes = b""
 
+        self.subrecords: Dict[str, Tuple[int, int]] = {}
+
         self._load_tur()
         self._load_tes()
         self._index_tes_derived_slots()
+        self._index_tes_subrecords()
 
     def _load_tur(self):
         if not os.path.exists(self.tur_txt_path):
@@ -217,6 +257,98 @@ class ThesaurusEngine:
                     self.word_to_tur_indices[derived].append(s)
                     self.word_to_tur_idx[derived] = s
                     self.all_vocab.add(derived)
+
+    def _index_tes_subrecords(self):
+        """
+        Indexes sub-records embedded after 0x40 boundary delimiters inside slots.
+        In MTU.TES, deverbal derived words (e.g. çık -> çıkış, adalet -> adaletsiz)
+        are stored inside the root slot after a 0x40 flag followed by 16-bit suffix IDs.
+        """
+        for s in range(min(len(self.tur_words), len(self.tes_offsets) - 1)):
+            off1 = self.tes_offsets[s]
+            off2 = self.tes_offsets[s + 1]
+            if off2 - off1 < 6:
+                continue
+
+            slot = self.tes_data[off1:off2]
+            pos = 0
+            if slot[0] == 0x80:
+                pos = 3
+
+            while pos < len(slot) - 3:
+                if slot[pos] == 0x40:
+                    p = pos + 1
+                    raw_suf = struct.unpack("<H", slot[p:p + 2])[0]
+                    p += 2
+                    suf_id = raw_suf & 0x7FFF
+                    has_more = bool(raw_suf & 0x8000)
+                    root = self.tur_words[s]
+                    derived = tr_lower(apply_tes_suffix_id(root, suf_id))
+                    while has_more and p + 2 <= len(slot):
+                        raw_suf2 = struct.unpack("<H", slot[p:p + 2])[0]
+                        p += 2
+                        suf_id2 = raw_suf2 & 0x7FFF
+                        derived = tr_lower(apply_tes_suffix_id(derived, suf_id2))
+                        has_more = bool(raw_suf2 & 0x8000)
+
+                    if 0 < suf_id < 3218 and derived != root:
+                        self.subrecords[derived] = (s, p)
+                        self.all_vocab.add(derived)
+                pos += 1
+
+    def _decode_subrecord(self, slot_idx: int, start_pos: int) -> Dict[str, Set[str]]:
+        off1 = self.tes_offsets[slot_idx]
+        off2 = self.tes_offsets[slot_idx + 1]
+        slot = self.tes_data[off1:off2]
+
+        groups: Dict[str, Set[str]] = defaultdict(set)
+        cur_grp = "1.Anlam"
+        p = start_pos
+
+        while p < len(slot):
+            flag = slot[p]
+            if flag & 0x40:
+                break
+            p += 1
+
+            grp_code = flag & 0x0F
+            if grp_code == 0x00:
+                cur_grp = "1.Anlam"
+            elif grp_code == 0x01:
+                cur_grp = "2.Anlam"
+            elif grp_code == 0x02:
+                cur_grp = "3.Anlam"
+
+            word_count = ((flag >> 4) & 3) + 1
+            phrase_words = []
+            for _ in range(word_count):
+                if p + 2 > len(slot):
+                    break
+                raw_w = struct.unpack("<H", slot[p:p + 2])[0]
+                p += 2
+                w_idx = raw_w & 0x7FFF
+                has_more = bool(raw_w & 0x8000)
+
+                root = tr_lower(self.tur_words[w_idx]) if w_idx < len(self.tur_words) else f"#{w_idx}"
+                if root.endswith("ğ") and root not in ["ağ", "bağ", "dağ", "sağ", "çağ", "yağ", "tuğ", "yeğ"]:
+                    root = root[:-1] + "k"
+
+                while has_more and p + 2 <= len(slot):
+                    raw_suf = struct.unpack("<H", slot[p:p + 2])[0]
+                    p += 2
+                    suf_id = raw_suf & 0x7FFF
+                    root = apply_tes_suffix_id(root, suf_id)
+                    has_more = bool(raw_suf & 0x8000)
+
+                if root:
+                    phrase_words.append(root)
+
+            if len(phrase_words) == word_count:
+                phrase = " ".join(phrase_words)
+                if len(phrase) >= 2:
+                    groups[cur_grp].add(phrase)
+
+        return groups
 
     def _decode_tes_slot(self, slot_idx: int, visited: Optional[Set[int]] = None) -> Dict[str, Set[str]]:
         """
@@ -376,6 +508,14 @@ class ThesaurusEngine:
             slot_res = self._decode_tes_slot(slot_idx)
             for g, ws in slot_res.items():
                 res[g].update(ws)
+
+        if not res and (query in self.subrecords or norm_query in self.subrecords):
+            sub_target = self.subrecords.get(query) or self.subrecords.get(norm_query)
+            if sub_target:
+                s_idx, s_pos = sub_target
+                sub_res = self._decode_subrecord(s_idx, s_pos)
+                for g, ws in sub_res.items():
+                    res[g].update(ws)
 
         if res:
             # Lexical OCR corrections
