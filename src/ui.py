@@ -2472,13 +2472,10 @@ function synTriggerSearch(winId) {
 
     if (groups) {
       const parts = groups.split(' | ').filter(Boolean);
-      clusters = parts.map((p, ci) => {
+      clusters = parts.map((p) => {
         const segs = p.split('::');
         if (segs.length < 2) return null;
-        let label = segs[0].trim();
-        if (!label.includes('.Anlam') && label !== 'Mecaz' && label !== 'Argo') {
-          label = (ci + 1) + '.Anlam';
-        }
+        const label = segs[0].trim();
         const trWords = segs[1].split(',').map(s => s.trim()).filter(Boolean);
         return { label: label, tr: trWords };
       }).filter(Boolean);

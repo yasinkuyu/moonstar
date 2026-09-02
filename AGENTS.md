@@ -1,5 +1,3 @@
-# Moonstar Master — Reverse Engineering Status
-
 ## Application Overview
 
 **Program**: MoonStar Türkçe Denetim Editörü (Turkish Spell Check Editor) — Borland C++ Win16 NE executable
@@ -7,6 +5,8 @@
 - **EXE format**: Win16 NE (New Executable) at file offset 0x250, 6 segments, 512B alignment
 - **Entry**: CS=1 IP=0, Auto data seg=6, Stack SS=6 SP=0
 - **Encoding**: CP857 for DOS strings (high bytes 0x80-0x9F), ISO-8859-9 for UI strings (0xA0-0xFF)
+- **Engine Architecture**: Completely decoupled into `src/engine/` (`thesaurus.py`, `morphology.py`).
+- **Ground Truth Screenshots**: 100% verified against live Win16 screenshots saved in `assets/screenshots/` (`öz`, `kitap`, `elma`, `ekmek`, `gelmek`, `yüz`, `göz`, `akıl`, `güzel`).
 
 ### EXE EXTRACTED RESOURCES
 All UI strings found in data segment (0x19E00-0x24800) and post-segment area (0x24800-0x62200):
