@@ -980,22 +980,25 @@ body {
 .group-box {
   border: 2px solid;
   border-color: #808080 #fff #fff #808080;
-  padding: 12px 6px 6px;
-  margin-top: 6px;
+  padding: 16px 6px 6px;
+  margin-top: 8px;
   position: relative;
   box-sizing: border-box;
+  overflow: visible;
 }
 .group-box legend {
   position: absolute;
-  top: -8px;
+  top: -9px;
   left: 8px;
   background: #c0c0c0;
   padding: 0 4px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: bold;
   font-family: 'MS Sans Serif', Tahoma, Arial, sans-serif;
   color: #000;
   white-space: nowrap;
+  z-index: 5;
+  line-height: 1;
 }
 .win-list table {
   width: 100%;
@@ -2308,9 +2311,9 @@ function openWindow(type, opts) {
       </div>
     </div>`;
   } else if (config.type === 'syn') {
-    html += `<div class="win-body" style="padding:10px;flex:1;display:flex;flex-direction:column;min-height:0;background:#c0c0c0;color:#000;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;gap:8px;box-sizing:border-box;">
+    html += `<div class="win-body" style="padding:10px;flex:1;display:flex;flex-direction:column;min-height:0;min-width:0;background:#c0c0c0;color:#000;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;gap:8px;box-sizing:border-box;">
       
-      <div style="display:flex;gap:12px;flex:1;min-height:0;">
+      <div style="display:flex;gap:12px;flex:1;min-height:0;min-width:0;">
         <!-- Left Column -->
         <div style="width:230px;display:flex;flex-direction:column;gap:8px;flex-shrink:0;min-height:0;">
           <!-- Sözcük Row -->
@@ -2326,12 +2329,12 @@ function openWindow(type, opts) {
           </div>
           
           <!-- Anlam Grupları Group Box -->
-          <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;margin-top:4px;"><legend style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;padding:0 4px;">Anlam Grupları</legend>
+          <div class="group-box" style="flex:1;display:flex;flex-direction:column;min-height:0;margin-top:8px;"><legend style="font-size:12px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;padding:0 4px;">Anlam Grupları</legend>
             <div class="win-list" style="flex:1;overflow-y:auto;background:#fff;" id="${id}-groups"></div>
           </div>
           
           <!-- Bottom Buttons Row (Centered under Left Column) -->
-          <div style="display:flex;gap:20px;flex-shrink:0;margin-top:-2px;margin-bottom:2px;justify-content:center;align-items:center;width:100%;">
+          <div style="display:flex;gap:20px;flex-shrink:0;margin-top:2px;margin-bottom:2px;justify-content:center;align-items:center;width:100%;">
             <!-- Tamam Button using sprite - closes window -->
             <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" id="${id}-btn-tamam" onclick="closeWindow('${id}')" title="Tamam"></div>
                  
@@ -2341,8 +2344,8 @@ function openWindow(type, opts) {
         </div>
         
         <!-- Right Column (Eş Anlamları Group Box) -->
-        <div class="group-box" style="flex:1;display:flex;flex-direction:column;margin-top:0;"><legend style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;padding:0 4px;">Eş Anlamları</legend>
-          <div class="win-list" style="flex:1;overflow-y:auto;background:#fff;" id="${id}-defn"></div>
+        <div class="group-box" style="flex:1;min-width:0;display:flex;flex-direction:column;margin-top:8px;"><legend style="font-size:12px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;padding:0 4px;">Eş Anlamları</legend>
+          <div class="win-list" style="flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;background:#fff;" id="${id}-defn"></div>
         </div>
       </div>
     </div>`;
@@ -2526,7 +2529,7 @@ function synFilterGroup(winId, clusterIdx, el) {
   const displayWords = (synList.length > 0 ? synList : trWords).slice().sort((a, b) => a.localeCompare(b, 'tr'));
 
   df.innerHTML = displayWords.map((m, i) => {
-    return `<div class="dict-word${i===0?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit; cursor:pointer;" onclick="synonymSelect('${winId}',${i},'${m}')" ondblclick="synonymDblClick('${winId}','${m}')">${m}</div>`;
+    return `<div class="dict-word${i===0?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; box-sizing:border-box;" onclick="synonymSelect('${winId}',${i},'${m}')" ondblclick="synonymDblClick('${winId}','${m}')" title="${m}">${m}</div>`;
   }).join('');
   
   state.synSelectedWord = state.synSelectedWord || {};
