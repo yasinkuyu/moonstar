@@ -2451,14 +2451,29 @@ function synTriggerSearch(winId) {
   const fullData = state.windowData && state.windowData[winId];
   if (!fullData || !fullData.length) return;
   
-  const qnNorm = normalizeSearch(q);
-  // 1. Exact match
-  let match = fullData.find(e => normalizeSearch(e.word) === qnNorm);
-  
-  // 2. Suffix-stripped stem match (e.g. 'yüzünde' -> 'yüz')
+  const qLower = q.toLowerCase();
+  // 1. Exact Turkish match (e.g. 'açık' -> 'açık', avoids collision with 'acık')
+  let match = fullData.find(e => e.word.toLowerCase() === qLower);
+
+  // 2. Exact match with circumflex normalization (e.g. 'mali' -> 'malî')
+  if (!match) {
+    const qCirc = qLower.replace(/î/g,'i').replace(/â/g,'a').replace(/û/g,'u');
+    match = fullData.find(e => {
+      const wCirc = e.word.toLowerCase().replace(/î/g,'i').replace(/â/g,'a').replace(/û/g,'u');
+      return wCirc === qCirc;
+    });
+  }
+
+  // 3. Fallback to ASCII folding (e.g. english keyboard 'acik' -> 'açık')
+  if (!match) {
+    const qnNorm = normalizeSearch(q);
+    match = fullData.find(e => normalizeSearch(e.word) === qnNorm);
+  }
+
+  // 4. Suffix-stripped stem match (e.g. 'yüzünde' -> 'yüz')
   if (!match && q.length >= 3) {
     const stemNorm = normalizeSearch(getTurkishStem(q));
-    if (stemNorm && stemNorm !== qnNorm) {
+    if (stemNorm && stemNorm !== normalizeSearch(q)) {
       match = fullData.find(e => normalizeSearch(e.word) === stemNorm);
     }
   }

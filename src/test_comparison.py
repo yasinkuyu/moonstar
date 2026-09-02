@@ -194,11 +194,59 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         for w in screenshot_mali:
             self.assertIn(w, mali_groups["1.Anlam"], f"Mali screenshot kelimesi eksik: {w}")
 
+        # 6. Verify "hafif" 16-bit suffix chain words and exact 3 groups
+        hafif_groups = thesaurus_engine.lookup("hafif")
+        self.assertEqual(sorted(list(hafif_groups.keys())), ["1.Anlam", "2.Anlam", "3.Anlam"])
+        screenshot_hafif = [
+            "ağır olmayan", "ağırlığı olmayan", "belli belirsiz", "ciddî olmayan",
+            "ciddiyetten uzak", "emeksiz", "etkisiz", "eziyetsiz", "güçlüksüz",
+            "kolay", "külfetsiz", "önemsiz", "rahat", "sıkıntısız", "silik",
+            "tartıda az çeken", "tüy gibi"
+        ]
+        for w in screenshot_hafif:
+            self.assertIn(w, hafif_groups["1.Anlam"], f"Hafif screenshot kelimesi eksik: {w}")
+
+        # 7. Verify "dolu", "ağır", "boş", "adalet", "cesaret", "hürriyet", "barış"
+        dolu_groups = thesaurus_engine.lookup("dolu")
+        self.assertEqual(list(dolu_groups.keys()), ["1.Anlam"])
+        self.assertIn("avuç avuç", dolu_groups["1.Anlam"])
+        self.assertIn("dünya kadar", dolu_groups["1.Anlam"])
+
+        agir_groups = thesaurus_engine.lookup("ağır")
+        self.assertEqual(sorted(list(agir_groups.keys())), ["1.Anlam", "Mecaz"])
+        self.assertIn("balyoz gibi", agir_groups["1.Anlam"])
+        self.assertIn("kilolu", agir_groups["1.Anlam"])
+
+        bos_groups = thesaurus_engine.lookup("boş")
+        self.assertEqual(sorted(list(bos_groups.keys())), ["1.Anlam", "2.Anlam"])
+        self.assertIn("değersiz", bos_groups["1.Anlam"])
+        self.assertIn("önemsiz", bos_groups["1.Anlam"])
+
+        adalet_groups = thesaurus_engine.lookup("adalet")
+        self.assertEqual(list(adalet_groups.keys()), ["1.Anlam"])
+        self.assertIn("hâk yemezlik", adalet_groups["1.Anlam"])
+        self.assertIn("tarafsızlık", adalet_groups["1.Anlam"])
+
+        cesaret_groups = thesaurus_engine.lookup("cesaret")
+        self.assertEqual(list(cesaret_groups.keys()), ["1.Anlam"])
+        self.assertIn("çekinmezlik", cesaret_groups["1.Anlam"])
+        self.assertIn("hamaset", cesaret_groups["1.Anlam"])
+
+        hurriyet_groups = thesaurus_engine.lookup("hürriyet")
+        self.assertEqual(list(hurriyet_groups.keys()), ["1.Anlam"])
+        self.assertIn("başına buyrukluk", hurriyet_groups["1.Anlam"])
+        self.assertIn("bağımsızlık", hurriyet_groups["1.Anlam"])
+
+        baris_groups = thesaurus_engine.lookup("barış")
+        self.assertEqual(sorted(list(baris_groups["1.Anlam"])), ["ateşkes", "hazar", "sulh", "uyuşma"])
+
         print(f"  • \"öz\" Screenshot Türemiş Doğrulaması : {len(screenshot_turemis)} / {len(screenshot_turemis)} -> [%100 TAM EŞLEŞME]")
         print(f"  • \"test\" Screenshot Eş Anlamlıları    : {len(screenshot_test)} / {len(screenshot_test)} -> [%100 TAM EŞLEŞME]")
         print(f"  • \"kitap\" Canlı Kök Eşleşmesi       : 'elkitabı' -> [1.Anlam MEVCUT]")
         print(f"  • \"yüz\" Semantik & Mecaz Ağı         : surat, çehre, bet beniz [1.Anlam] -> [DOĞRULANDI]")
         print(f"  • \"mali\" Çok Kelimeli Öbekler       : {', '.join(screenshot_mali)} -> [%100 TAM EŞLEŞME]")
+        print(f"  • \"hafif\" 16-Bit Ek Zincirlemesi    : {len(screenshot_hafif)} / {len(screenshot_hafif)} Kelime, 3 Anlam Grubu -> [%100 TAM EŞLEŞME]")
+        print(f"  • \"dolu, ağır, boş, adalet, cesaret, hürriyet, barış\" -> [%100 TAM EŞLEŞME]")
 
     # ─── 5. MTU.SOZ PLACE NAMES STREAM VERIFICATION ──────────────────────────
 
