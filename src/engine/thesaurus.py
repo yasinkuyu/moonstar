@@ -14,13 +14,14 @@ Binary Architecture & Reverse Engineering Specification:
 - Win16 Runtime Execution Map:
     * Segment 2 Entry #9 (`TRTHESDLG`): File offset 0x5E1A. Dispatches listbox controls 0x4E2, 0x4E3, 0x4E4.
     * Segment 3 Routines: 0xD1EC (binary slot seek/read) & 0xD422 / 0xD44A (syntactic grouping and UI rendering).
-- Group Identification (from flag):
-    * 0x00: 1.Anlam
-    * 0x01: 2.Anlam
-    * 0x02: 3.Anlam
+- Group Identification (from flag & 0x0F):
+    * 0-4: Sequential "N.Anlam" groups (numbered by order of appearance)
+    * 0x05/0x06: Mecaz
+    * 0x07: Argo
+    * 0x09: Renk
     * 0x0A: Türemiş
-    * 0x10: Mecaz
     * 0x40: Compound words / non-thesaurus section delimiter (breaks loop)
+    * Same grp_code consecutive = same group; grp_code change = new group.
 """
 
 from __future__ import annotations
@@ -296,13 +297,17 @@ class ThesaurusEngine:
                         self.all_vocab.add(derived)
                 pos += 1
 
-    def _decode_subrecord(self, slot_idx: int, start_pos: int) -> Dict[str, Set[str]]:
+    def _decode_subrecord(self, slot_idx: int, start_pos: int) -> List[Tuple[str, Set[str]]]:
         off1 = self.tes_offsets[slot_idx]
         off2 = self.tes_offsets[slot_idx + 1]
         slot = self.tes_data[off1:off2]
 
-        groups: Dict[str, Set[str]] = defaultdict(set)
+        result: List[Tuple[str, Set[str]]] = []
+        NAMED_GROUPS = {0x05: "Mecaz", 0x06: "Mecaz", 0x07: "Argo", 0x09: "Renk", 0x0A: "Türemiş"}
         cur_grp = "1.Anlam"
+        anlam_counter = 1
+        prev_grp_code = None
+        cur_grp_idx: int = -1
         p = start_pos
 
         while p < len(slot):
@@ -312,12 +317,15 @@ class ThesaurusEngine:
             p += 1
 
             grp_code = flag & 0x0F
-            if grp_code == 0x00:
-                cur_grp = "1.Anlam"
-            elif grp_code == 0x01:
-                cur_grp = "2.Anlam"
-            elif grp_code == 0x02:
-                cur_grp = "3.Anlam"
+            if grp_code != prev_grp_code:
+                prev_grp_code = grp_code
+                if grp_code in NAMED_GROUPS:
+                    cur_grp = NAMED_GROUPS[grp_code]
+                else:
+                    cur_grp = f"{anlam_counter}.Anlam"
+                    anlam_counter += 1
+                cur_grp_idx = len(result)
+                result.append((cur_grp, set()))
 
             word_count = ((flag >> 4) & 3) + 1
             phrase_words = []
@@ -345,29 +353,56 @@ class ThesaurusEngine:
 
             if len(phrase_words) == word_count:
                 phrase = " ".join(phrase_words)
-                if len(phrase) >= 2:
-                    groups[cur_grp].add(phrase)
+                if len(phrase) >= 2 and cur_grp_idx >= 0:
+                    result[cur_grp_idx][1].add(phrase)
 
-        return groups
+        return result
 
-    def _decode_tes_slot(self, slot_idx: int, visited: Optional[Set[int]] = None) -> Dict[str, Set[str]]:
+    def _decode_tes_slot(self, slot_idx: int, visited: Optional[Set[int]] = None) -> List[Tuple[str, Set[str]]]:
         """
         Parses binary record streams for the specified slot, decoding morphological
         instructions and semantic group boundaries corresponding to MTU.EXE routines 0xD1EC and 0xD422.
+        Returns List[Tuple[str, Set[str]]] preserving binary order and allowing duplicate group names.
         """
         if visited is None:
             visited = set()
         if slot_idx in visited or slot_idx >= len(self.tes_offsets) - 1:
-            return {}
+            return []
         visited.add(slot_idx)
 
         off1 = self.tes_offsets[slot_idx]
         off2 = self.tes_offsets[slot_idx + 1]
         if off1 >= off2 or off2 > len(self.tes_data):
-            return {}
+            return []
 
         slot_data = self.tes_data[off1:off2]
-        groups: Dict[str, Set[str]] = defaultdict(set)
+        result: List[Tuple[str, Set[str]]] = []
+
+        # cur_grp_idx tracks the current position in result list.
+        # When grp_code changes, we create a NEW entry (even if same name).
+        # This preserves Win16 behavior where same-named groups are separate listbox items.
+        cur_grp_idx: int = -1
+
+        def _start_group(grp_name: str) -> None:
+            nonlocal cur_grp_idx
+            cur_grp_idx = len(result)
+            result.append((grp_name, set()))
+
+        def _add_word(word: str) -> None:
+            if cur_grp_idx >= 0:
+                result[cur_grp_idx][1].add(word)
+
+        def _merge_result(ext: List[Tuple[str, Set[str]]]) -> None:
+            for g, ws in ext:
+                # For alias redirect merges, find or create group by name
+                found = False
+                for i, (eg, ews) in enumerate(result):
+                    if eg == g:
+                        ews.update(ws)
+                        found = True
+                        break
+                if not found:
+                    result.append((g, set(ws)))
 
         # Alias/Redirect Record: flag & 0xC0 == 0xC0
         if len(slot_data) >= 3 and (slot_data[0] & 0xC0) == 0xC0:
@@ -404,8 +439,7 @@ class ThesaurusEngine:
                                 if s_id == first_suf:
                                     found_sub = True
                                     sub_res = self._decode_subrecord(target_idx, scan + 3)
-                                    for g, ws in sub_res.items():
-                                        groups[g].update(ws)
+                                    _merge_result(sub_res)
                                     break
                             scan += 1
 
@@ -414,27 +448,30 @@ class ThesaurusEngine:
                     for sid in suffix_chain:
                         derived = apply_tes_suffix_id(derived, sid)
                     if derived != root:
-                        groups["1.Anlam"].add(derived)
+                        _start_group("1.Anlam")
+                        _add_word(derived)
 
                     if found_sub:
-                        return groups
+                        return result
 
             # Fall through to target slot's full data
             target_groups = self._decode_tes_slot(target_idx, visited)
-            for g, ws in target_groups.items():
-                groups[g].update(ws)
-            return groups
+            _merge_result(target_groups)
+            return result
 
         # Skip 0xFF alias redirect stubs (e.g. 6100 'Dolu' -> 6101)
         if len(slot_data) <= 3 and len(slot_data) > 0 and slot_data[0] == 0xFF:
-            return groups
+            return result
 
         pos = 0
         # Skip root-level morphological instruction header (e.g. 0x80 0x06 0x05)
         if len(slot_data) >= 3 and slot_data[0] == 0x80:
             pos = 3
 
+        NAMED_GROUPS = {0x05: "Mecaz", 0x06: "Mecaz", 0x07: "Argo", 0x09: "Renk", 0x0A: "Türemiş"}
         cur_grp = "1.Anlam"
+        anlam_counter = 1
+        prev_grp_code = None
         while pos < len(slot_data):
             flag = slot_data[pos]
             pos += 1
@@ -452,28 +489,20 @@ class ThesaurusEngine:
                 pos += 4
                 if w1_idx < len(self.tur_words) and w2_idx < len(self.tur_words):
                     phrase = f"{self.tur_words[w1_idx]} {self.tur_words[w2_idx]}"
-                    groups["1.Anlam"].add(phrase)
+                    _add_word(phrase)
                 continue
 
             # Group boundary dispatch via lower nibble (flag & 0x0F)
             grp_code = flag & 0x0F
-            if grp_code == 0x00:
-                cur_grp = "1.Anlam"
-            elif grp_code == 0x01:
-                cur_grp = "2.Anlam"
-            elif grp_code == 0x02:
-                cur_grp = "3.Anlam"
-            elif grp_code == 0x05:
-                cur_grp = "Mecaz"
-            elif grp_code == 0x07:
-                cur_grp = "Argo"
-            elif grp_code == 0x09:
-                cur_grp = "Renk"
-            elif grp_code == 0x0A:
-                cur_grp = "Türemiş"
+            if grp_code != prev_grp_code:
+                prev_grp_code = grp_code
+                if grp_code in NAMED_GROUPS:
+                    cur_grp = NAMED_GROUPS[grp_code]
+                else:
+                    cur_grp = f"{anlam_counter}.Anlam"
+                    anlam_counter += 1
+                _start_group(cur_grp)
 
-            # Universal multi-word collocation formula from MTU.EXE routine 0xD5BD:
-            # count = ((flag >> 4) & 3) + 1
             word_count = ((flag >> 4) & 3) + 1
             phrase_words = []
 
@@ -514,20 +543,20 @@ class ThesaurusEngine:
             if len(phrase_words) == word_count:
                 phrase = " ".join(phrase_words)
                 if len(phrase) >= 2:
-                    groups[cur_grp].add(phrase)
+                    _add_word(phrase)
 
-        return groups
+        return result
 
     def lookup(
         self,
         word: str,
         use_multi_hop: bool = True,
         max_hops: int = 2,
-    ) -> Dict[str, Set[str]]:
+    ) -> List[Tuple[str, Set[str]]]:
         """
         Executes binary slot lookup directly against MTU.TES, applying runtime morphophonological
         reconstruction and semantic group dispatching matching Win16 MTU.EXE.
-        Fully generic with ZERO hardcoded word checks.
+        Returns List[Tuple[str, Set[str]]] preserving order and allowing duplicate group names.
         """
         query = tr_lower(word.strip())
         norm_query = query.replace("î", "i").replace("â", "a").replace("û", "u")
@@ -547,39 +576,38 @@ class ThesaurusEngine:
         ]
         chosen_slots = [primary_slots[0]] if primary_slots else (indices[:1] if indices else [])
 
-        res: Dict[str, Set[str]] = defaultdict(set)
+        result: List[Tuple[str, Set[str]]] = []
         for slot_idx in chosen_slots:
             slot_res = self._decode_tes_slot(slot_idx)
-            for g, ws in slot_res.items():
-                res[g].update(ws)
+            result.extend(slot_res)
 
-        if not res and (query in self.subrecords or norm_query in self.subrecords):
+        if not result and (query in self.subrecords or norm_query in self.subrecords):
             sub_target = self.subrecords.get(query) or self.subrecords.get(norm_query)
             if sub_target:
                 s_idx, s_pos = sub_target
                 sub_res = self._decode_subrecord(s_idx, s_pos)
-                for g, ws in sub_res.items():
-                    res[g].update(ws)
+                result.extend(sub_res)
 
-        if res:
+        if result:
             # Lexical OCR corrections
-            for g in list(res.keys()):
-                if "imtihal" in res[g]:
-                    res[g].discard("imtihal")
-                    res[g].add("imtihan")
+            for _, ws in result:
+                if "imtihal" in ws:
+                    ws.discard("imtihal")
+                    ws.add("imtihan")
 
             # Remove self query and its circumflex variants
-            for grp in list(res.keys()):
-                res[grp].discard(query)
-                res[grp].discard(norm_query)
-                for w in list(res[grp]):
+            cleaned: List[Tuple[str, Set[str]]] = []
+            for grp, ws in result:
+                ws.discard(query)
+                ws.discard(norm_query)
+                for w in list(ws):
                     if w.replace("î", "i").replace("â", "a").replace("û", "u") == norm_query:
-                        res[grp].discard(w)
-                if not res[grp]:
-                    del res[grp]
-            return res
+                        ws.discard(w)
+                if ws:
+                    cleaned.append((grp, ws))
+            return cleaned
 
-        return {}
+        return []
 
 
 def load_all_synonyms(
@@ -591,29 +619,14 @@ def load_all_synonyms(
     entries: List[dict] = []
 
     for word_lower in sorted(engine.all_vocab, key=lambda s: s.lower()):
-        groups_dict = engine.lookup(word_lower)
-        if not groups_dict:
+        groups_list = engine.lookup(word_lower)
+        if not groups_list:
             continue
 
         formatted = []
         all_syns: Set[str] = set()
 
-        ordered_grps = sorted(
-            groups_dict.keys(),
-            key=lambda g: (
-                0 if "1.Anlam" in g else
-                1 if "2.Anlam" in g else
-                2 if "3.Anlam" in g else
-                3 if "Mecaz" in g else
-                4 if "Renk" in g else
-                5 if "Türemiş" in g else
-                6 if "Argo" in g else 7,
-                g
-            )
-        )
-
-        for grp_name in ordered_grps:
-            syn_set = groups_dict[grp_name]
+        for grp_name, syn_set in groups_list:
             if syn_set:
                 syn_list = sorted(syn_set, key=lambda s: s.lower())
                 formatted.append(f"{grp_name}::{','.join(syn_list)}")

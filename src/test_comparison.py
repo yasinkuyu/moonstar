@@ -28,6 +28,17 @@ DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 
 
+def _grp_dict(result):
+    """Convert List[Tuple[str, Set[str]]] to Dict[str, Set[str]] for test assertions."""
+    d = {}
+    for g, ws in result:
+        if g in d:
+            d[g].update(ws)
+        else:
+            d[g] = set(ws)
+    return d
+
+
 class TestMoonStarGroundTruth(unittest.TestCase):
 
     @classmethod
@@ -151,7 +162,7 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         tur_path = os.path.join(OUTPUT_DIR, "MTU.TUR.TXT")
         thesaurus_engine = mtu_thesaurus.SemanticThesaurus(trk_path, tur_path)
 
-        oz_groups = thesaurus_engine.lookup("öz")
+        oz_groups = _grp_dict(thesaurus_engine.lookup("öz"))
         self.assertIn("1.Anlam", oz_groups)
         self.assertIn("Türemiş", oz_groups)
 
@@ -164,12 +175,12 @@ class TestMoonStarGroundTruth(unittest.TestCase):
             self.assertIn(w, oz_groups["Türemiş"], f"Screenshot kelimesi eksik: {w}")
 
         # 2. Verify "kitap" meanings
-        kitap_groups = thesaurus_engine.lookup("kitap")
+        kitap_groups = _grp_dict(thesaurus_engine.lookup("kitap"))
         self.assertIn("1.Anlam", kitap_groups)
         self.assertIn("elkitabı", kitap_groups["1.Anlam"])
 
         # 3. Verify "yüz" dynamic derivation
-        yuz_groups = thesaurus_engine.lookup("yüz")
+        yuz_groups = _grp_dict(thesaurus_engine.lookup("yüz"))
         self.assertIn("1.Anlam", yuz_groups)
         self.assertIn("surat", yuz_groups["1.Anlam"])
         self.assertIn("çehre", yuz_groups["1.Anlam"])
@@ -178,7 +189,7 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         self.assertIn("Mecaz", yuz_groups)
 
         # 4. Verify "test" 13 screenshot words
-        test_groups = thesaurus_engine.lookup("test")
+        test_groups = _grp_dict(thesaurus_engine.lookup("test"))
         self.assertIn("1.Anlam", test_groups)
         screenshot_test = [
             "deneme", "denetim", "denetleme", "imtihan", "kontrol", "prova",
@@ -188,14 +199,14 @@ class TestMoonStarGroundTruth(unittest.TestCase):
             self.assertIn(w, test_groups["1.Anlam"], f"Test screenshot kelimesi eksik: {w}")
 
         # 5. Verify "mali" -> "malî" multi-word collocations
-        mali_groups = thesaurus_engine.lookup("mali")
+        mali_groups = _grp_dict(thesaurus_engine.lookup("mali"))
         self.assertIn("1.Anlam", mali_groups)
         screenshot_mali = ["mal ile ilgili", "para ile ilgili", "parasal"]
         for w in screenshot_mali:
             self.assertIn(w, mali_groups["1.Anlam"], f"Mali screenshot kelimesi eksik: {w}")
 
         # 6. Verify "hafif" 16-bit suffix chain words and exact 3 groups
-        hafif_groups = thesaurus_engine.lookup("hafif")
+        hafif_groups = _grp_dict(thesaurus_engine.lookup("hafif"))
         self.assertEqual(sorted(list(hafif_groups.keys())), ["1.Anlam", "2.Anlam", "3.Anlam"])
         screenshot_hafif = [
             "ağır olmayan", "ağırlığı olmayan", "belli belirsiz", "ciddî olmayan",
@@ -207,47 +218,47 @@ class TestMoonStarGroundTruth(unittest.TestCase):
             self.assertIn(w, hafif_groups["1.Anlam"], f"Hafif screenshot kelimesi eksik: {w}")
 
         # 7. Verify "dolu", "ağır", "boş", "adalet", "cesaret", "hürriyet", "barış"
-        dolu_groups = thesaurus_engine.lookup("dolu")
+        dolu_groups = _grp_dict(thesaurus_engine.lookup("dolu"))
         self.assertEqual(list(dolu_groups.keys()), ["1.Anlam"])
         self.assertIn("avuç avuç", dolu_groups["1.Anlam"])
         self.assertIn("dünya kadar", dolu_groups["1.Anlam"])
 
-        agir_groups = thesaurus_engine.lookup("ağır")
+        agir_groups = _grp_dict(thesaurus_engine.lookup("ağır"))
         self.assertEqual(sorted(list(agir_groups.keys())), ["1.Anlam", "Mecaz"])
         self.assertIn("balyoz gibi", agir_groups["1.Anlam"])
         self.assertIn("kilolu", agir_groups["1.Anlam"])
 
-        bos_groups = thesaurus_engine.lookup("boş")
+        bos_groups = _grp_dict(thesaurus_engine.lookup("boş"))
         self.assertIn("1.Anlam", bos_groups)
         self.assertIn("2.Anlam", bos_groups)
         self.assertIn("değersiz", bos_groups["1.Anlam"])
         self.assertIn("önemsiz", bos_groups["1.Anlam"])
 
-        adalet_groups = thesaurus_engine.lookup("adalet")
+        adalet_groups = _grp_dict(thesaurus_engine.lookup("adalet"))
         self.assertEqual(list(adalet_groups.keys()), ["1.Anlam"])
         self.assertIn("hâk yemezlik", adalet_groups["1.Anlam"])
         self.assertIn("tarafsızlık", adalet_groups["1.Anlam"])
 
-        cesaret_groups = thesaurus_engine.lookup("cesaret")
+        cesaret_groups = _grp_dict(thesaurus_engine.lookup("cesaret"))
         self.assertEqual(list(cesaret_groups.keys()), ["1.Anlam"])
         self.assertIn("çekinmezlik", cesaret_groups["1.Anlam"])
         self.assertIn("hamaset", cesaret_groups["1.Anlam"])
 
-        hurriyet_groups = thesaurus_engine.lookup("hürriyet")
+        hurriyet_groups = _grp_dict(thesaurus_engine.lookup("hürriyet"))
         self.assertEqual(list(hurriyet_groups.keys()), ["1.Anlam"])
         self.assertIn("başına buyrukluk", hurriyet_groups["1.Anlam"])
         self.assertIn("bağımsızlık", hurriyet_groups["1.Anlam"])
 
-        baris_groups = thesaurus_engine.lookup("barış")
+        baris_groups = _grp_dict(thesaurus_engine.lookup("barış"))
         self.assertEqual(sorted(list(baris_groups["1.Anlam"])), ["ateşkes", "hazar", "sulh", "uyuşma"])
 
-        zengin_groups = thesaurus_engine.lookup("zengin")
+        zengin_groups = _grp_dict(thesaurus_engine.lookup("zengin"))
         self.assertEqual(sorted(list(zengin_groups.keys())), ["1.Anlam", "2.Anlam", "3.Anlam"])
         self.assertIn("fazlasıyla", zengin_groups["1.Anlam"])
         self.assertIn("dolgun", zengin_groups["1.Anlam"])
         self.assertIn("altın babası", zengin_groups["2.Anlam"])
 
-        olum_groups = thesaurus_engine.lookup("ölüm")
+        olum_groups = _grp_dict(thesaurus_engine.lookup("ölüm"))
         self.assertEqual(list(olum_groups.keys()), ["1.Anlam"])
         expected_olum = [
             "adem", "akıbet", "cana kıyma", "düşük", "ecel", "emrihak",
@@ -256,7 +267,7 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         for w in expected_olum:
             self.assertIn(w, olum_groups["1.Anlam"], f"Ölüm kelimesi eksik: {w}")
 
-        giris_groups = thesaurus_engine.lookup("giriş")
+        giris_groups = _grp_dict(thesaurus_engine.lookup("giriş"))
         self.assertEqual(list(giris_groups.keys()), ["1.Anlam"])
         expected_giris = [
             "açılış", "açış", "aralık", "aşama", "atılım", "basamak",
@@ -266,7 +277,7 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         for w in expected_giris:
             self.assertIn(w, giris_groups["1.Anlam"], f"Giriş kelimesi eksik: {w}")
 
-        cikis_groups = thesaurus_engine.lookup("çıkış")
+        cikis_groups = _grp_dict(thesaurus_engine.lookup("çıkış"))
         self.assertEqual(list(cikis_groups.keys()), ["1.Anlam"])
         expected_cikis = ["çıkak", "çıkıt", "kaynak", "köken", "mahreç", "menşe", "orijin", "öz", "soy", "töz"]
         for w in expected_cikis:

@@ -23,26 +23,12 @@ def load_all_synonyms(
     entries: List[dict] = []
 
     for word_lower in sorted(engine.all_vocab, key=lambda s: s.lower()):
-        groups_dict = engine.lookup(word_lower, use_multi_hop=False)
+        groups_list = engine.lookup(word_lower, use_multi_hop=False)
 
         formatted = []
         all_syns: Set[str] = set()
 
-        ordered_grps = sorted(
-            groups_dict.keys(),
-            key=lambda g: (
-                0 if "1.Anlam" in g else
-                1 if "2.Anlam" in g else
-                2 if "3.Anlam" in g else
-                3 if "Türemiş" in g else
-                4 if "Mecaz" in g else
-                5 if "Argo" in g else 6,
-                g
-            )
-        )
-
-        for grp_name in ordered_grps:
-            syn_set = groups_dict[grp_name]
+        for grp_name, syn_set in groups_list:
             if syn_set:
                 syn_list = sorted(syn_set, key=lambda s: s.lower())
                 formatted.append(f"{grp_name}::{','.join(syn_list)}")
@@ -62,8 +48,8 @@ if __name__ == "__main__":
     print("Thesaurus Engine yüklendi.")
     for test_w in ["öz", "kitap", "elma", "ekmek", "gelmek", "yüz", "göz", "akıl", "güzel"]:
         res = engine.lookup(test_w)
-        total_syns = sum(len(v) for v in res.values())
+        total_syns = sum(len(ws) for _, ws in res)
         print(f"\n=== \"{test_w}\" ({total_syns} sonuç) ===")
-        for g, words in sorted(res.items()):
+        for g, words in res:
             w_list = sorted(words)
             print(f"  [{g}] ({len(w_list)}): {', '.join(w_list[:10])}{'...' if len(w_list) > 10 else ''}")
