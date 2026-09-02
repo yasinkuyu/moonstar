@@ -372,36 +372,54 @@ class ThesaurusEngine:
         # Alias/Redirect Record: flag & 0xC0 == 0xC0
         if len(slot_data) >= 3 and (slot_data[0] & 0xC0) == 0xC0:
             target_idx = slot_data[1] | ((slot_data[2] & 0x7F) << 8)
-            sub_suf = 0
-            if len(slot_data) >= 5:
-                sub_suf = slot_data[3] | ((slot_data[4] & 0x7F) << 8)
+
+            # Parse suffix chain from byte 3 using bit-15 continuation protocol
+            suffix_chain = []
+            p = 3
+            while p + 2 <= len(slot_data):
+                raw = struct.unpack("<H", slot_data[p:p + 2])[0]
+                sid = raw & 0x7FFF
+                has_more = bool(raw & 0x8000)
+                suffix_chain.append(sid)
+                p += 2
+                if not has_more:
+                    break
 
             if target_idx < len(self.tur_words):
-                if sub_suf > 0:
-                    target_word = apply_tes_suffix_id(tr_lower(self.tur_words[target_idx]), sub_suf)
-                    groups["1.Anlam"].add(target_word)
+                root = tr_lower(self.tur_words[target_idx])
 
-                    # Check if target slot contains a matching sub-record for sub_suf
-                    if target_idx < len(self.tes_offsets) - 1:
+                if suffix_chain:
+                    first_suf = suffix_chain[0]
+
+                    # Check if target slot contains a matching 0x40 sub-record
+                    found_sub = False
+                    if first_suf > 0 and target_idx < len(self.tes_offsets) - 1:
                         t_off1 = self.tes_offsets[target_idx]
                         t_off2 = self.tes_offsets[target_idx + 1]
                         t_slot = self.tes_data[t_off1:t_off2]
-                        pos = 0
-                        found_sub = False
-                        while pos < len(t_slot) - 3:
-                            if t_slot[pos] == 0x40:
-                                s_id = struct.unpack("<H", t_slot[pos + 1:pos + 3])[0] & 0x7FFF
-                                if s_id == sub_suf:
+                        scan = 0
+                        while scan < len(t_slot) - 3:
+                            if t_slot[scan] == 0x40:
+                                s_id = struct.unpack("<H", t_slot[scan + 1:scan + 3])[0] & 0x7FFF
+                                if s_id == first_suf:
                                     found_sub = True
-                                    sub_res = self._decode_subrecord(target_idx, pos + 3)
+                                    sub_res = self._decode_subrecord(target_idx, scan + 3)
                                     for g, ws in sub_res.items():
                                         groups[g].update(ws)
                                     break
-                            pos += 1
+                            scan += 1
 
-                        if found_sub:
-                            return groups
+                    # Build the derived synonym word by applying the full suffix chain
+                    derived = root
+                    for sid in suffix_chain:
+                        derived = apply_tes_suffix_id(derived, sid)
+                    if derived != root:
+                        groups["1.Anlam"].add(derived)
 
+                    if found_sub:
+                        return groups
+
+            # Fall through to target slot's full data
             target_groups = self._decode_tes_slot(target_idx, visited)
             for g, ws in target_groups.items():
                 groups[g].update(ws)
