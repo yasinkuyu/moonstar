@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-engine/thesaurus.py — MoonStar Bağımsız Eş Anlamlılar Motoru (Thesaurus Engine v10)
+engine/thesaurus.py — MoonStar Türkçe Eş Anlamlılar Motoru (Thesaurus Engine v11)
 
 MİMARİ:
-- UI katmanından tamamen izole bağımsız modül.
-- Orijinal Win16 MTU.EXE ve Canlı Ekran Görüntüleri ile %100 Birebir Eşleşme.
-- Anlam Grupları: 
-    * 1.Anlam, 2.Anlam (ve varsa 3.Anlam / Mecaz / Argo)
-    * Türemiş (MTU.TUR sözlüğündeki kök sözcükten türemiş kelimeler)
-- Bileşik İsimler: MTU.TUR içinde kök ile biten bileşik gövdeler (elkitabı, amerikaelması, kirazelması) 1.Anlam'a bağlanır.
+- UI katmanından ve statik sözlüklerden tamamen bağımsız, %100 saf algoritmik motor (Zero Hardcoding).
+- Tüm eş anlamlılar, anlam grupları ve kavram ağları doğrudan MTU.TRK ve MTU.TUR ikili verilerinden üretilir.
+- Algoritma:
+    1. MTU.TRK Çift Yönlü Semantik Grafik (Bi-directional Concept Graph):
+       - Blok 0 eşleşmeleri ➔ 1.Anlam
+       - Blok 1+ eşleşmeleri ➔ 2.Anlam / 3.Anlam
+       - 2-Hop Sınırlandırılmış BFS: Ortak İngilizce kavram başlıkları üzerinden birincil eş anlamlı genişlemesi.
+    2. MTU.TUR Bileşik İyelik İsimleri Çözümleyici (Compound Possessive Suffix Builder):
+       - MTU.TUR sözlüğünde kök ile biten bileşik gövdeler (örn. 'Elkitab', 'Amerikaelma', 'Kirazelma')
+         Türkçe ünlü uyumu ve ünsüz yumuşaması kuralları ile 3. tekil iyelik eki alarak ('elkitabı', 'amerikaelması', 'kirazelması') 1.Anlam'a eklenir.
+    3. MTU.TUR Türemiş Sözcükler Üreticisi (O(1) Prefix Tree):
+       - Kök sözcük ile başlayan tüm türevler 'Türemiş' sekmesine bağlanır.
+    4. Morfolojik Register / Alan Ayrıştırma:
+       - '-süz', '-siz', '-suz', '-sız', '-süzce' türevleri ve 'mec.' etiketli kelimeler 'Mecaz' grubuna aktarılır.
 """
 
 from __future__ import annotations
@@ -25,64 +33,13 @@ from .morphology import (
     normalize_turkish,
 )
 
-# Orijinal Win16 MTU.EXE Ekran Görüntülerinden Doğrulanmış Semantik Kümeler
-GROUND_TRUTH_CLUSTERS: Dict[str, Dict[str, List[str]]] = {
-    "güzel": {
-        "1.Anlam": [
-            "afet", "ahu", "albenili", "alımlı", "ay parçası", "bediî", "biçimli",
-            "bir içim su", "cazibeli", "cazip", "cemal", "çekici", "dilber", "edalı",
-            "enfes", "estetik", "gelgelli"
-        ],
-        "2.Anlam": ["hoş", "latif", "şirin", "zarif", "mükemmel", "harika", "tatlı", "parlak", "iyi"],
-    },
-    "akıl": {
-        "1.Anlam": [
-            "algı", "an", "anlak", "anlayış", "anlık", "bellek", "beyin", "bilinç",
-            "eseme", "feraset", "hafıza", "havsala", "huş", "idrak", "ihata", "irfan", "izan"
-        ],
-        "2.Anlam": ["us", "zeka", "fikir", "düşünce", "kanı"],
-    },
-    "göz": {
-        "1.Anlam": ["bakış", "bakış açısı", "bakma", "görme", "görüş", "görüş açısı", "nazar", "yaklaşım"],
-        "2.Anlam": ["bölme", "çekmece", "kasa", "delik"],
-    },
-    "yüz": {
-        "1.Anlam": ["beniz", "bet", "bet beniz", "çehre", "fizyonomi", "sıfat", "sima", "surat", "vecih"],
-        "2.Anlam": ["ar", "arlanma", "haya", "hicap", "mahcubiyet", "sıkılma", "utanç", "utanma"],
-        "Mecaz": ["yüzsüz", "arsız", "hayasız", "küstah", "pişkin", "utanmaz", "sıyrık", "yırtık"],
-    },
-    "öz": {
-        "1.Anlam": [
-            "arı", "arık", "damıtık", "halis", "has", "katıksız", "katışıksız", "katkısız",
-            "mukattar", "özbeöz", "sade", "saf", "safi", "som", "yalın"
-        ],
-        "2.Anlam": ["asıl", "esas", "ana fikir", "ana noktalar", "az ve öz", "kısa", "net"],
-        "3.Anlam": ["çekirdek", "içerik", "ruh", "esans", "temel"],
-    },
-    "ekmek": {
-        "1.Anlam": [
-            "baston", "dikmek", "ekip biçmek", "francala", "gevrek", "pide", "sandviç",
-            "serpmek", "simit", "somun", "tohum atmak", "üretmek", "yetiştirmek", "yufka"
-        ],
-        "2.Anlam": ["geçim", "kazanç", "rızk"],
-    },
-    "gelmek": {
-        "1.Anlam": [
-            "basmak", "bastırmak", "buyurmak", "çıkagelmek", "dönmek", "erişmek",
-            "görünmek", "gözükmek", "onurlandırmak", "sökün etmek", "şeref vermek",
-            "şereflendirmek", "teşrif etmek", "uğramak", "ulaşmak", "varmak", "yaklaşmak"
-        ],
-        "2.Anlam": ["türemek", "elde edilmek", "ilerlemek"],
-    },
-}
-
-# Eş anlamlı olarak kabul edilmeyecek bağlaç ve edat öbekleri
+# Eş anlamlı olarak kabul edilmeyecek bağlaç, edat ve gürültü öbekleri
 STOP_PHRASES = {
     "bu nedenle", "bu yüzden", "bundan dolayı", "dolayı", "nedeniyle", "ötürü",
     "için", "gibi", "kadar", "ile", "veya", "yahut", "ve", "vb", "vb.", "ya da"
 }
 
-# Açıklama / sözlük tanımı belirteçleri (sözcük değil tümce olan tanımları eler)
+# Sözlük tanımı / açıklama belirteçleri (sözcük değil tümce olan tanımları eler)
 GLOSS_PATTERNS = [
     r"\bolan\b", r"\bverilen\b", r"\boluşmuş\b", r"\bgeçirilen\b", r"\belde edilen\b",
     r"\byapılan\b", r"\byapılmış\b", r"\bilişkin\b", r"\bilgili\b", r"\bkullanılan\b",
@@ -185,7 +142,8 @@ class ThesaurusEngine:
 
         self.all_vocab: Set[str] = set()
         self.tur_vocab: Set[str] = set()
-        self.word_to_en_blocks: Dict[str, Set[Tuple[str, int]]] = defaultdict(set)
+        self.tur_prefix_map: Dict[str, Set[str]] = defaultdict(set)
+        self.word_to_en_blocks: Dict[str, Set[Tuple[str, int, str]]] = defaultdict(set)
         self.en_block_tokens: Dict[Tuple[str, int], List[str]] = defaultdict(list)
         self.stem_to_blocks: Dict[str, List[Tuple[str, int, str, List[str], str]]] = defaultdict(list)
         self.word_to_peers: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
@@ -206,6 +164,9 @@ class ThesaurusEngine:
                 if w and len(w) >= 2 and len(w) <= 30:
                     self.all_vocab.add(w)
                     self.tur_vocab.add(w)
+                    # O(1) türemiş kelime arama için prefix haritası
+                    for i in range(2, len(w)):
+                        self.tur_prefix_map[w[:i]].add(w)
 
         # Bileşik kelimeleri kök sonlarına göre indeksle (örn. 'elkitab' -> 'kitap', 'amerikaelma' -> 'elma')
         for w in self.tur_vocab:
@@ -255,7 +216,7 @@ class ThesaurusEngine:
 
                     for tok in unique_tokens:
                         self.all_vocab.add(tok)
-                        self.word_to_en_blocks[tok].add((en, b_idx))
+                        self.word_to_en_blocks[tok].add((en, b_idx, grp))
 
                         # Blok içi doğrudan eş anlamlılar
                         for other_tok in unique_tokens:
@@ -274,11 +235,7 @@ class ThesaurusEngine:
 
     def _get_derived_tur_words(self, root: str) -> Set[str]:
         """MTU.TUR sözlüğünde kök sözcük ile başlayan türemiş sözcükleri listeler (Türemiş Grubu)."""
-        matches = set()
-        for w in self.tur_vocab:
-            if w.startswith(root) and len(w) > len(root) and len(w) <= 30:
-                matches.add(w)
-
+        matches = self.tur_prefix_map.get(root, set())
         final_list = set()
         for w in matches:
             if w.endswith("ğ") and (w[:-1] + "k") in matches:
@@ -300,37 +257,37 @@ class ThesaurusEngine:
     ) -> Dict[str, Set[str]]:
         """
         Verilen sözcük için eş anlamlıları, anlam gruplarını, bileşik kelimeleri ve türemişleri döner.
+        %100 saf algoritmik yöntemle hesaplanır.
         """
         query = word.strip().lower()
-
-        # 1. Öncelikli Doğrudan Ground Truth Kümeleri (Ekran Görüntüleri ile %100 Birebir)
-        if query in GROUND_TRUTH_CLUSTERS:
-            results: Dict[str, Set[str]] = {
-                grp: set(syns) for grp, syns in GROUND_TRUTH_CLUSTERS[query].items()
-            }
-            # Türemiş grubu
-            tur_derived = self._get_derived_tur_words(query)
-            if tur_derived:
-                results["Türemiş"] = tur_derived
-            return results
-
-        # 2. Genel Dinamik Eşleşme
         results: Dict[str, Set[str]] = defaultdict(set)
 
-        # Doğrudan eşleşen blok içi kelimeler
+        # 1. Doğrudan Eşleşen Blok İçi Eş Anlamlılar
         for grp, p_set in self.word_to_peers.get(query, {}).items():
             results[grp].update(p_set)
 
-        # Morfolojik kök ve ilgili terim eşleşmeleri
+        # 2. 2-Hop Bounded BFS (Birincil Anlam Blok 0 Kavram Ağı)
+        if use_multi_hop:
+            direct_b0_entries = {en for en, b_idx, grp in self.word_to_en_blocks.get(query, set()) if b_idx == 0}
+            for en1 in direct_b0_entries:
+                words_en1 = self.en_block_tokens[(en1, 0)]
+                results["1.Anlam"].update(words_en1)
+                for w in words_en1:
+                    w_b0_ens = {en for en, b_idx, grp in self.word_to_en_blocks.get(w, set()) if b_idx == 0}
+                    if len(w_b0_ens) <= 4:
+                        for en2 in w_b0_ens:
+                            results["1.Anlam"].update(self.en_block_tokens[(en2, 0)])
+
+        # 3. Morfolojik kök ve ilgili terim eşleşmeleri
         for en, b_idx, grp, tokens, matched_tok in self.stem_to_blocks.get(query, []):
             if matched_tok != query:
                 results[grp].add(matched_tok)
 
-        # Kök ile biten bileşik isimler (1.Anlam'a eklenir: elkitabı, amerikaelması, kirazelması)
+        # 4. Kök ile biten bileşik isimler (1.Anlam'a eklenir: elkitabı, amerikaelması, kirazelması)
         if query in self.compounds_ending_with:
             results["1.Anlam"].update(self.compounds_ending_with[query])
 
-        # Morfolojik türetmeler (örn. yüz -> yüzsüz, yüzsüzce, yüzey)
+        # 5. Morfolojik türetmeler (örn. yüz -> yüzsüz, yüzsüzce, yüzey)
         for suf, deriv_grp in DERIVATION_SUFFIXES:
             deriv = query + suf
             for grp, p_set in self.word_to_peers.get(deriv, {}).items():
@@ -338,7 +295,7 @@ class ThesaurusEngine:
                 results[target_grp].update(p_set)
                 results[target_grp].add(deriv)
 
-        # Türemiş Sözcükler Grubu (MTU.TUR Kök Sözcükten Türeyen Kelimeler)
+        # 6. Türemiş Sözcükler Grubu (MTU.TUR Kök Sözcükten Türeyen Kelimeler)
         tur_derived = self._get_derived_tur_words(query)
         if tur_derived:
             results["Türemiş"].update(tur_derived)
@@ -351,3 +308,46 @@ class ThesaurusEngine:
                 clean_res[grp] = results[grp]
 
         return clean_res
+
+
+def load_all_synonyms(
+    trk_path: Optional[str] = None,
+    tur_txt_path: Optional[str] = None,
+) -> List[dict]:
+    engine = ThesaurusEngine(trk_path, tur_txt_path)
+    entries: List[dict] = []
+
+    for word_lower in sorted(engine.all_vocab, key=lambda s: s.lower()):
+        groups_dict = engine.lookup(word_lower, use_multi_hop=False)
+
+        formatted = []
+        all_syns: Set[str] = set()
+
+        ordered_grps = sorted(
+            groups_dict.keys(),
+            key=lambda g: (
+                0 if "1.Anlam" in g else
+                1 if "2.Anlam" in g else
+                2 if "3.Anlam" in g else
+                3 if "Türemiş" in g else
+                4 if "Mecaz" in g else
+                5 if "Argo" in g else 6,
+                g
+            )
+        )
+
+        for grp_name in ordered_grps:
+            syn_set = groups_dict[grp_name]
+            if syn_set:
+                syn_list = sorted(syn_set, key=lambda s: s.lower())
+                formatted.append(f"{grp_name}::{','.join(syn_list)}")
+                all_syns.update(syn_list)
+
+        if all_syns or formatted:
+            entries.append({
+                "word": word_lower,
+                "synonyms": " | ".join(sorted(all_syns, key=lambda s: s.lower())),
+                "groups": " | ".join(formatted),
+            })
+
+    return entries

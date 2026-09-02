@@ -12,6 +12,7 @@ from .morphology import (
 from .thesaurus import (
     ThesaurusEngine,
     clean_tr_token,
+    load_all_synonyms,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "get_morphological_stems",
     "apply_compound_possessive",
     "clean_tr_token",
+    "load_all_synonyms",
 ]
