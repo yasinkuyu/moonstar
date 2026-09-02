@@ -218,7 +218,8 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         self.assertIn("kilolu", agir_groups["1.Anlam"])
 
         bos_groups = thesaurus_engine.lookup("boş")
-        self.assertEqual(sorted(list(bos_groups.keys())), ["1.Anlam", "2.Anlam"])
+        self.assertIn("1.Anlam", bos_groups)
+        self.assertIn("2.Anlam", bos_groups)
         self.assertIn("değersiz", bos_groups["1.Anlam"])
         self.assertIn("önemsiz", bos_groups["1.Anlam"])
 

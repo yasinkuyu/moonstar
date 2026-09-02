@@ -465,6 +465,8 @@ class ThesaurusEngine:
                 cur_grp = "3.Anlam"
             elif grp_code == 0x05:
                 cur_grp = "Mecaz"
+            elif grp_code == 0x07:
+                cur_grp = "Argo"
             elif grp_code == 0x09:
                 cur_grp = "Renk"
             elif grp_code == 0x0A:
