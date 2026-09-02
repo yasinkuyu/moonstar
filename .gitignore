@@ -1,12 +1,12 @@
-# Byte-compiled / optimized / DLL files
+# ==============================================================================
+# Python & Bytecode
+# ==============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
 
-# Distribution / packaging
+# Distribution / Packaging / Build
 .Python
 build/
 develop-eggs/
@@ -24,16 +24,28 @@ wheels/
 .installed.cfg
 *.egg
 
+# ==============================================================================
 # Virtual Environments
+# ==============================================================================
 .env
 .venv
+.venv*/
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
 
+# ==============================================================================
+# Logs & Runtime
+# ==============================================================================
+*.log
+ui.log
+logs/
+
+# ==============================================================================
 # Testing & Coverage
+# ==============================================================================
 .pytest_cache/
 .coverage
 .coverage.*
@@ -42,22 +54,47 @@ nosetests.xml
 coverage.xml
 *.cover
 
+# ==============================================================================
+# Reverse Engineering & Disassembler Artifacts (Ghidra, IDA, Radare2)
+# ==============================================================================
+ghidra_project/
+*.gpr
+*.rep/
+*.idb
+*.i64
+*.til
+*.nam
+*.id0
+*.id1
+*.id2
+*.r2
+
+# ==============================================================================
 # Large Binary Data & Memory Dumps
+# ==============================================================================
 data/
 output/
 *.dmp
+*.dump
 *.bin
 
-# Temporary & Scratch Files
+# ==============================================================================
+# Temporary, Cache & Backup Files
+# ==============================================================================
 scratch/
 temp/
 tmp/
 *.tmp
 *.bak
+*~
+*.swp
+*.swo
 backup_assets/
 assets/extracted/
 
+# ==============================================================================
 # Operating System Files
+# ==============================================================================
 .DS_Store
 .DS_Store?
 ._*
@@ -65,11 +102,18 @@ assets/extracted/
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
 
-# IDE & Editor Settings (Personal)
+# ==============================================================================
+# IDE, Editor & AI Tooling Settings
+# ==============================================================================
 .idea/
 *.sublime-workspace
 *.sublime-project
+.claude/settings.local.json
+*.local.json
+
+# VS Code (preserve shared configurations)
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
