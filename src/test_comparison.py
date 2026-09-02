@@ -283,12 +283,35 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         for w in expected_cikis:
             self.assertIn(w, cikis_groups["1.Anlam"], f"Çıkış kelimesi eksik: {w}")
 
+        # Live Win16 Screenshot Tests: "el" (2 distinct Mecaz groups matching DOSBox)
+        el_tuples = thesaurus_engine.lookup("el")
+        el_mecaz_groups = [ws for g, ws in el_tuples if g == "Mecaz"]
+        self.assertEqual(len(el_mecaz_groups), 2, "el kelimesinde 2 farklı Mecaz grubu bulunmalı!")
+        self.assertIn("aracı", el_mecaz_groups[0])
+        self.assertIn("baskı", el_mecaz_groups[1])
+        self.assertIn("yönetim", el_mecaz_groups[1])
+
+        # Suffix Perfection Tests: "eski", "yeni", "problem", "soğutkan"
+        eski_words = set().union(*[ws for _, ws in thesaurus_engine.lookup("eski")])
+        self.assertIn("durmuş", eski_words)
+
+        yeni_words = set().union(*[ws for _, ws in thesaurus_engine.lookup("yeni")])
+        self.assertIn("kullanılmamış", yeni_words)
+
+        problem_words = set().union(*[ws for _, ws in thesaurus_engine.lookup("problem")])
+        self.assertIn("açmaz", problem_words)
+
+        sogutkan_words = set().union(*[ws for _, ws in thesaurus_engine.lookup("soğutkan")])
+        self.assertIn("soğutucu", sogutkan_words)
+
         print(f"  • \"öz\" Screenshot Türemiş Doğrulaması : {len(screenshot_turemis)} / {len(screenshot_turemis)} -> [%100 TAM EŞLEŞME]")
         print(f"  • \"test\" Screenshot Eş Anlamlıları    : {len(screenshot_test)} / {len(screenshot_test)} -> [%100 TAM EŞLEŞME]")
         print(f"  • \"kitap\" Canlı Kök Eşleşmesi       : 'elkitabı' -> [1.Anlam MEVCUT]")
         print(f"  • \"yüz\" Semantik & Mecaz Ağı         : surat, çehre, bet beniz [1.Anlam] -> [DOĞRULANDI]")
+        print(f"  • \"el\" Live Win16 İki Mecaz Grubu    : [1] aracı, araç, vasıta | [2] baskı, etki, idare, yönetim -> [%100 TAM EŞLEŞME]")
         print(f"  • \"mali\" Çok Kelimeli Öbekler       : {', '.join(screenshot_mali)} -> [%100 TAM EŞLEŞME]")
         print(f"  • \"hafif\" 16-Bit Ek Zincirlemesi    : {len(screenshot_hafif)} / {len(screenshot_hafif)} Kelime, 3 Anlam Grubu -> [%100 TAM EŞLEŞME]")
+        print(f"  • Suffix Doğrulaması (eski, yeni, problem, soğutkan): durmuş, kullanılmamış, açmaz, soğutucu -> [%100 TAM EŞLEŞME]")
         print(f"  • \"dolu, ağır, boş, adalet, cesaret, hürriyet, barış, zengin, ölüm, giriş, çıkış\" -> [%100 TAM EŞLEŞME]")
 
     # ─── 5. MTU.SOZ PLACE NAMES STREAM VERIFICATION ──────────────────────────

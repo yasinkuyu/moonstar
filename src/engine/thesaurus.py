@@ -26,10 +26,32 @@ Binary Architecture & Reverse Engineering Specification:
 
 from __future__ import annotations
 
+import json
 import os
 import struct
 from collections import defaultdict
 from typing import Dict, List, Optional, Set, Tuple
+
+_SUFFIX_TABLE: List[str] = []
+
+
+def get_suffix_table() -> List[str]:
+    global _SUFFIX_TABLE
+    if _SUFFIX_TABLE:
+        return _SUFFIX_TABLE
+    cur_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(cur_dir, "..", "..", "data", "suffixes.json"),
+        os.path.join(cur_dir, "..", "data", "suffixes.json"),
+        "data/suffixes.json",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                _SUFFIX_TABLE = json.load(f)
+                return _SUFFIX_TABLE
+    return _SUFFIX_TABLE
+
 
 
 def tr_lower(s: str) -> str:
@@ -85,7 +107,7 @@ def apply_tes_suffix_id(root: str, suf_id: int) -> str:
         return root + ("ta" if is_back else "te")
     elif suf_id == 0x0507:  # -ma / -me (çekinme / yeme)
         return root + ("ma" if is_back else "me")
-    elif suf_id == 0x0C36:  # -z (çekinmez / yemez)
+    elif suf_id in [0x0C36, 0x0C33, 0x330C]:  # -z (çekinmez / yemez / çıkmaz)
         return root + "z"
     elif suf_id in [0x028F, 0x8F02]:  # -ı / -i (iyelik)
         return root + ("ı" if last_v in "aı" else ("i" if last_v in "ei" else ("u" if last_v in "ou" else "ü")))
@@ -114,7 +136,7 @@ def apply_tes_suffix_id(root: str, suf_id: int) -> str:
         return root + ("la" if is_back else "le")
     elif suf_id in [0x050B, 0x0B05, 0x04CA, 0xCA04]:  # -mak / -mek
         return root + ("mak" if is_back else "mek")
-    elif suf_id in [0x04FE, 0xFE04, 0x053F, 0x3F05, 0x0C33, 0x330C]:  # -maz / -mez
+    elif suf_id in [0x04FE, 0xFE04, 0x053F, 0x3F05]:  # -maz / -mez
         return root + ("maz" if is_back else "mez")
     elif suf_id in [0x0097, 0x00A9, 0x00BB, 0x00CD, 0x00E3, 0x00F5, 0x0107, 0x0119]:  # -cık / -cik / -cuk / -cük / -çık / -çik / -çuk / -çük
         c = "ç" if root.endswith(("p", "ç", "t", "k", "s", "ş", "h", "f")) else "c"
@@ -155,6 +177,20 @@ def apply_tes_suffix_id(root: str, suf_id: int) -> str:
         return res + v
     elif suf_id in [0x0B8B, 0x8B0B]:  # " biçmek"
         return root + " biçmek"
+
+    # Fallback to Section 3 pre-computed suffix table
+    suf_table = get_suffix_table()
+    if suf_id < len(suf_table) and suf_table[suf_id]:
+        s_txt = suf_table[suf_id]
+        vowels = "aeıioöuüâîû"
+        res = root
+        if s_txt[0] in vowels:
+            if res.endswith("k") and res not in ["ok", "kök", "ek", "ak"]:
+                res = res[:-1] + "ğ"
+            elif res.endswith(tuple(vowels)):
+                res = res + "y"
+        return res + s_txt
+
     return root
 
 
@@ -250,10 +286,18 @@ class ThesaurusEngine:
             off1 = self.tes_offsets[s]
             off2 = self.tes_offsets[s + 1]
             if off2 - off1 >= 3 and self.tes_data[off1] == 0x80:
-                raw_suf = struct.unpack("<H", self.tes_data[off1 + 1:off1 + 3])[0]
-                suf_id = raw_suf & 0x7FFF
+                p = off1 + 1
                 root = self.tur_words[s]
-                derived = tr_lower(apply_tes_suffix_id(root, suf_id))
+                derived = root
+                while p + 2 <= off2:
+                    raw_suf = struct.unpack("<H", self.tes_data[p:p + 2])[0]
+                    suf_id = raw_suf & 0x7FFF
+                    has_more = bool(raw_suf & 0x8000)
+                    p += 2
+                    derived = apply_tes_suffix_id(derived, suf_id)
+                    if not has_more:
+                        break
+                derived = tr_lower(derived)
                 if derived and derived != root:
                     self.word_to_tur_indices[derived].append(s)
                     self.word_to_tur_idx[derived] = s
@@ -274,7 +318,13 @@ class ThesaurusEngine:
             slot = self.tes_data[off1:off2]
             pos = 0
             if slot[0] == 0x80:
-                pos = 3
+                pos = 1
+                while pos + 2 <= len(slot):
+                    raw = struct.unpack("<H", slot[pos:pos + 2])[0]
+                    has_more = bool(raw & 0x8000)
+                    pos += 2
+                    if not has_more:
+                        break
 
             while pos < len(slot) - 3:
                 if slot[pos] == 0x40:
@@ -466,7 +516,13 @@ class ThesaurusEngine:
         pos = 0
         # Skip root-level morphological instruction header (e.g. 0x80 0x06 0x05)
         if len(slot_data) >= 3 and slot_data[0] == 0x80:
-            pos = 3
+            pos = 1
+            while pos + 2 <= len(slot_data):
+                raw = struct.unpack("<H", slot_data[pos:pos + 2])[0]
+                has_more = bool(raw & 0x8000)
+                pos += 2
+                if not has_more:
+                    break
 
         NAMED_GROUPS = {0x05: "Mecaz", 0x06: "Mecaz", 0x07: "Argo", 0x09: "Renk", 0x0A: "Türemiş"}
         cur_grp = "1.Anlam"

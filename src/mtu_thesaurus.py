@@ -9,7 +9,10 @@ from __future__ import annotations
 import os
 from typing import List, Optional, Set
 
-from engine.thesaurus import ThesaurusEngine, clean_tr_token
+try:
+    from engine.thesaurus import ThesaurusEngine, clean_tr_token
+except ImportError:
+    from src.engine.thesaurus import ThesaurusEngine, clean_tr_token
 
 # Geriye dönük uyumluluk için alias
 SemanticThesaurus = ThesaurusEngine
