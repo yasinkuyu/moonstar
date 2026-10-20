@@ -15,6 +15,10 @@ karşılaştırıldı:
 | Eş anlamlılar | 13.829 / 13.829 kelime aynı |
 | Türkçe → İngilizce | 26.452 / 26.452 kelime aynı (`ahfat` orijinal programı kilitliyor) |
 | Yazım denetimi + öneriler | 9.670 / 9.670 kontrol aynı |
+| Metni sözcüklere ayırma | 3.114 / 3.114 paragraf aynı |
+| İngilizce → Türkçe penceresi | 17.988 kelimenin listesi ve karşılıkları aynı |
+| Türkçe Leb Demeden | 3.850 / 3.850 arama aynı |
+| Sözlük kontrol | 1.749 / 1.749 kelime aynı |
 
 ---
 
@@ -122,6 +126,12 @@ seçeneklerle (0x94) port edildi (`src/engine/speller.py`). Denetlenenler:
 - **Öneriler:** EXE'nin öneri motorundan geliyor. Harf silme/değiştirme/ekleme, kelime bölme
   (`kitapokudum` → `kitap okudum`), apostrof (`Ankarada` → `Ankara'da`), kısaltma noktası
   (`Prof` → `Prof.`). EXE'nin seçtiği öneri ön seçili gelir.
+- **Metin denetimi** (F5): metin EXE'nin döngüsüyle taranır.
+  - Cümleyi yalnızca kelimeye bitişik nokta ve yeni paragraf bitirir; `?` ve `!` bitirmez.
+  - Boşluksuz noktalama (`kitap,defter`) "Noktalama Hatası" olarak bildirilir.
+  - Hata penceresinde EXE'deki gibi **Sözlük / Değiştir / Devam / Dur** düğmeleri vardır.
+- **Sözlük kontrol** (Shift+F5): kontrol sözlüğündeki (KONTROL.SOZ) kelimelerin metindeki
+  biçimlerini bulur.
 
 ---
 
@@ -137,6 +147,7 @@ python3 src/mtu_tur.py   # Türkçe kelime listesi → output/MTU.TUR.TXT
 python3 src/mtu_tes.py   # Eş anlamlılar         → output/MTU.TES.TXT
 python3 src/mtu_ing.py   # Türkçe→İngilizce      → output/MTU.ING.TXT
 python3 src/mtu_soz.py   # Kullanıcı sözlükleri  → output/MTU.SOZ.TXT
+python3 src/mtu_hlp.py   # Yardım dosyası        → output/MTU.HLP.TXT
 
 # 3. Doğrulama
 python3 src/test_comparison.py
@@ -144,6 +155,10 @@ python3 src/test_comparison.py
 
 # 4. Web arayüzünü başlat → http://127.0.0.1:8080
 python3 src/ui.py        # MOONSTAR_HOST / MOONSTAR_PORT ile değiştirilebilir
+
+# 5. GitHub Pages sürümü → site/ (yazım denetimi tarayıcıda Pyodide ile çalışır)
+python3 src/build_static.py             # yalnızca derle
+python3 src/build_static.py --publish   # derle ve gh-pages dalına gönder
 ```
 
 ## API
@@ -154,6 +169,11 @@ python3 src/ui.py        # MOONSTAR_HOST / MOONSTAR_PORT ile değiştirilebilir
 | `/api/rev` | Türkçe→İngilizce (MTU.ING, 24,042 madde) |
 | `/api/tur` | Leb Demeden (MTU.TUR, 26,775 kelime) |
 | `/api/syn` | Eş Anlamlılar (MTU.TES, 13,657 kelime) |
-| `/api/quiz` | Kelime Oyunu (MTU.ING konu etiketli 1,890 karşılık, 32 konu) |
+| `/api/quiz` | MTU.ING'nin konu etiketli 1,890 karşılığı (32 konu) |
+| `/api/hangman/word` | Kelime Oyunu kelimesi (`source=main` MTU.TUR, `user` MTU.SOZ) |
+| `/api/help` | Yardım (MTU.HLP, 45 konu) |
 | `/api/check` | Tek kelime yazım denetimi |
-| `POST /api/check/text` | Metin yazım denetimi (`{"text": …}` → kelimeler, konumlar, sonuçlar) |
+| `POST /api/check/text` | Metnin tamamı, her hatada "Devam" ile (`{"text": …}` → hatalar, kelimeler) |
+| `POST /api/check/next` | Denetim döngüsünün bir adımı (`text`, `pos`, `state`, `ignore`, `user_words`) |
+| `POST /api/check/control` | Sözlük kontrol: imleçten sonraki ilk eşleşme |
+| `POST /api/check/complete` | Türkçe Leb Demeden kelime listesi |

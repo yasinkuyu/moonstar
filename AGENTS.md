@@ -8,7 +8,7 @@
 - **Entry**: CS=1 IP=0, Auto data seg=6, Stack SS=6 SP=0
 - **Encoding**: CP857 for DOS strings (high bytes 0x80-0x9F), ISO-8859-9 for UI strings (0xA0-0xFF)
 - **Goal**: every decoder must produce exactly what MTU.EXE produces. Rules come from the decompiled EXE, not from Turkish grammar guesses — no hand-written phonetics, no per-word patches.
-- **Engine Architecture**: `src/engine/` — `tur_lexicon.py` (MTU.TUR words, suffixes, word recognizer), `binary_parser.py` (MTU.TES record decoder), `thesaurus.py` (thesaurus API), `ing.py` (MTU.ING Turkish→English dictionary), `speller.py` (spell checker + `*.SOZ` user dictionaries).
+- **Engine Architecture**: `src/engine/` — `tur_lexicon.py` (MTU.TUR words, suffixes, word recognizer), `binary_parser.py` (MTU.TES record decoder), `thesaurus.py` (thesaurus API), `ing.py` (MTU.ING Turkish→English dictionary), `trk.py` (MTU.TRK English→Turkish window), `speller.py` (spell checker, Leb Demeden, control dictionary, `*.SOZ` user dictionaries), `game.py` (Kelime Oyunu word pool). The document check loop is in `src/spell_check.py`, the help file reader in `src/mtu_hlp.py`.
 - **Ground Truth**: live Win16 RAM dump `data/ntvdm.exe.dmp` (thesaurus buffer at `0x60348`) and the screenshot word lists in `assets/GROUND_TRUTH_DATA.md` (`öz`, `kitap`, `elma`, `ekmek`, `gelmek`, `yüz`, `göz`, `akıl`, `güzel`, `test`, `mali`, `hafif`, `dolu`, `ağır`, `boş`, `adalet`, `cesaret`, `hürriyet`, `barış`, `zengin`, `ölüm`, `giriş`, `çıkış`). Screenshots show only the visible part of long lists, so extra words that sort after the last visible one are expected.
 
 ## Reverse-Engineering Workflow
@@ -32,12 +32,19 @@ The decisive check is running the EXE's own code. `re/tools/mtu_emu.py` loads MT
 - The runtime tables `ds:0x09CA` / `0x0A8B` are copied from the live DGROUP in the RAM dump.
 - The EXE's own loader `FUN_1010_0000` reads MTU.TUR, MTU.SOZ, MTU.TES, MTU.ING.
 - Before calling `0842`/`0ba3`, the harness calls `FUN_1010_0691` to lock the dictionary blocks, as the document loop does.
+- The C runtime's DOS calls are emulated: INT 21h `3Eh` (close), `2Ah` / `2Ch` (date and time for `time()`; `emu.clock` fixes the time).
+- Runtime-only tables a test needs (e.g. the format tags at `ds:0x1015`) are copied from the RAM dump by that test.
 
 | Script | Compares | Result |
 |--------|----------|--------|
 | `verify_thesaurus.py` | `engine.thesaurus` vs `FUN_1010_256c`, every headword | 13,829 / 13,829 identical |
 | `verify_ing.py` | `engine.ing` vs `FUN_1010_3114`, every TUR word | 26,452 / 26,452 identical; `ahfat` hangs the EXE |
-| `verify_speller.py [n] [seed]` | `engine.speller` check + suggestions vs `0842` + `0ba3`, at sentence start and mid-sentence | 9,670 / 9,670 identical (seed 2026, 4,835 words) |
+| `verify_speller.py [n] [seed]` | `engine.speller` check + suggestions vs `0842` + `0ba3`, at sentence start and mid-sentence | 9,670 / 9,670 identical (seed 2026, 4,835 words); 7,526 / 7,526 (seed 77) |
+| `verify_tokenizer.py [n] [seed]` | `spell_check.next_word` vs `FUN_1018_0f58`, every paragraph of `data/TEST` + random lines; `sentence_state` / `is_roman` vs `0723` / `07a0` | 3,114 / 3,114 paragraphs; 1,665 / 1,666 words (the other is the control character 0x1A) |
+| `verify_control.py` | `Speller.in_dictionary` vs `FUN_1010_0929` with KONTROL.SOZ as user dictionary 1 | 1,749 / 1,749 identical |
+| `verify_trk.py [n] [seed]` | `engine.trk` vs `FUN_1010_397b`: word list for every 2-letter prefix and random typed texts, meaning lines of every listed word | 984 / 984 typed texts (all 17,988 words) |
+| `verify_leb.py [n] [seed]` | `Speller.completions` vs `FUN_1010_3648` (Türkçe Leb Demeden) | 3,850 / 3,850 identical |
+| `verify_game.py [draws]` | every word `FUN_1010_4b79` draws is in `engine.game.game_words` | 0 outside; user dictionary pool reached in full (1,859 / 1,859 texts in 20,000 draws) |
 
 ```bash
 PYTHONPATH=re/pylib python3 re/tools/verify_thesaurus.py [word …]
@@ -53,14 +60,14 @@ All UI strings found in data segment (0x19E00-0x24800) and post-segment area (0x
 
 | File | EXE Evidence | Used By |
 |------|-------------|---------|
-| MTU.TRK | `TRK` in `TURTESINGTRK` roster (`0x1B61D`); 195-entry English suffix table at `0x1B8B8-0x1BC45` | `İngilizce Türkçe Sözlük` (`0x1BC6C`), Kelime Oyunu |
+| MTU.TRK | `FUN_1010_0391(3)` reads its 0x7EF-byte header into `ds:0x93F7`; `FUN_1010_397b` reads blocks; 195 English suffixes at `ds:0x1697` | `İngilizce Türkçe Sözlük`, `İngilizce Leb Demeden` |
 | MTU.TUR | `TUR` in file-open filter `".SOZ\0MG2\x1a\0.SOZ\0TUR"` (`0x1BC54`) and roster | Word list for every Turkish feature, Leb Demeden suffix analyzer, spell check |
 | MTU.TES | `FUN_1010_2fec(0)`, decoded by `FUN_1010_256c` | `Türkçe Eş Anlamlı Sözcükler` |
 | MTU.ING | `FUN_1010_2fec(1)`, decoded by `FUN_1010_3114` | `Türkçe İngilizce Sözlük` |
 | MTU.SOZ | `FUN_1010_0391(4)` loads `<name>.SOZ` (name `MTU` at `ds:0x00A4`), checks `MG2\x1a` (`ds:0x1E4A`); saved by `FUN_1010_04b9` | User dictionary 0 — searched by the spell checker after MTU.TUR |
-| MTU.HLP | `HLP` in class registration (`0x1B23B`) | `Yardım` (F1) |
+| MTU.HLP | `HLP` in class registration (`0x1B23B`) | `Yardım` (F1); WinHelp 3.0, 45 topics, decoded by `src/mtu_hlp.py` |
 | MTU.INI / MTU1.INI | `INI` in class registration (`0x1B23B`) | `Seçenekler`, `Klavye Seçimi` (`0x5DE0F`), window state |
-| KONTROL.SOZ | Same format | One-word user dictionary (`denir`) |
+| KONTROL.SOZ | Same format | Control dictionary (one word, `denir`) for "Sözlük kontrol"; the EXE loads it as user dictionary 1 when it is chosen in "Kontrol sözlük" (the stored INI names none) |
 | TEST | — | CP857 Turkish text with `<BL>`/`<IT>` markup; `Dosya Açma` demo document |
 
 ## MTU.TUR (Turkish word list + suffix table) ✅ EXE-exact
@@ -138,6 +145,21 @@ Every word is a u16 chain: first value `& 0x7FFF` = MTU.TUR word index (`2e73`),
 - **Script**: `src/mtu_trk.py`
 - **Key insight**: English words stored as prefix (2 letters from table) + morpheme text + suffix instruction (195-entry suffix table at EXE 0x1B8B8-0x1BC45)
 
+### İngilizce Türkçe Sözlük window — `FUN_1010_397b` ✅ EXE-exact
+**Code**: `src/engine/trk.py` (`TrkDictionary`).
+- **Header**: the first 0x7EF bytes = 3 + 676 × 3-byte offsets. Block `k` (letters `aa`…`zz`) runs from offset `k` to offset `k + 1`, both + 0x7EF; the first offset is 0.
+- **Entry**: flag byte.
+  - `& 0x40`: copy `flag & 0x1F` letters of the previous word (without its 2-letter prefix).
+  - `& 0x80`: one suffix index byte follows (`ds:0x1697`).
+  - `& 0x20`: capitalize when listed.
+  - Then the text up to `0xFF`, then a 3-byte Turkish text pointer (`hi, lo, mid`).
+- **Listing**: only A–Z are lowercased, nothing else is folded. The first two characters must be `a`–`z`, otherwise the list is empty. Every word of that block that starts with the typed text is listed in file order, and the first one is selected. Nothing is listed below two letters.
+- **Meanings**: u16 length + text.
+  - A leading `0xFF` starts numbered meanings: `"%2d."` (`ds:0x1E63`) before each one.
+  - `|` starts a new line, indented with `"   "` (`ds:0x1E68`) in numbered text.
+  - "Türkçe Karşılık" shows the selected line without its first 3 characters when it starts with a space or `1`–`8`, cut to 60 characters.
+- **İngilizce Leb Demeden** (dialog 2208) runs the same routine without meanings (flag bit 0 clear).
+
 ## MTU.ING (Türkçe İngilizce Sözlük) ✅ EXE-exact
 
 MTU.ING is the **Turkish→English dictionary**, not quiz metadata. Earlier notes ("32,000-slot table, data at 96,003, slot header `[0x00, (trk_idx+1)%256, category]`", `decode_letter`/`format_sub` jump tables) misread it: the offset table was read 3 bytes off and the slots were keyed to MTU.TRK.
@@ -156,7 +178,7 @@ MTU.ING is the **Turkish→English dictionary**, not quiz metadata. Earlier note
 - **Data quirks**:
   - `ilkyardım`, `incehastalık`, `karatahta` have a duplicated entry header without labels; `intak` has no meanings.
   - `ahfat` and `itburun` redirect to an empty slot just before themselves. `2fec` then loops forever: typing `ahfat` hangs the original window. The port returns no result instead.
-- **Word game**: the web UI's topic list and hangman use the 1,890 topic-tagged meanings. Which data the EXE's own "Kelime Oyunu" uses is not verified.
+- **Topic list**: the web UI's statistics count the 1,890 topic-tagged meanings. The EXE's Kelime Oyunu does not use MTU.ING (see below).
 
 ### Topic Names (EXE `0x1B63A`, DGROUP `0x183A`)
 | Cat | Topic | Cat | Topic | Cat | Topic |
@@ -221,9 +243,6 @@ Thesaurus topic groups use entry `t + 4` of this list, MTU.ING label topics entr
   - **Scores**: `|ds:0x1568[a] − ds:0x1568[b]|` (keyboard/sound position), 8 for deletions and insertions, 0 for splits and exact suffixes. The lowest score is preselected; ties keep the first. A duplicate re-selects the earlier entry (`0f93`).
   - **Formatting** (`0f93`): the typed word's case is applied. Abbreviations (`s6[1] & 0x84`) get a period (`Prof` → `Prof.`), and abbreviations typed with the period are valid.
   - **Reach**: only edits at the first two letters or within one letter of a stored word/suffix are found, so `yanlis` (two wrong letters) gets no suggestion — in the EXE too.
-- **Not ported**: the document tokenizer (`FUN_1018_11e0`) is approximated:
-  - Words keep apostrophe-attached suffixes; a period right after a word belongs to it (sentence end or abbreviation).
-  - `!`, `?` and other periods end a sentence unless the period touches a digit.
 - **Global state the port reproduces.** The EXE keeps these in globals that leak from one candidate to the next; the suggestions depend on it:
   - `0x8B8D` / `0x8B82`: proper-noun softening flag and position survive a failed analysis. `0ba3` then hardens `Muttalib` → `Muttalip` before editing.
   - `0x8B8C` bit 2: one rejected abbreviation record lets the next one pass (`hk`).
@@ -236,7 +255,59 @@ Thesaurus topic groups use entry `t + 4` of this list, MTU.ING label topics entr
   - After an abbreviation stem a split overwrites the space (`drpiş` → `Drşpiş`).
   - An empty prefix range looks at the next prefix's first word (`dçağı` → `dç ağı`).
 - **Window lookups** (thesaurus and Türkçe İngilizce) use the same analyzer: `Speller.for_windows()` = suggestion mode, options `& 0xC3`, no user dictionary. A typed circumflex moves to the next same-body homonym (`dahi` / `dâhi`).
-- **Demo document** `data/TEST` (2,392 words): 6 errors, all explainable — unknown names (Akat, Emsan, Ofas), one real typo (`Göceçlik`), `"…"dir` split by a quote, lowercase after `...`.
+- **Demo document** `data/TEST` (2,393 words): 6 errors, all explainable.
+  - `BL`: a `<BL>` tag after a space is read as a word.
+  - Unknown names: Akat, Emsan, Ofas.
+  - One real typo: `Göceçlik`.
+  - Lowercase after `...`: `gibi`.
+
+### Document check — `FUN_1018_11e0` (Metin → Denetle, F5) ✅
+**Code**: `src/spell_check.py` (`next_word`, `TurkishSpellChecker.next_error` / `check_text`).
+- **Paragraphs**: the text is checked paragraph by paragraph from the cursor. A new paragraph starts a sentence (`FUN_1010_0723(0)`, option `ds:0x00A1` "Paragraf başı kontrol" = 1). The first state comes from `0723` on the word before the cursor (`ds:0x69AA`); this reading of the editor's fetch call is inferred, not traced.
+- **`FUN_1018_0f58`** cuts the next word:
+  - A format tag (`<` + one of the 34 runtime tags at `ds:0x1015`: `BL IT UN SP …`, first two letters ASCII-uppercased) is skipped only directly at the scan position.
+  - Characters of class ≥ 0xFB are separators, and apostrophes (class 0x60: `'` `` ` `` `"`) are skipped before a word.
+  - Classes ≥ 0xFB are space, digits and `. , ! ? ; :`. Digits are separators.
+  - An apostrophe stays in the word only when a letter follows.
+  - A `.` right after the word is appended. Only that period (through `18f3`) ends a sentence: `?` and `!` do not.
+  - Punctuation `. , ! ? ; :` between two letters, after a word of at least 2 letters, makes a "joined" word.
+- **Joined words** (`kitap,defter`): skipped when `07a0` reads them as a Roman numeral. Otherwise the **Noktalama Hatası** dialog (resource 2218) shows `kitap,d` → `kitap, d`.
+  - Değiştir inserts the space and rechecks from the word.
+  - Devam checks `kitap` alone.
+  - Dur ends the check.
+- **Hatalı veya Bilinmeyen Sözcük** (resource 2217; button bitmaps 1511/1516/1513/1512, saved as `assets/exe/btn_*.png`):
+  - **Sözlük** (0x1FF) adds the word to the user dictionary and checks it again. The web UI accepts the word as typed; the EXE stores a record with the class chosen in its user-word dialog.
+  - **Değiştir** (0x204, or a double click on the list) writes the selected suggestion over the word, keeping a trailing `.` unless the suggestion ends in `.` or `?` (`mı.` → `mu?`). The sentence state continues from `0723` on the suggestion.
+  - **Devam** (0x201) adds the word to an ignore list (exact match, up to 0x7CFF bytes). Later occurrences are accepted, and the state continues from `0723` on the word. There is no "skip once".
+  - **Dur** (0x200) or Esc ends the check.
+- `check_text` runs the loop with Devam for every error (used by the reports). `next_error` is one step, and the web UI drives the dialogs with it.
+
+### Sözlük kontrol (Shift+F5) — `FUN_1018_10c4`, `FUN_1010_0929` ✅
+- **Scan**: from the cursor, each word of 2 or more letters (a joined word with its punctuation and next letter) is looked up in user dictionary 1, the control dictionary.
+- **Lookup**: suggestion mode (`ds:0x8B8C = 0x40`), every stem length, suffix chains checked by `1d8b`.
+- **Section 6 bit 4**: an accepted entry with `s6[0] & 0x10` ends the lookup with no match.
+- **Result**: the first match is selected and the EXE beeps. Nothing is shown when there is no match. Code: `Speller.in_dictionary`, `TurkishSpellChecker.control_match`.
+
+### Türkçe Leb Demeden (F6) — `FUN_1010_3648` ✅ EXE-exact
+**Code**: `Speller.completions`.
+- **Typed text**: `18f3` keeps every character: letters as their code, others as class & 0x7F. A non-letter sets `ds:0x8B8F` bit 4, which skips the MTU.TUR part.
+- **Search**: at least 2 characters. First, user dictionary 0 entries whose body starts with the text (`3840`: `(stored & 0x5F) − typed`), then the MTU.TUR words of the typed 2-letter block. An apostrophe as the second character indexes another block, as in the EXE.
+- **Filter**: words with `s6[2] & 0xC0` (cannot stand alone, enclitic) are left out. A word equal to the previous listed word is not repeated.
+- **Text** (`38cd`):
+  - Prefix circumflex from `s6[0] & 0x40`.
+  - Capital from `s6[1] & 1`, except that `1e22` drops it for a softened proper noun (`(s6[2] & 0x0C) == 8`: `hamid`, `murad`).
+  - `.` after abbreviations (`s6[1] & 0x84`).
+- **Değiştir** (516) replaces the word at the editor's cursor.
+
+### Kelime Oyunu — `HANGMANDLG`, `FUN_1010_4b79` ✅
+**Code**: `src/engine/game.py`.
+- **Source**: "Oyun Kelimeleri" (dialog 2213, `ds:0x0056`) picks **Ana Sözlükten** (MTU.TUR, default) or **Kullanıcı Sözlükten** (user dictionary 0).
+- **Draw**: `srand(time())`, then random records until one has 5–15 letters (prefix included) and passes the class checks. The checks are `s6[2] & 0xC0 == 0`, `s6[1] & 0x80 == 0` and `s6[1] & 0x40 != 0`; `1e22` always accepts, since option bit 3 is masked.
+- **Pools**: 17,400 MTU.TUR words and 1,860 user dictionary words. The word is shown uppercase through `ds:0x09CA[c & 0x1F | 0x80]`, with circumflexes dropped and no hint.
+- **Play**:
+  - "Başla" sets the score to 10,000.
+  - A wrong letter halves it, and the 9th wrong letter loses the round (score 0, word shown).
+  - **`?`** opens the first hidden letter and halves the score. It is not a wrong letter, and like every letter button it works once per round.
 
 ### Runtime tables (live DGROUP)
 The live DGROUP is at **`0x5999E` in `data/ntvdm.exe.dmp`** (the copies at `0x4EB9E` and `0x4A577E` are the unrelocated file image).
@@ -248,7 +319,7 @@ The live DGROUP is at **`0x5999E` in `data/ntvdm.exe.dmp`** (the copies at `0x4E
 
 | File | Size | Format | Notes |
 |------|------|--------|-------|
-| MTU.HLP | 26KB | Windows HLP (`3F 5F 03 00`) | Turkish help text, unread |
+| MTU.HLP | 26KB | WinHelp 3.0 (`3F 5F 03 00`) | 45 topics, 47 jumps, Windows-1254 text; every help context opens the index topic. `src/mtu_hlp.py` → `output/MTU.HLP.TXT/.json`, shown by the web UI's Yardım |
 | MTU.INI / MTU1.INI | 1.5KB | Binary + text | Window state, font (Times New Roman / System), keyboard layout table |
 | TEST | 19KB | CP857 text with `<BL>`, `<IT>` | Demo document |
 
@@ -298,6 +369,14 @@ The live DGROUP is at **`0x5999E` in `data/ntvdm.exe.dmp`** (the copies at `0x4E
 | `1010:2f55` | 0xD155 | Suffix text from Section 3 |
 | `1010:2fec` | 0xD1EC | Slot loader for TES/ING |
 | `1010:3114` | 0xD314 | **MTU.ING record decoder** — Türkçe İngilizce Sözlük (contains file `0xD5BD`, which older notes wrongly called the TES routine) |
+| `1010:3648` | 0xD848 | Türkçe Leb Demeden word list (`3840` prefix compare, `38cd` display text) |
+| `1010:397b` | 0xDB7B | İngilizce Türkçe Sözlük / İngilizce Leb Demeden (MTU.TRK) |
+| `1010:0929` | 0xAB29 | Control dictionary lookup (Sözlük kontrol) |
+| `1010:4b79` | 0xED79 | Kelime Oyunu word draw |
+| `1018:0f58` | 0x10758 | Next word of a paragraph (document check) |
+| `1018:10c4` | 0x108C4 | Sözlük kontrol loop |
+| `1018:11e0` | 0x109E0 | Denetle loop and its dialogs |
+| `1008:247b` | 0x5A7B | `DICTDLG` WM_COMMAND (dictionary windows); `1008:27bb` picks `3114` / `3648` / `397b` by `ds:0x79ED` |
 
 ### Important DGROUP addresses
 | ds: | Meaning |
@@ -319,18 +398,18 @@ The live DGROUP is at **`0x5999E` in `data/ntvdm.exe.dmp`** (the copies at `0x4E
 
 ## Win16 Search Behavior (dictionary windows)
 - **Client-side only** — all data loaded once on window open.
-- **Incremental scroll-to-match**: as the user types, the list scrolls to the first entry whose normalized prefix matches.
-- **Normalization**: case-insensitive with Turkish İ/I, circumflex ignored; the web UI also folds `ı→i`, `ş→s`, `ç→c`, `ö→o`, `ü→u`, `ğ→g` so `birak` matches `bırakmak`.
+- **Every keystroke refills the list** (EN_CHANGE on edit 1250 → `1008:27bb`): İngilizce Türkçe and İngilizce Leb Demeden list only the matching words (`397b`), Türkçe Leb Demeden lists `3648`'s words, Türkçe İngilizce and Eş Anlamlı select through the analyzer (`3114`, `256c`).
+- **Normalization**: only what those routines do (see their sections). The web UI's Türkçe İngilizce and Eş Anlamlı lists additionally fold `ı→i`, `ş→s`, `ç→c`, `ö→o`, `ü→u`, `ğ→g` for scrolling.
 - **Tamam button (control id 501) closes the window** (`EndDialog`, same code path as Esc / IDCANCEL) in all dictionary dialogs (resources 2200 İngilizce Türkçe, 2201 Türkçe İngilizce, 2202 Eş Anlamlı, 2207/2208 Leb Demeden; procs `DICTDLG`, `TRTHESDLG`). **Enter does nothing**: no button has `BS_DEFPUSHBUTTON`, so it sends IDOK (1), which the dialog procedures ignore. The second button (516) takes the selected list word and closes. Searching is live on every keystroke (EN_CHANGE on edit 1250).
 - **Empty query**: scrolls to the first entry.
 
 ## Remaining Unknowns
 | # | Unknown | Priority |
 |---|---------|----------|
-| 1 | **Kelime Oyunu data source** — which file and fields the EXE's word game uses (likely the MTU.ING topic/usage bytes). | MEDIUM |
-| 2 | **Spell checker tokenizer** — port the document loop `FUN_1018_11e0` (punctuation, numbers, quotes); word decisions and suggestions are verified. | MEDIUM |
-| 3 | **MTU.ING usage byte** (`b & 0x10`) — names of the 10 usage classes; the EXE shows no text for them. | LOW |
-| 4 | **MTU.HLP** — standard Windows Help; not extracted. | LOW |
+| 1 | **"Sözlük" in the spell check dialog** — the EXE stores the added word with the class picked in its user-word dialog (`TRUSRWORDDLG`); the web UI accepts the word as typed. | LOW |
+| 2 | **Start of the check** — the sentence state from the word before the cursor (`ds:0x69AA`, filled by the editor's fetch call `FUN_1020_0000(9)` in mode 1) is inferred; the editor (segment 5) is not ported. | LOW |
+| 3 | **MTU.ING usage byte** (`b & 0x10`) — names of the 10 usage classes; the EXE shows no text for them, so they cannot be taken from it. | LOW |
+| 4 | **Other EXE windows** not ported 1:1: editor menus (Dosya/Edit/Bul), Denetim Opsiyonlar, Kullanıcı / Kontrol sözlük editors, Karakter Listesi, Klavye Seçimi, Genel tanımlar. | LOW |
 
 ## Build & Run
 ```bash
@@ -339,13 +418,29 @@ python3 src/mtu_tur.py              # TUR word list → output/MTU.TUR.TXT (+ TR
 python3 src/mtu_tes.py              # Thesaurus → output/MTU.TES.TXT
 python3 src/mtu_ing.py              # Türkçe→İngilizce → output/MTU.ING.TXT, MTU.ING.BY_TOPIC.TXT
 python3 src/mtu_soz.py              # User dictionaries → output/MTU.SOZ.TXT, KONTROL.SOZ.TXT
+python3 src/mtu_hlp.py              # Help file → output/MTU.HLP.TXT, MTU.HLP.json
 python3 src/suffix_extractor.py     # Section 3 suffixes → data/suffixes.json
 python3 src/test_comparison.py      # Verification against EXE tables, RAM dump, screenshots and MTU.ING samples
 (cd src && python3 test_suffix_coverage.py)  # Suffix ID coverage over all MTU.TES records
 python3 src/ui.py                   # Web UI on 127.0.0.1:8080 (MOONSTAR_HOST / MOONSTAR_PORT)
+python3 src/build_static.py         # Static GitHub Pages build → site/ (spell checker runs in Pyodide)
+python3 src/build_static.py --publish  # build and push site/ as the gh-pages branch
 ```
 
 ## Change Log
+
+### 2026-10-21 — Document check, word windows, game and help from the EXE
+- **Document check**: ported `FUN_1018_11e0` / `0f58`.
+  - Sentence ends: only an attached `.` and a new paragraph; digits are separators.
+  - "Noktalama Hatası" for `kitap,defter`.
+  - The EXE's Sözlük / Değiştir / Devam / Dur dialog with its own button bitmaps; Devam skips later occurrences too.
+- **Sözlük kontrol** (`10c4`, `0929`): finds forms of the control dictionary's words. It replaces the invented "Sözlük Kontrol Raporu".
+- **İngilizce Türkçe Sözlük** (`397b`): filtered list in the EXE's order and numbered meaning lines, verified for all 17,988 words. **İngilizce Leb Demeden** is a window of its own.
+- **Türkçe Leb Demeden** (`3648`): the EXE's word list, including user dictionary words and the `hamid` capital quirk.
+- **Kelime Oyunu** (`4b79`): words come from MTU.TUR or the user dictionary, not from MTU.ING topics; no hint; "Başla" resets the score; `?` is not a wrong letter and works once.
+- **Yardım**: MTU.HLP decoded (`src/mtu_hlp.py`) and shown in a help viewer.
+- **Tools**: emulator gained DOS INT 21h date/time/close; new `verify_tokenizer`, `verify_control`, `verify_trk`, `verify_leb`, `verify_game`.
+- **Tests**: `test_comparison.py` has 9 tests.
 
 ### 2026-10-20 — Verified against the EXE running in an emulator
 - `re/tools/mtu_emu.py` runs MTU.EXE routines in Unicorn.
