@@ -5,12 +5,10 @@ veri dosyalarının tersine mühendislik belgesi.
 
 ![MoonStar Web UI](assets/ui_screenshot.png)
 
-Hedef, her sözlüğün **orijinal MTU.EXE ile birebir aynı** sonucu vermesidir. Kurallar
-EXE'nin Ghidra ile decompile edilen kodundan alınmıştır; elle yazılmış dilbilgisi
-kuralı veya kelimeye özel düzeltme yoktur. Ayrıntılı teknik notlar: [AGENTS.md](AGENTS.md).
+**Canlı:** https://yasinkuyu.github.io/moonstar/
 
 **Doğrulama:** EXE'nin kendi kodu bir x86 emülatöründe gerçek veriyle çalıştırılıp port ile
-karşılaştırıldı (`re/tools/`, git dışı):
+karşılaştırıldı:
 
 | Bileşen | Sonuç |
 |---|---|
