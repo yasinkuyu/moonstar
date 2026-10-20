@@ -7,11 +7,13 @@ from .binary_parser import TesBinaryParser
 from .ing import IngDictionary
 from .speller import Speller, UserDictionary
 from .thesaurus import ThesaurusEngine
+from .trk import TrkDictionary
 from .tur_lexicon import TurLexicon, get_suffix_table
 
 __all__ = [
     "ThesaurusEngine",
     "IngDictionary",
+    "TrkDictionary",
     "Speller",
     "UserDictionary",
     "TesBinaryParser",
