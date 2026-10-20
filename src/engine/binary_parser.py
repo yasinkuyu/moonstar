@@ -1,312 +1,256 @@
 # -*- coding: utf-8 -*-
 """
 engine/binary_parser.py — MTU.TES Binary Stream & Slot Parser
+
+Exact port of the MTU.EXE thesaurus routines (code segment 3):
+  - FUN_1010_2fec: slot loader (24-bit offset table, 0xFF redirect stubs)
+  - FUN_1010_256c: record decoder, sub-record selection and grouping
+Headword and suffix strings come from engine.tur_lexicon (FUN_1010_2e73 /
+FUN_1010_2f55) and are concatenated verbatim, exactly like the EXE.
 """
 
-import os
 import struct
-import sys
-from typing import Callable, List, Optional, Set, Tuple
+from typing import List, Optional, Tuple
 
-# Ensure src root is accessible for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.constants import ALPHABET, TOPIC_NAMES
+from core.text import fold_circumflex, tr_lower
+from engine.tur_lexicon import TurLexicon
 
-from core.constants import NAMED_GROUPS, TOPIC_NAMES
-from core.text import clean_tr_token, tr_lower
+SLOT_COUNT = 32000
+
+# Group label table at DGROUP 0x15CD: index by record group code
+_GROUP_LABELS = ["1.Anlam", "Mecaz", "Argo", "Renk", "Türemiş"] + TOPIC_NAMES[4:]
+
+
+def match_key(text: str) -> str:
+    """Letter-class key used by the EXE comparisons (DGROUP 0xA8B & 0x1F): ignores case and circumflex."""
+    return fold_circumflex(tr_lower(text))
+
+
+def read_slot_table(data: bytes) -> List[int]:
+    """The 32,000 × 3-byte little-endian offsets at the start of MTU.TES / MTU.ING (FUN_1010_2fec)."""
+    if len(data) < SLOT_COUNT * 3:
+        return []
+    return [data[i * 3] | (data[i * 3 + 1] << 8) | (data[i * 3 + 2] << 16) for i in range(SLOT_COUNT)]
+
+
+def sort_key(text: str) -> List[int]:
+    """FUN_1010_2e13: letters compare by alphabet class + 0x21, anything else as a space (0x20)."""
+    key = []
+    for ch in match_key(text):
+        pos = ALPHABET.find(ch)
+        key.append(pos + 0x21 if 0 <= pos < 32 else 0x20)
+    return key
+
+
+def group_label(code: int, anlam_no: int) -> str:
+    """Group name for a group code, as built at the end of FUN_1010_256c."""
+    if code >= 0x10:
+        return TOPIC_NAMES[code - 0x10 + 4] if code - 0x10 + 4 < len(TOPIC_NAMES) else f"#{code:02X}"
+    if code < 5:
+        return f"{anlam_no}.Anlam"
+    if code < 7:
+        return _GROUP_LABELS[1]
+    if code < 9:
+        return _GROUP_LABELS[2]
+    return _GROUP_LABELS[code - 6] if code - 6 < len(_GROUP_LABELS) else f"#{code:02X}"
 
 
 class TesBinaryParser:
-    """
-    Parses binary record streams for MTU.TES corresponding to
-    Borland C++ Win16 routines 0xD1EC, 0xD422, and 0xD5BD.
-    """
+    """Decodes MTU.TES slots into the EXE's string buffer and synonym groups."""
 
-    def __init__(
-        self,
-        tur_words: List[str],
-        tes_data: bytes,
-        tes_offsets: List[int],
-        apply_suffix_fn: Callable[[str, int], str],
-    ):
-        self.tur_words = tur_words
+    def __init__(self, lexicon: TurLexicon, tes_data: bytes, tes_offsets: Optional[List[int]] = None):
+        self.lex = lexicon
         self.tes_data = tes_data
-        self.tes_offsets = tes_offsets
-        self.apply_suffix_fn = apply_suffix_fn
+        self.tes_offsets = tes_offsets if tes_offsets is not None else read_slot_table(tes_data)
+        self._buffers = {}  # build_buffer() per TUR index: decoding a slot does not depend on anything else
 
-    def decode_subrecord(self, slot_idx: int, start_pos: int) -> List[Tuple[str, Set[str]]]:
-        """Decodes an embedded deverbal subrecord initiated by a 0x40 delimiter."""
-        if slot_idx >= len(self.tes_offsets) - 1:
-            return []
-        off1 = self.tes_offsets[slot_idx]
-        off2 = self.tes_offsets[slot_idx + 1]
-        slot = self.tes_data[off1:off2]
-
-        result: List[Tuple[str, Set[str]]] = []
-        cur_grp = "1.Anlam"
-        anlam_counter = 1
-        prev_grp_code = None
-        cur_grp_idx: int = -1
-        p = start_pos
-
-        while p < len(slot):
-            flag = slot[p]
-            if flag & 0x40:
-                break
-            p += 1
-
-            grp_code = flag & 0x0F
-            if grp_code == 0x0C and p < len(slot):
-                top_id = slot[p]
-                p += 1
-                if top_id + 4 < len(TOPIC_NAMES):
-                    cur_grp = TOPIC_NAMES[top_id + 4]
-                else:
-                    cur_grp = "1.Anlam"
-                prev_grp_code = (grp_code, top_id)
-                cur_grp_idx = len(result)
-                result.append((cur_grp, set()))
-            elif grp_code != prev_grp_code:
-                prev_grp_code = grp_code
-                if grp_code in NAMED_GROUPS:
-                    cur_grp = NAMED_GROUPS[grp_code]
-                else:
-                    cur_grp = f"{anlam_counter}.Anlam"
-                    anlam_counter += 1
-                cur_grp_idx = len(result)
-                result.append((cur_grp, set()))
-
-            word_count = ((flag >> 4) & 3) + 1
-            phrase_words: List[str] = []
-            for _ in range(word_count):
-                if p + 2 > len(slot):
-                    break
-                raw_w = struct.unpack("<H", slot[p:p + 2])[0]
-                p += 2
-                w_idx = raw_w & 0x7FFF
-                has_more = bool(raw_w & 0x8000)
-
-                root = tr_lower(self.tur_words[w_idx]) if w_idx < len(self.tur_words) else f"#{w_idx}"
-                if root.endswith("ğ") and root not in ["ağ", "bağ", "dağ", "sağ", "çağ", "yağ", "tuğ", "yeğ"]:
-                    root = root[:-1] + "k"
-
-                while has_more and p + 2 <= len(slot):
-                    raw_suf = struct.unpack("<H", slot[p:p + 2])[0]
-                    p += 2
-                    suf_id = raw_suf & 0x7FFF
-                    root = self.apply_suffix_fn(root, suf_id)
-                    has_more = bool(raw_suf & 0x8000)
-
-                if root:
-                    phrase_words.append(root)
-
-            if len(phrase_words) == word_count:
-                phrase = " ".join(phrase_words)
-                if len(phrase) >= 2 and cur_grp_idx >= 0:
-                    result[cur_grp_idx][1].add(phrase)
-
-        return result
-
-    def decode_slot(
-        self,
-        slot_idx: int,
-        visited: Optional[Set[int]] = None,
-    ) -> List[Tuple[str, Set[str]]]:
-        """
-        Parses binary record streams for the specified slot.
-        Returns List[Tuple[str, Set[str]]] preserving order and allowing duplicate group names.
-        """
-        if visited is None:
-            visited = set()
-        if slot_idx in visited or slot_idx >= len(self.tes_offsets) - 1:
-            return []
-        visited.add(slot_idx)
-
-        off1 = self.tes_offsets[slot_idx]
-        off2 = self.tes_offsets[slot_idx + 1]
-        if off1 >= off2 or off2 > len(self.tes_data):
-            return []
-
-        slot_data = self.tes_data[off1:off2]
-        result: List[Tuple[str, Set[str]]] = []
-        cur_grp_idx: int = -1
-
-        def _start_group(grp_name: str) -> None:
-            nonlocal cur_grp_idx
-            cur_grp_idx = len(result)
-            result.append((grp_name, set()))
-
-        def _add_word(word: str) -> None:
-            if cur_grp_idx >= 0:
-                result[cur_grp_idx][1].add(word)
-
-        def _merge_result(ext: List[Tuple[str, Set[str]]]) -> None:
-            for g, ws in ext:
-                found = False
-                for i, (eg, ews) in enumerate(result):
-                    if eg == g:
-                        ews.update(ws)
-                        found = True
-                        break
-                if not found:
-                    result.append((g, set(ws)))
-
-        # Root redirect stub (0xFF target_low target_high)
-        if len(slot_data) <= 3 and slot_data[0] == 0xFF:
-            target_idx = slot_data[1] | (slot_data[2] << 8) if len(slot_data) >= 3 else None
-            if target_idx is not None and target_idx < len(self.tur_words) and target_idx not in visited:
-                root = tr_lower(self.tur_words[target_idx])
-                _start_group("1.Anlam")
-                _add_word(root)
-                target_groups = self.decode_slot(target_idx, visited)
-                _merge_result(target_groups)
-            return result
-
-        # Alias/Redirect Record: flag & 0xC0 == 0xC0
-        if len(slot_data) >= 3 and (slot_data[0] & 0xC0) == 0xC0:
-            target_idx = slot_data[1] | ((slot_data[2] & 0x7F) << 8)
-            suffix_chain = []
-            p = 3
-            while p + 2 <= len(slot_data):
-                raw = struct.unpack("<H", slot_data[p:p + 2])[0]
-                sid = raw & 0x7FFF
-                has_more = bool(raw & 0x8000)
-                suffix_chain.append(sid)
-                p += 2
-                if not has_more:
-                    break
-
-            if target_idx < len(self.tur_words):
-                root = tr_lower(self.tur_words[target_idx])
-                if suffix_chain:
-                    first_suf = suffix_chain[0]
-                    found_sub = False
-                    if first_suf > 0 and target_idx < len(self.tes_offsets) - 1:
-                        t_off1 = self.tes_offsets[target_idx]
-                        t_off2 = self.tes_offsets[target_idx + 1]
-                        t_slot = self.tes_data[t_off1:t_off2]
-                        scan = 0
-                        while scan < len(t_slot) - 3:
-                            if t_slot[scan] == 0x40:
-                                s_id = struct.unpack("<H", t_slot[scan + 1:scan + 3])[0] & 0x7FFF
-                                if s_id == first_suf:
-                                    found_sub = True
-                                    sub_res = self.decode_subrecord(target_idx, scan + 3)
-                                    _merge_result(sub_res)
-                                    break
-                            scan += 1
-
-                    # Build the derived synonym word by applying the full suffix chain
-                    derived = root
-                    for sid in suffix_chain:
-                        derived = self.apply_suffix_fn(derived, sid)
-                    if derived != root:
-                        _start_group("1.Anlam")
-                        _add_word(derived)
-
-                    if found_sub:
-                        return result
-                else:
-                    _start_group("1.Anlam")
-                    _add_word(root)
-
-            # Fall through to target slot's full data
-            target_groups = self.decode_slot(target_idx, visited)
-            _merge_result(target_groups)
-            return result
-
-        pos = 0
-
-        # Skip morphological header (0x80)
-        if len(slot_data) >= 3 and slot_data[0] == 0x80:
-            pos = 1
-            while pos + 2 <= len(slot_data):
-                raw = struct.unpack("<H", slot_data[pos:pos + 2])[0]
-                has_more = bool(raw & 0x8000)
-                pos += 2
-                if not has_more:
-                    break
-
-        cur_grp = "1.Anlam"
-        anlam_counter = 1
-        prev_grp_code = None
-
-        while pos < len(slot_data):
-            flag = slot_data[pos]
-            pos += 1
-            if pos >= len(slot_data):
-                break
-
-            if flag & 0x40:
-                break
-
-            # Syntactic dual collocation
-            if flag == 0x10 and pos + 4 <= len(slot_data) and slot_data[pos + 3] == 0x0A:
-                w1_idx = slot_data[pos] | (slot_data[pos + 1] << 8)
-                w2_idx = slot_data[pos + 2] | (slot_data[pos + 3] << 8)
-                pos += 4
-                if w1_idx < len(self.tur_words) and w2_idx < len(self.tur_words):
-                    phrase = f"{self.tur_words[w1_idx]} {self.tur_words[w2_idx]}"
-                    _add_word(phrase)
+    # FUN_1010_2fec
+    def load_slot(self, idx: int) -> Tuple[int, bytes]:
+        redirected = False
+        seen = set()
+        while 0 <= idx < len(self.tes_offsets) - 1:
+            off1, off2 = self.tes_offsets[idx], self.tes_offsets[idx + 1]
+            slot = self.tes_data[off1:off2] if off2 >= off1 else b""
+            if len(slot) == 3 and slot[0] == 0xFF:
+                # A redirect to an empty slot just before itself loops forever in the EXE
+                # (MTU.ING "ahfat", "itburun" hang the dictionary window); report no data instead.
+                if (idx, redirected) in seen:
+                    return idx, b""
+                seen.add((idx, redirected))
+                idx = slot[1] | (slot[2] << 8)
+                redirected = True
                 continue
+            if not slot and redirected:
+                idx += 1
+                redirected = False
+                continue
+            return idx, slot
+        return idx, b""
 
-            grp_code = flag & 0x0F
-            if grp_code == 0x0C and pos < len(slot_data):
-                top_id = slot_data[pos]
-                pos += 1
-                if top_id + 4 < len(TOPIC_NAMES):
-                    cur_grp = TOPIC_NAMES[top_id + 4]
+    def load_with_homonyms(self, idx: int) -> Tuple[int, bytes]:
+        """Advances through same-spelled homonyms while their slots are empty (FUN_1010_256c loop)."""
+        key = match_key(self.lex.word(idx))
+        while True:
+            if idx + 1 >= self.lex.word_count:
+                return idx, b""
+            idx2, slot = self.load_slot(idx)
+            if slot:
+                return idx2, slot
+            idx += 1
+            if match_key(self.lex.word(idx)) != key:
+                return idx, b""
+
+    def chain(self, slot: bytes, p: int, first_is_word: bool) -> Tuple[str, int]:
+        text = ""
+        first = first_is_word
+        while p + 2 <= len(slot):
+            raw = struct.unpack("<H", slot[p:p + 2])[0]
+            p += 2
+            text += self.lex.word(raw & 0x7FFF) if first else self.lex.suffix(raw & 0x7FFF)
+            first = False
+            if not raw & 0x8000:
+                break
+        return text, p
+
+    def build_buffer(self, idx: int) -> Tuple[List[str], List[int], int, str]:
+        """
+        Decodes a slot into the EXE string buffer (cached; callers must not modify the lists).
+        Returns (entries, codes, alias_depth, alias_target): entries[0] is the
+        headword; codes[i] is the group code of entries[i] (0x80 = sub-record title).
+        """
+        if idx not in self._buffers:
+            self._buffers[idx] = self._build_buffer(idx)
+        return self._buffers[idx]
+
+    def _build_buffer(self, idx: int) -> Tuple[List[str], List[int], int, str]:
+        start_idx = idx
+        idx, slot = self.load_with_homonyms(idx)
+        if not slot:
+            return [], [], 0, ""
+
+        # Some homonym classes keep the originally matched headword (Section 6 check in FUN_1010_256c)
+        flags = self.lex.section6_flags(idx)
+        cls = self.lex.sec6[self.lex.section6_index(idx) * 4 + 2]
+        keep_start = ((flags & 0x4000) and (cls & 0x0C) == 0x08) or (not flags & 0x4000 and (cls & 0x30) == 0x20)
+        headword = self.lex.word(start_idx if keep_start and start_idx != idx else idx)
+        query_word = headword
+        entries: List[str] = []
+        codes: List[int] = [0]
+        current = headword
+        alias_depth = 0
+        alias_target = ""
+
+        if slot[0] == 0xC0:
+            entries.append(current)
+            alias_depth = 1
+            p = 1
+            target_idx = None
+            while p + 2 <= len(slot):
+                raw = struct.unpack("<H", slot[p:p + 2])[0]
+                p += 2
+                if target_idx is None:
+                    target_idx = raw & 0x7FFF
+                    alias_target += self.lex.word(target_idx)
                 else:
-                    cur_grp = "1.Anlam"
-                prev_grp_code = (grp_code, top_id)
-                _start_group(cur_grp)
-            elif grp_code != prev_grp_code:
-                prev_grp_code = grp_code
-                if grp_code in NAMED_GROUPS:
-                    cur_grp = NAMED_GROUPS[grp_code]
-                else:
-                    cur_grp = f"{anlam_counter}.Anlam"
-                    anlam_counter += 1
-                _start_group(cur_grp)
-
-            word_count = ((flag >> 4) & 3) + 1
-            phrase_words = []
-
-            for _ in range(word_count):
-                if pos + 2 > len(slot_data):
+                    alias_target += self.lex.suffix(raw & 0x7FFF)
+                    alias_depth += 1
+                if not raw & 0x8000:
                     break
-                raw_w = struct.unpack("<H", slot_data[pos:pos + 2])[0]
-                pos += 2
+            idx, slot = self.load_with_homonyms(target_idx)
+            headword = self.lex.word(idx)
+            current = headword
+            codes.append(0)
+        if not slot:
+            return [], [], 0, ""
 
-                w_idx = raw_w & 0x7FFF
-                has_more = bool(raw_w & 0x8000)
+        if not slot[0] & 0x80:
+            entries.append(current)
+            current = ""
 
-                root = tr_lower(self.tur_words[w_idx]) if w_idx < len(self.tur_words) else f"#{w_idx}"
-                if root == "imtihal":
-                    root = "imtihan"
-                elif root == "hamasev":
-                    root = "hamaset"
-                elif root == "akıbes":
-                    root = "akıbet"
-                elif root == "dolgur":
-                    root = "dolgun"
-                elif root == "hak":
-                    root = "hâk"
-                elif root.endswith("ğ") and root not in ["ağ", "bağ", "dağ", "sağ", "çağ", "yağ", "tuğ", "yeğ"]:
-                    root = root[:-1] + "k"
+        last_topic = 0
+        topic_code = 0
+        p = 0
+        while p < len(slot):
+            b = slot[p]
+            p += 1
+            code = b & 0x0F
+            if b & 0x80:
+                text, p = self.chain(slot, p, first_is_word=False)
+                current += text
+            elif not b & 0x40:
+                if code > 0x0B:
+                    if code != last_topic:
+                        topic_code = slot[p] + 0x10 if p < len(slot) else 0x10
+                        p += 1
+                        last_topic = code
+                    code = topic_code
+                words = []
+                for _ in range(((b & 0x30) >> 4) + 1):
+                    text, p = self.chain(slot, p, first_is_word=True)
+                    words.append(text)
+                current += " ".join(words)
+            else:
+                code |= 0x80
+                last_topic = 0
+                text, p = self.chain(slot, p, first_is_word=False)
+                current += headword + text
 
-                while has_more and pos + 2 <= len(slot_data):
-                    raw_suf = struct.unpack("<H", slot_data[pos:pos + 2])[0]
-                    pos += 2
-                    suf_id = raw_suf & 0x7FFF
-                    root = self.apply_suffix_fn(root, suf_id)
-                    has_more = bool(raw_suf & 0x8000)
+            if alias_depth == 0 or current != query_word:
+                if len(codes) <= len(entries):
+                    codes.append(code)
+                else:
+                    codes[len(entries)] = code
+                entries.append(current)
+            current = ""
 
-                if root:
-                    phrase_words.append(root)
+        if alias_depth and len(codes) > 2:
+            codes[1] = codes[2]
+        return entries, codes[:len(entries)], alias_depth, alias_target
 
-            if len(phrase_words) == word_count:
-                phrase = " ".join(phrase_words)
-                if len(phrase) >= 2:
-                    _add_word(phrase)
+    def decode(self, idx: int, typed: Optional[str] = None) -> List[Tuple[str, List[str]]]:
+        """Returns the synonym groups the EXE displays for TUR index idx and the typed text."""
+        entries, codes, alias_depth, alias_target = self.build_buffer(idx)
+        if not entries:
+            return []
+        typed_key = match_key(typed if typed is not None else self.lex.word(idx))
 
+        # Sub-record selection
+        start = 0
+        for i, (text, code) in enumerate(zip(entries, codes)):
+            if not code & 0x80:
+                continue
+            if alias_depth < 2:
+                n = (code & 0x0F) or len(text)
+                if n <= len(typed_key) and match_key(text)[:n] == typed_key[:n]:
+                    start = i
+                    break
+            elif text == alias_target:
+                codes = codes[:i] + [codes[i + 1] if i + 1 < len(codes) else 0] + codes[i + 1:]
+                entries = entries[:1] + entries[i:]
+                codes = codes[:1] + codes[i:]
+                start = 0
+                break
+
+        # The title entry at `start` is skipped; its members follow until the next sub-record
+        members = []
+        for text, code in zip(entries[start + 1:], codes[start + 1:]):
+            if code & 0x80:
+                break
+            if text:  # an out-of-range suffix ID (one corrupt slot: "güvenoy") yields nothing
+                members.append((text, code))
+
+        groups: List[Tuple[int, List[str]]] = []
+        for text, code in members:
+            if groups and groups[-1][0] == code:
+                groups[-1][1].append(text)
+            else:
+                groups.append((code, [text]))
+
+        result: List[Tuple[str, List[str]]] = []
+        anlam_no = 0
+        for code, words in groups:
+            if code < 5:
+                anlam_no += 1
+            result.append((group_label(code, anlam_no), sorted(words, key=sort_key)))
         return result

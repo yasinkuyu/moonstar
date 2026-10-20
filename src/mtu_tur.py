@@ -58,292 +58,21 @@ def TurkishSortKey(s):
     }
     return [mapping.get(c, c) for c in s.lower()]
 
-# EXE lookup tables for Section 3 decoding (MTU.EXE file offsets)
-# table_A: EXE 0x1B388 (DGROUP+0x1588) — extra index for double-lookup
-# table_B: EXE 0x1A7CA (DGROUP+0x09CA) — main character lookup (CP857)
-def LoadExeTables():
-    exe_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "MTU.EXE")
-    with open(exe_path, "rb") as f:
-        exe = f.read()
-    table_A = list(exe[0x1B388:0x1B388+256])
-    table_B = list(exe[0x1A7CA:0x1A7CA+256])
-    return table_A, table_B
-
-def GetSuffixLength(value):
-    # 0x00-0x08: 0, 0x08-0x10: 1, 0x10-0x18: 2, (...), 0xb0-0xb8: 22
-    if 0x00 <= value < 0xb8:
-        return value // 8
-    # 0xb8-0xd0: 3, 0xd0-0xe8: 4, 0xe8-0x100: 5
-    elif 0xb8 <= value < 0x100:
-        return 3 + ((value - 0xb8) // 0x18)
-    else:
-        return None
-
-def GetSuffixReodered(suffix, value):
-    if value >= 0xb8:
-        value = (value - 0xb8) % 0x18
-        if 0x00 <= value < 0x08:
-            # 'abcd' -> 'dabc'
-            suffix = suffix[-1] + suffix[:-1]
-        elif 0x08 <= value < 0x10:
-            # 'abcd' -> 'bcda'
-            suffix = suffix[1:] + suffix[0]
-        elif 0x10 <= value < 0x18:
-            # 'abcd' -> 'dcba'
-            suffix = suffix[::-1]
-
-    return suffix
-
-def GetSuffix(data, instructions, base_offset):
-    suffix = ''
-    suffix_length = GetSuffixLength(instructions[1])
-
-    if suffix_length == 0:
-        # TODO: What's the purpose of [2] and [3] here?
-        pass
-    # One/Two-letter suffixes are formed directly from our custom alphabet.
-    elif 1 <= suffix_length <= 2:
-        for i in range(0, suffix_length):
-            suffix += alphabet[instructions[2 + i]]
-    # For anything else, we need to read the suffix from the 5th section.
-    else:
-        offset = struct.unpack("<H", instructions[2:4])[0]
-        pos = base_offset + offset
-        for i in range(0, suffix_length):
-            index = data[pos + i]
-            suffix += alphabet[index]
-
-    suffix = GetSuffixReodered(suffix, instructions[1])
-
-    return suffix
-
-def ApplyModifications(data, prefix, suffix):
-    """
-    Applies modifications to prefix and suffix based on Section 6 data.
-
-    data[0] - Capitalization & Special Flags:
-    - 0x0B, 0x0F, 0x2F, 0x4B, 0x4F, 0x6F: Proper nouns / Capitalize first letter
-    - 0x20, 0x2F: Contains circumflex (â, î, û)
-    - 0x80: Compound word flag
-
-    data[1] - Morphology & Hardness:
-    - bit 0 (0x01): Capitalization flag
-    - bit 4 (0x10): Hardened stem indicator (e.g. 0x50, 0x51, 0x58, 0x59)
-
-    data[2] - Suffix Class & Mutation:
-    - bit 7 (0x80): Soft/mutated stem in morphological database (e.g. 0x8b, 0x8a)
-    - 0x06, 0x07: Hard stem
-    """
-    # 1. Consonant hardening for base forms
-    # When Section 6 indicates hard/base form (bit 7 of byte 2 not set, and hardened flag set)
-    is_hard = (data[2] & 0x80 == 0) and ((data[1] & 0x10) != 0 or data[2] in [6, 7])
-    if is_hard:
-        if suffix.endswith('ğ'):
-            suffix = suffix[:-1] + 'k'
-        elif not suffix and prefix.endswith('ğ'):
-            prefix = prefix[:-1] + 'k'
-        elif suffix.endswith('b'):
-            suffix = suffix[:-1] + 'p'
-        elif not suffix and prefix.endswith('b'):
-            prefix = prefix[:-1] + 'p'
-        elif suffix.endswith('c'):
-            suffix = suffix[:-1] + 'ç'
-        elif not suffix and prefix.endswith('c'):
-            prefix = prefix[:-1] + 'ç'
-        elif suffix.endswith('d'):
-            suffix = suffix[:-1] + 't'
-        elif not suffix and prefix.endswith('d'):
-            prefix = prefix[:-1] + 't'
-        elif suffix.endswith('g'):
-            suffix = suffix[:-1] + 'k'
-        elif not suffix and prefix.endswith('g'):
-            prefix = prefix[:-1] + 'k'
-
-    # 2. Capitalization check
-    should_capitalize = (data[0] in [0x0b, 0x0f, 0x2f, 0x4b, 0x4f, 0x6f]) or ((data[1] & 0x01) != 0)
-
-    # Apply capitalization to prefix
-    if should_capitalize and prefix:
-        turkish_lower = {'ı': 'I', 'i': 'İ', 'ğ': 'Ğ', 'ü': 'Ü', 'ş': 'Ş', 'ö': 'Ö', 'ç': 'Ç'}
-        first_char = prefix[0]
-        if first_char in turkish_lower:
-            prefix = turkish_lower[first_char] + prefix[1:]
-        else:
-            prefix = prefix[0].upper() + prefix[1:]
-
-    return prefix, suffix
-
-def ReadDictionaryEntries(dictionary, data, base_offset, prefixes, section4, section6):
-    item_index = 0
-    for prefix, count in prefixes:
-        if count == 0:
-            continue
-        for i in range(item_index, item_index + count):
-            suffix = GetSuffix(data, section4[i], base_offset)
-
-            section6_index = section4[i][0] # TODO: related to [1] too?
-            prefix, suffix = ApplyModifications(section6[section6_index], prefix, suffix)
-
-            # Combine prefix and suffix to form the complete word
-            word = prefix + suffix
-
-            dictionary.append(word)
-
-        item_index += count
+# The word list is built by engine.tur_lexicon, an exact port of the MTU.EXE
+# routines FUN_1010_2e73 / FUN_1010_1bc4 (prefix table, Section 4 body,
+# 10-bit Section 6 index, final-letter mutation via EXE table DGROUP 0x1588).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from engine.tur_lexicon import TurLexicon
 
 def Import(dictionary, path):
-    data = open(path, "rb").read()
-    pos = 0
-
-    # Skip magic number ("0x4D 0x47 0x32 0x1A")
-    pos += 4
-
-    # Read header
-    header = []
-    for i in range(0, 4):
-        length = struct.unpack("<H", data[pos:pos + 2])[0]
-        pos += 2
-        header.append(length)
-
-    # A combination of English and Turkish letters. See the first 32 letters
-    # of the alphabet definition above.
-    letter_count = 32
-
-    # 1st section (?)
-    # May be a lookup table for letters. The final value ("0x92 0x0C" = 3218)
-    # corresponds to the number of items in the 3rd section.
-    section1 = []
-    for i in range(0, letter_count + 1):
-        value = struct.unpack("<H", data[pos:pos + 2])[0]
-        pos += 2
-        section1.append(value)
-
-    # 2nd section
-    # A lookup table for two-letter prefixes. Values correspond to an offset in
-    # the 4th section. If an offset is the same as the next one, it means there
-    # are no entries that begin with that prefix. With that in mind, we will
-    # store the number of entries for each prefix rather than the offsets.
-    section2 = []
-    for i in range(0, letter_count**2 + 1):
-        value = struct.unpack("<H", data[pos:pos + 2])[0]
-        pos += 2
-        section2.append(value)
-    prefixes = []
-    for prefix_index in range(0, len(section2) - 1):
-        prefix = alphabet[prefix_index // letter_count]
-        prefix += alphabet[prefix_index % letter_count]
-        count = section2[prefix_index + 1] - section2[prefix_index]
-        prefixes.append((prefix, count))
-
-    # 3rd section
-    # Suffix stripping table for morphological analysis in Leb Demeden.
-    # Contains 3,218 14-byte entries defining suffix rules, grammar classes,
-    # and offsets into Section 5.
-    section3 = []
-    for i in range(0, header[1]): # 3218
-        pos += 1
-        value = struct.unpack("<H", data[pos:pos + 2])[0]
-        pos += 2
-        section3.append(value)
-        pos += 11
-
-    # 4th section
-    # Contains instructions to form the entries in Türkçe Leb Demeden feature.
-    # The first byte points to an index at the 6th section.
-    # The second byte defines the length of the suffix and how it's formed.
-    # The last two bytes are either alphabet letters or an offset to a suffix
-    # that can be found in the 5th section.
-    section4 = []
-    for i in range(0, header[0]): # 26775
-        section4.append(data[pos:pos + 4])
-        pos += 4
-
-    # 5th section
-    # This section contains plain-text suffixes, encoded in a custom alphabet.
-    # We're skipping this section for now, but we'll read from it later on.
-    base_offset = pos
-    pos += header[2] # 62800
-
-    # 6th section
-    # Seems to be controlling capitalization and other modifications.
-    section6 = []
-    for i in range(0, header[3]): # 910
-        section6.append(data[pos:pos + 4])
-        pos += 4
-
-    # We're now ready to read the entries
-    ReadDictionaryEntries(dictionary, data, base_offset, prefixes, section4, section6)
+    dictionary.extend(TurLexicon(tur_path=path).words)
 
 def Export(dictionary, path):
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", encoding="utf-8") as file:
         for entry in dictionary:
             file.write(entry)
             file.write('\n')
-
-# Cached EXE tables (loaded once)
-_EXE_TABLES = None
-
-def GetExeTables():
-    global _EXE_TABLES
-    if _EXE_TABLES is None:
-        _EXE_TABLES = LoadExeTables()
-    return _EXE_TABLES
-
-def DecodeSection3Entry(byte0, val, bytes11, section4_data, base_offset):
-    """
-    Decodes a Section 3 entry using the EXE's actual algorithm (seg3).
-    
-    === byte0 Control Field ===
-    bits 0-6: count (bytes to decode, 0-127)
-    bit 7:    double_lookup (last byte uses table_A -> table_B)
-    
-    === Data Source ===
-    count < 3: 11-byte block itself (bytes11[:count])
-    count >= 3: Section 4 suffix data at offset val
-    
-    === Character Decode ===
-    for each byte b:
-        if double_lookup and b is last_byte:
-            ch = table_B[table_A[b]]
-        else:
-            ch = table_B[b]
-    Output: CP857 bytes
-    
-    Tables in EXE:
-      table_A @ file 0x1B388 (DGROUP+0x1588)
-      table_B @ file 0x1A7CA (DGROUP+0x09CA)
-    """
-    table_A, table_B = GetExeTables()
-    
-    count = byte0 & 0x7F
-    use_double = bool(byte0 & 0x80)
-    
-    if count == 0:
-        return ''
-    
-    if count < 3:
-        src = bytes11[:count]
-    else:
-        # Data from Section 4 (suffix instruction data) at offset val
-        # val is an offset into section4 byte array
-        src = section4_data[val:val+count] if val < len(section4_data) else b''
-    
-    if not src:
-        return ''
-    
-    result = []
-    for i, b in enumerate(src):
-        if use_double and i == len(src) - 1:
-            idx = table_A[b]
-            ch = table_B[idx]
-        else:
-            ch = table_B[b]
-        result.append(ch)
-    
-    try:
-        return bytes(result).decode('cp857', errors='replace').strip()
-    except:
-        return ''
 
 def clean_turkish_synonym(w):
     w = re.sub(r'\(.*?\)', '', w)
@@ -372,16 +101,14 @@ def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
       - Section5[val:val+count] = Turkish suffix string (e.g. 'acak', 'mak', 'ımdan')
       - Section1 = fast lookup index by first letter of suffix
       - bytes11[2] = grammatical class code (3=aorist, 5=future/ability stems, etc.)
-      - DecodeSection3Entry() using table_A/table_B produces garbled output because
-        Section3 stores suffix morphology instructions, NOT English character data.
 
     Correct TR_EN source: reverse the TRK file (İngilizce→Türkçe pairs).
     Each Turkish definition in TRK maps back to its English headword.
 
     For synonyms (ES_ANLAM): Turkish words sharing the same English translation
     are considered synonyms of each other. This is a SEPARATE, simpler
-    English-block co-occurrence method from mtu_thesaurus.py's 5-phase engine —
-    the two are not unified and can disagree. See mtu_thesaurus.py docstring.
+    English-block co-occurrence method, unrelated to the MTU.TES thesaurus
+    decoded by engine.thesaurus (the EXE's Türkçe Eş Anlamlı Sözcükler window).
 
     Coverage: ~25% of TUR words have a direct TR_EN match via TRK.
     Remaining 75% are proper nouns, compounds, or forms not in TRK — these
@@ -396,13 +123,12 @@ def ImportTurkishEnglishFromTRK(dictionary, trk_path, synonyms_dict=None):
 
     with open(trk_path, 'r', encoding='utf-8') as f:
         for line in f:
-            line = line.strip()
-            if not line:
+            # MTU.TRK.TXT uses a fixed 30-column English headword field;
+            # headwords may contain spaces (e.g. "believe in").
+            line = line.rstrip('\r\n')
+            english, tr_raw = line[:30].rstrip(), line[30:].strip()
+            if not english or not tr_raw:
                 continue
-            parts = line.split(None, 1)
-            if len(parts) != 2:
-                continue
-            english, tr_raw = parts[0], parts[1]
             
             # TR_EN mapping
             for m_block in tr_raw.split('#'):

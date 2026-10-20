@@ -11,61 +11,30 @@ from __future__ import annotations
 
 import json
 import os
-import struct
-from typing import Dict, List
+import sys
+from typing import List
 
-ALPHABET = "abcçdefgğhıijklmnoöpqrsştuüvwxyzâ..........î..............û"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from engine.tur_lexicon import TurLexicon
+
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_TUR_PATH = os.path.join(_PROJECT_ROOT, "data", "MTU.TUR")
+DEFAULT_SUFFIXES_PATH = os.path.join(_PROJECT_ROOT, "data", "suffixes.json")
 
 
-def extract_suffixes(tur_path: str = "data/MTU.TUR") -> List[str]:
-    with open(tur_path, "rb") as f:
-        data = f.read()
-
-    hdr = struct.unpack("<HHHH", data[4:12])
-    word_count = hdr[0]
-    sec3_count = hdr[1]
-    sec5_len = hdr[2]
-
-    letter_count = 32
-    sec1_size = (letter_count + 1) * 2
-    sec2_size = (letter_count ** 2 + 1) * 2
-    sec3_off = 12 + sec1_size + sec2_size
-    sec4_off = sec3_off + sec3_count * 14
-    sec5_off = sec4_off + word_count * 4
-    sec5 = data[sec5_off : sec5_off + sec5_len]
-
-    suffixes: List[str] = []
-
-    for sid in range(sec3_count):
-        entry = data[sec3_off + sid * 14 : sec3_off + (sid + 1) * 14]
-        b0 = entry[0]
-        count = b0 & 0x7F
-
-        if count == 0:
-            suffixes.append("")
-            continue
-
-        if count < 3:
-            indices = entry[1 : 1 + count]
-        else:
-            val = struct.unpack("<H", entry[1:3])[0]
-            indices = sec5[val : val + count]
-
-        text = "".join(
-            ALPHABET[idx] if idx < len(ALPHABET) and ALPHABET[idx] != "." else ""
-            for idx in indices
-        )
-        suffixes.append(text)
-
-    return suffixes
+def extract_suffixes(tur_path: str = DEFAULT_TUR_PATH) -> List[str]:
+    """Section 3 suffix texts exactly as MTU.EXE builds them (FUN_1010_2f55, incl. the
+    final-letter mutation through EXE table DGROUP 0x1588 when byte0 bit 7 is set)."""
+    lexicon = TurLexicon(tur_path=tur_path)
+    return [lexicon.suffix(sid) for sid in range(lexicon.suffix_count)]
 
 
 def export_suffixes_json(
-    tur_path: str = "data/MTU.TUR",
-    output_path: str = "data/suffixes.json",
+    tur_path: str = DEFAULT_TUR_PATH,
+    output_path: str = DEFAULT_SUFFIXES_PATH,
 ) -> None:
     suffixes = extract_suffixes(tur_path)
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(suffixes, f, ensure_ascii=False, indent=2)
     print(f"Başarıyla {len(suffixes)} adet ek dışa aktarıldı: {output_path}")
