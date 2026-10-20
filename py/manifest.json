@@ -1,0 +1,1 @@
+["src/spell_check.py","src/core/__init__.py","src/core/constants.py","src/core/text.py","src/engine/__init__.py","src/engine/binary_parser.py","src/engine/game.py","src/engine/ing.py","src/engine/speller.py","src/engine/thesaurus.py","src/engine/trk.py","src/engine/tur_lexicon.py","data/MTU.TUR","data/MTU.SOZ","data/KONTROL.SOZ","data/MTU.EXE"]
