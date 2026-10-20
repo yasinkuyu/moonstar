@@ -7,19 +7,20 @@
 
 import os
 import sys
-import re
 import json
-import struct
 import time
 import signal
 import http.server
 import urllib.parse
-from collections import defaultdict
 
 try:
     from spell_check import TurkishSpellChecker
+    from core.constants import TOPIC_NAMES as QUIZ_TOPIC_NAMES
+    from core.text import tr_lower, turkish_sort_key
 except ImportError:
     from src.spell_check import TurkishSpellChecker
+    from src.core.constants import TOPIC_NAMES as QUIZ_TOPIC_NAMES
+    from src.core.text import tr_lower, turkish_sort_key
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR, "..", "data")
@@ -27,59 +28,13 @@ OUTPUT_DIR = os.path.join(SCRIPT_DIR, "..", "output")
 
 def normalize_tr(s):
     """Normalize Turkish characters to ASCII for search matching."""
-    tr_to_ascii = str.maketrans('ıİşŞçÇöÖüÜğĞîÎâÂûÛ', 'iIsScCoOuUgGiIaAuU')
-    return s.lower().translate(tr_to_ascii)
+    tr_to_ascii = str.maketrans('ışçöüğîâû', 'iscougiau')
+    return tr_lower(s).translate(tr_to_ascii)
 
 
-def turkish_sort_key(s):
-    """Map Turkish characters to weights for correct alphabetical sorting."""
-    mapping = {
-        'a': 'a0', 'A': 'a0',
-        'b': 'b0', 'B': 'b0',
-        'c': 'c0', 'C': 'c0',
-        'ç': 'c1', 'Ç': 'c1',
-        'd': 'd0', 'D': 'd0',
-        'e': 'e0', 'E': 'e0',
-        'f': 'f0', 'F': 'f0',
-        'g': 'g0', 'G': 'g0',
-        'ğ': 'g1', 'Ğ': 'g1',
-        'h': 'h0', 'H': 'h0',
-        'ı': 'i0', 'I': 'i0',
-        'i': 'i1', 'İ': 'i1',
-        'j': 'j0', 'J': 'j0',
-        'k': 'k0', 'K': 'k0',
-        'l': 'l0', 'L': 'l0',
-        'm': 'm0', 'M': 'm0',
-        'n': 'n0', 'N': 'n0',
-        'o': 'o0', 'O': 'o0',
-        'ö': 'o1', 'Ö': 'o1',
-        'p': 'p0', 'P': 'p0',
-        'r': 'r0', 'R': 'r0',
-        's': 's0', 'S': 's0',
-        'ş': 's1', 'Ş': 's1',
-        't': 't0', 'T': 't0',
-        'u': 'u0', 'U': 'u0',
-        'ü': 'u1', 'Ü': 'u1',
-        'v': 'v0', 'V': 'v0',
-        'y': 'y0', 'Y': 'y0',
-        'z': 'z0', 'Z': 'z0'
-    }
-    return [mapping.get(c, c) for c in s]
-
-
-def get_clean_turkish_word(s):
-    """Strip leading '#' and leading parenthetical prefixes (e.g. '(about ile)') for clean index keys."""
-    s = s.lstrip('#').strip()
-    while s.startswith('('):
-        end = s.find(')')
-        if end != -1:
-            s = s[end+1:].strip()
-        else:
-            break
-    return s
-
-
-PORT = 8080
+PORT = int(os.environ.get("MOONSTAR_PORT", "8080"))
+# Bind to loopback by default; set MOONSTAR_HOST=0.0.0.0 to expose on the network
+HOST = os.environ.get("MOONSTAR_HOST", "127.0.0.1")
 
 
 # ─── Data Loaders ───────────────────────────────────────────────────────────
@@ -92,11 +47,10 @@ def load_trk():
         return entries
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
-            line = line.rstrip('\n')
+            line = line.rstrip('\r\n')
             if line:
-                parts = line.split(None, 1)
-                en = parts[0] if parts else ""
-                tr = parts[1] if len(parts) == 2 else ""
+                # Fixed 30-column English headword field (may contain spaces)
+                en, tr = line[:30].rstrip(), line[30:].strip()
                 if en:
                     entries.append({"en": en, "tr": tr})
     return sorted(entries, key=lambda x: x["en"].lower())
@@ -116,238 +70,43 @@ def load_tur():
     return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
 
 
-def is_valid_turkish_word(w):
-    if not w or len(w) < 2 or len(w) > 30:
-        return False
-    if any(ch in w for ch in ["'", '"', '(', ')', '/', '\\', ':', ';', '.', '!', '?', '=']):
-        return False
-    allowed = set("abcçdefgğhıijklmnoöpqrsştuüvwxyzABCÇDEFGĞHIİJKLMNOÖPQRSŞTUÜVWXYZ -")
-    return all(c in allowed for c in w)
-
-
-def clean_turkish_synonym(w):
-    w = re.sub(r'\(.*?\)', '', w)
-    w = re.sub(r'\[.*?\]', '', w)
-    w = w.replace('#', '').replace('*', '').strip()
-    w = re.sub(r'\b(arg|mec|sp|müz|fiz|kim|biy|mat|tic|ask|den|coğ|anat|tıp|ed|mim|felsefe|bot|zool|jeol|ast|dilb|İİ|Aİ)\b\.?', '', w)
-    w = re.sub(r'^[-\.][a-zçğıöşü]+\s*', '', w)
-    w = re.sub(r'\s*ile$', '', w)
-    w = w.strip(' ,;:.-\t\n\r/')
-    return w
-
-
-def is_clean_turkish_synonym(w):
-    if not w or len(w) < 2 or len(w) > 25:
-        return False
-    if any(ch in w for ch in ['/', '\\', ':', ';', '!', '?', '=', '<', '>', '{', '}', '_', '@', '%', '$']):
-        return False
-    allowed = set("abcçdefgğhıijklmnoöpqrsştuüvwxyzABCÇDEFGĞHIİJKLMNOÖPQRSŞTUÜVWXYZ -'")
-    return all(c in allowed for c in w)
-
-def clean_token(token):
-    """Pure Win16 C++ token parser: strips leading parenthetical tags, register tags, whitespace and symbols."""
-    token = token.strip()
-    while '(' in token and ')' in token:
-        token = re.sub(r'\(.*?\)', '', token).strip()
-    while '[' in token and ']' in token:
-        token = re.sub(r'\[.*?\]', '', token).strip()
-    while '<' in token and '>' in token:
-        token = re.sub(r'<.*?>', '', token).strip()
-    
-    token = re.sub(r'^(arg\.|mec\.|esk\.|tıp\.|huk\.|tic\.|bot\.|hayv\.|anat\.|kim\.|fiz\.|astr\.|mat\.|den\.|ask\.|mus\.|dilb\.|edeb\.|biy\.|jeol\.|felsefe|sosyol\.|argo|mecaz|İİ|s\.|i\.|f\.|zf\.|zam\.|bağ\.|ünl\.|ed\.)\s*', '', token, flags=re.IGNORECASE)
-    token = re.sub(r'^[-\.][a-zçğıöşü]+\s*', '', token, flags=re.IGNORECASE)
-    token = re.sub(r'\s*ile$', '', token, flags=re.IGNORECASE)
-    token = token.replace('*', '').replace('#', '').strip(' ,;:.-\t\n\r/').lower()
-    return token
-
-
 def load_synonyms():
     """
-    Turkish Thesaurus Engine — MTU.EXE Win16 runtime simulation.
-
-    Implemented in mtu_thesaurus.py (5 phases):
-      1. TRK direct block synonyms (# / | groups)
-      2. TRK homonym + semantic English fields (face / shame / reproach)
-      3. TUR Section 3 paradigm chain expansion (bytes11 morph_match)
-      4. TUR morphological cluster (sec4[1], sec6[2]) for Leb-Demeden-only words
-      5. Compound token extraction (bet beniz → beniz)
-
-    Full RAM-dump parity for Leb-Demeden-only words (beniz, sima, vecih…) requires
-    complete decode of Section 3 bytes11 paradigm graph — see AGENTS.md Unknown #2.
+    Turkish thesaurus entries (Türkçe Eş Anlamlı Sözcükler) decoded from MTU.TES
+    by engine.thesaurus, an exact port of the MTU.EXE thesaurus routines.
     """
     try:
-        from mtu_thesaurus import load_all_synonyms
+        from engine.thesaurus import load_all_synonyms
     except ImportError:
-        from src.mtu_thesaurus import load_all_synonyms
+        from src.engine.thesaurus import load_all_synonyms
 
-    trk_path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
-    tur_path = os.path.join(OUTPUT_DIR, "MTU.TUR.TXT")
-    entries = load_all_synonyms(trk_path=trk_path, tur_txt_path=tur_path)
-    return sorted(entries, key=lambda x: turkish_sort_key(x["word"]))
+    return load_all_synonyms()  # already in the EXE's sort order (FUN_1010_2e13)
 
 
-
-
-
-
-
-
-
-def get_turkish_stem(word):
-    word = clean_token(word)
-    suffixes = [
-        'lerindeki', 'larındaki',
-        'lerinde', 'larında', 'lerinden', 'larından',
-        'leriyle', 'larıyla',
-        'leri', 'ları',
-        'iniz', 'ınız', 'umuz', 'ümüz',
-        'nin', 'nın', 'nun', 'nün',
-        'in', 'ın', 'un', 'ün',
-        'im', 'ım', 'um', 'üm',
-        'ye', 'ya', 'yi', 'yı', 'yu', 'yü',
-        'de', 'da', 'te', 'ta',
-        'den', 'dan', 'ten', 'tan',
-        'le', 'la',
-        'ce', 'ca',
-        'se', 'sa',
-        'i', 'ı', 'u', 'ü', 'e', 'a'
-    ]
-    if len(word) <= 3:
-        return word
-    for suf in suffixes:
-        if word.endswith(suf):
-            stem = word[:-len(suf)]
-            if len(stem) >= 3:
-                return stem
-    return word
-
-
-def load_trk_reverse():
+def load_ing():
     """
-    Load Turkish→English dictionary (direct reverse of TRK + TUR word list).
-    Sorted strictly by Turkish alphabetical collation.
+    Türkçe İngilizce Sözlük and topic-tagged word game entries from MTU.ING,
+    decoded by engine.ing (exact port of the MTU.EXE routine FUN_1010_3114).
+    Meanings keep the EXE label text (" 1.eye", "   look") and are joined by newlines.
     """
-    tr_to_en = defaultdict(list)
-    path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split(None, 1)
-                if len(parts) == 2:
-                    en, tr = parts[0], parts[1]
-                    for m_block in tr.split('#'):
-                        for it in m_block.split('|'):
-                            ct = clean_token(it)
-                            if ct and len(ct) >= 2:
-                                if en not in tr_to_en[ct]:
-                                    tr_to_en[ct].append(en)
+    try:
+        from engine.ing import IngDictionary, topic_index
+    except ImportError:
+        from src.engine.ing import IngDictionary, topic_index
 
-    tur_words = []
-    tur_path = os.path.join(OUTPUT_DIR, "MTU.TUR.TXT")
-    if os.path.exists(tur_path):
-        with open(tur_path, "r", encoding="utf-8") as f:
-            for line in f:
-                word = line.strip().lower()
-                if word:
-                    tur_words.append(word)
-
-    all_tr_words = set(tur_words) | set(tr_to_en.keys())
-    entries = []
-    for tr_word in sorted(all_tr_words, key=turkish_sort_key):
-        en_list = tr_to_en.get(tr_word, [])
-        entries.append({"tr": tr_word, "en": ' | '.join(en_list)})
-    return entries
-
-
-
-def load_ing_with_trk():
-    """Load ING quiz entries merged with TRK words."""
-    # First load TRK words
-    trk_path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
-    trk_words = []
-    trk_dict = {}
-    if os.path.exists(trk_path):
-        with open(trk_path, "r", encoding="utf-8") as f:
-            for idx, line in enumerate(f):
-                line = line.strip()
-                if line:
-                    parts = line.split(None, 1)
-                    if len(parts) == 2:
-                        trk_words.append(parts[0])
-                        trk_dict[idx] = parts[1]
-                    else:
-                        trk_words.append(parts[0])
-                        trk_dict[idx] = ""
-
-    # Topic names (36 topics)
-    exe_path = os.path.join(DATA_DIR, "MTU.EXE")
-    EXE_DATA = open(exe_path, "rb").read()
-    area = EXE_DATA[0x1b600:0x1b800]
-    string_data = area[28:]
-    topic_names = []
-    i = 0
-    while i < len(string_data):
-        end = string_data.find(b'\x00', i)
-        if end == -1:
-            s = string_data[i:]
-            if len(s) >= 2:
-                topic_names.append(s)
-            break
-        s = string_data[i:end]
-        if len(s) >= 2:
-            topic_names.append(s)
-        i = end + 1
-
-    def cp857(b):
-        m = {0x80: 'Ç', 0x81: 'ü', 0x87: 'ç', 0x8D: 'ı', 0x90: 'Ğ',
-             0x91: 'ğ', 0x94: 'ö', 0x98: 'İ', 0x99: 'Ö', 0x9A: 'ö',
-             0x9B: 'Ü', 0x9D: 'İ', 0x9E: 'Ş', 0x9F: 'ş', 0xA7: 'ğ'}
-        return m.get(b, chr(b) if 0x20 <= b <= 0x7E else f'[{b:02x}]')
-    decoded_topics = [''.join(cp857(b) for b in raw) for raw in topic_names]
-
-    # Load ING
-    ing_path = os.path.join(DATA_DIR, "MTU.ING")
-    ing_data = open(ing_path, "rb").read()
-    table_size = struct.unpack("<L", ing_data[0:3] + b'\x00')[0]
-    data_start = 3 + table_size
-    num_slots = table_size // 3
-
-    offsets = []
-    for i in range(num_slots):
-        off = struct.unpack("<L", ing_data[3 + i*3: 3 + (i+1)*3] + b'\x00')[0]
-        offsets.append(off)
-
-    quizzes = []
-    for si in range(len(offsets) - 1):
-        start = offsets[si]
-        end = offsets[si + 1]
-        if start >= end or start < data_start:
-            continue
-        if start + 3 > len(ing_data) or ing_data[start] != 0x00:
-            continue
-        header_idx = ing_data[start + 1]
-        flag = ing_data[start + 2]
-
-        trk_idx = si if header_idx == (si + 1) % 256 else (header_idx - 1) % 256
-        topic_idx = (flag & 0x7F) % 36
-        topic_name = decoded_topics[topic_idx + 2] if topic_idx + 2 < len(decoded_topics) else f"Topic_{topic_idx}"
-        en_word = trk_words[trk_idx] if 0 <= trk_idx < len(trk_words) else "???"
-        tr_text = trk_dict.get(trk_idx, "")
-        is_variant = flag >= 0x80
-
-        quizzes.append({
-            "slot": si,
-            "en": en_word,
-            "tr": tr_text,
-            "topic": topic_name,
-            "topic_idx": topic_idx,
-            "variant": is_variant,
-        })
-
-    return quizzes, decoded_topics
+    rev, quizzes = [], []
+    for e in IngDictionary().all_entries():
+        rev.append({"tr": e["tr"], "en": "\n".join(l["text"] for l in e["labels"])})
+        for l in e["labels"]:
+            topic_idx = topic_index(l["topic"])
+            if topic_idx is not None:
+                quizzes.append({
+                    "en": l["text"].strip().lstrip("0123456789.").strip(),
+                    "tr": e["tr"],
+                    "topic": QUIZ_TOPIC_NAMES[topic_idx],
+                    "topic_idx": topic_idx,
+                })
+    return rev, quizzes
 
 
 # ─── Load all data ──────────────────────────────────────────────────────────
@@ -356,8 +115,7 @@ print("Loading data...")
 TRK_DATA = load_trk()
 TUR_DATA = load_tur()
 SYN_DATA = load_synonyms()
-REV_DATA = load_trk_reverse()
-QUIZ_DATA, TOPIC_NAMES = load_ing_with_trk()
+REV_DATA, QUIZ_DATA = load_ing()
 
 CHECKER = TurkishSpellChecker()
 
@@ -366,7 +124,7 @@ print(f"  TUR: {len(TUR_DATA)} entries")
 print(f"  SYN: {len(SYN_DATA)} entries")
 print(f"  REV: {len(REV_DATA)} entries")
 print(f"  QUIZ: {len(QUIZ_DATA)} entries")
-print(f"  Topics: {len([t for t in TOPIC_NAMES if len(t) > 1])}")
+print(f"  Topics: {len(QUIZ_TOPIC_NAMES)}")
 
 
 # ─── HTTP Handler ───────────────────────────────────────────────────────────
@@ -408,13 +166,6 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
                 self.json_response(self.get_hangman_word(params))
             elif path == "/api/check":
                 self.json_response(self.search_check(params))
-            elif path == "/api/check/bulk":
-                q = params.get("q", [""])[0]
-                words = [w.strip() for w in q.split(",") if w.strip()]
-                results = {}
-                for w in words:
-                    results[w] = CHECKER.check(w)
-                self.json_response(results)
             elif path == "/api/editor/demo":
                 try:
                     p = os.path.join(DATA_DIR, "TEST")
@@ -442,10 +193,18 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
         if not path.startswith("/assets/"):
             self.send_error(404)
             return
-        relative = path[len("/assets/"):]
-        filepath = os.path.normpath(os.path.join(self.ASSETS_DIR, relative))
-        if not filepath.startswith(os.path.normpath(self.ASSETS_DIR)):
+        relative = urllib.parse.unquote(path[len("/assets/"):])
+        assets_root = os.path.realpath(self.ASSETS_DIR)
+        filepath = os.path.realpath(os.path.join(assets_root, relative))
+        try:
+            inside = os.path.commonpath([assets_root, filepath]) == assets_root
+        except ValueError:
+            inside = False
+        if not inside:
             self.send_error(403)
+            return
+        if not os.path.isfile(filepath):
+            self.send_error(404)
             return
         ext = os.path.splitext(filepath)[1].lower()
         mime = {
@@ -462,7 +221,7 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
             self.wfile.write(data)
-        except FileNotFoundError:
+        except OSError:
             self.send_error(404)
 
     def serve_html(self):
@@ -471,6 +230,26 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(HTML_PAGE.encode("utf-8"))
+
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != "/api/check/text":
+            self.send_error(404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if not 0 < length <= 4 * 1024 * 1024:
+            self.send_error(413 if length else 400)
+            return
+        try:
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            text = body.get("text", "") if isinstance(body, dict) else ""
+        except (ValueError, UnicodeDecodeError):
+            self.send_error(400)
+            return
+        self.json_response({"tokens": CHECKER.check_text(text if isinstance(text, str) else "")})
 
     def json_response(self, data):
         try:
@@ -491,9 +270,21 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
             except:
                 pass
 
+    @staticmethod
+    def int_param(params, name, default, lo=None, hi=None):
+        try:
+            value = int(params.get(name, [default])[0])
+        except (TypeError, ValueError):
+            value = default
+        if lo is not None and value < lo:
+            value = lo
+        if hi is not None and value > hi:
+            value = hi
+        return value
+
     def paginate(self, data, params):
-        page = int(params.get("page", [1])[0])
-        per_page = int(params.get("per_page", [50])[0])
+        page = self.int_param(params, "page", 1, lo=1)
+        per_page = self.int_param(params, "per_page", 50, lo=1, hi=100000)
         total = len(data)
         start = (page - 1) * per_page
         end = start + per_page
@@ -543,26 +334,14 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
             return {"valid": False, "word": "", "suggestions": []}
         result = CHECKER.check(q)
         result["dictionary"] = {
-            "total": len(CHECKER.word_set),
-            "suffix_count": len(CHECKER.all_suffixes),
+            "total": CHECKER.lexicon.word_count,
+            "suffix_count": CHECKER.lexicon.suffix_count,
         }
         return result
 
     def get_stats(self):
         # Topic distribution
-        topic_counts = {}
-        for q in QUIZ_DATA:
-            t = q["topic_idx"]
-            topic_counts[t] = topic_counts.get(t, 0) + 1
-        topics_by_idx = {}
-        for q in QUIZ_DATA:
-            if q["topic_idx"] not in topics_by_idx:
-                topics_by_idx[q["topic_idx"]] = q["topic"]
-
-        topic_stats = []
-        for idx in sorted(topic_counts.keys()):
-            name = topics_by_idx.get(idx, f"Topic_{idx}")
-            topic_stats.append({"name": name, "count": topic_counts[idx]})
+        topic_stats = [{"name": t["name"], "count": t["count"]} for t in self.get_quiz_topics()["topics"]]
 
         return {
             "trk": {"total": len(TRK_DATA)},
@@ -571,46 +350,21 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
             "rev": {"total": len(REV_DATA)},
             "quiz": {"total": len(QUIZ_DATA)},
             "topics": topic_stats,
-            "topic_names": [t for t in TOPIC_NAMES if len(t) > 1],
+            "topic_names": QUIZ_TOPIC_NAMES,
         }
 
     def get_quiz_topics(self):
         topic_counts = {}
-        topics_by_idx = {}
         for q in QUIZ_DATA:
-            t = q["topic_idx"]
-            topic_counts[t] = topic_counts.get(t, 0) + 1
-            if t not in topics_by_idx:
-                topics_by_idx[t] = q["topic"]
-        result = []
-        for idx in sorted(topic_counts.keys()):
-            name = topics_by_idx.get(idx, "")
-            topic_name_idx = idx + 2
-            if topic_name_idx < len(TOPIC_NAMES) and len(TOPIC_NAMES[topic_name_idx]) > 1:
-                name = TOPIC_NAMES[topic_name_idx]
-            result.append({
-                "idx": idx,
-                "name": name,
-                "count": topic_counts[idx],
-            })
-        return {"topics": result}
+            topic_counts[q["topic_idx"]] = topic_counts.get(q["topic_idx"], 0) + 1
+        return {"topics": [
+            {"idx": idx, "name": QUIZ_TOPIC_NAMES[idx], "count": topic_counts[idx]}
+            for idx in sorted(topic_counts)
+        ]}
 
     def get_quiz_entries(self, params):
-        topic = int(params.get("topic", [0])[0])
-        page = int(params.get("page", [1])[0])
-        per_page = int(params.get("per_page", [50])[0])
-
-        filtered = [q for q in QUIZ_DATA if q["topic_idx"] == topic]
-        total = len(filtered)
-        start = (page - 1) * per_page
-        end = start + per_page
-        return {
-            "total": total,
-            "page": page,
-            "per_page": per_page,
-            "total_pages": (total + per_page - 1) // per_page,
-            "data": filtered[start:end],
-        }
+        topic = self.int_param(params, "topic", 0)
+        return self.paginate([q for q in QUIZ_DATA if q["topic_idx"] == topic], params)
 
     def search_quiz(self, params):
         q = params.get("q", [""])[0].lower()
@@ -626,27 +380,10 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
 
     def get_hangman_word(self, params):
         import random
-        import re
         topic_param = params.get("topic", [None])[0]
-        # Hangman uses Turkish alphabet keys → word must be Turkish.
-        # ING slots map to TRK pairs; take a clean single Turkish lemma from definitions.
-        letters = set("ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZabcçdefgğhıijklmnoöprsştuüvyz")
-
-        def hangman_candidates(tr_text):
-            cands = []
-            if not tr_text:
-                return cands
-            for part in re.split(r'[|/#]', tr_text):
-                part = part.strip()
-                if not part:
-                    continue
-                # drop parenthetical noise, keep letter runs
-                part = re.sub(r'\([^)]*\)', ' ', part)
-                for token in re.split(r'[\s,;:]+', part):
-                    token = token.strip(".-'")
-                    if 3 <= len(token) <= 14 and all(ch in letters for ch in token):
-                        cands.append(token)
-            return cands
+        # Hangman uses Turkish alphabet keys → the word is a single-word MTU.ING entry,
+        # its English meaning is the hint.
+        letters = set("abcçdefgğhıijklmnoöprsştuüvyzâîû")
 
         topic = None
         if topic_param is not None and topic_param != "" and topic_param != "-1":
@@ -659,21 +396,19 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
         for q in QUIZ_DATA:
             if topic is not None and q["topic_idx"] != topic:
                 continue
-            if not q.get("en") or q["en"] in ("???", "?"):
-                continue
-            for w in hangman_candidates(q.get("tr") or ""):
-                pool.append((w, q))
-                break  # one candidate per quiz entry
+            word = q["tr"]
+            if 3 <= len(word) <= 14 and all(ch in letters for ch in word):
+                pool.append(q)
         if not pool:
             return {"error": "Kelime bulunamadı"}
-        word, q = random.choice(pool)
+        q = random.choice(pool)
         return {
-            "word": word,
+            "word": q["tr"],
             "en": q["en"],
             "tr": q["tr"],
             "hint": q["en"],
-            "topic": q.get("topic", ""),
-            "topic_idx": q.get("topic_idx", 0),
+            "topic": q["topic"],
+            "topic_idx": q["topic_idx"],
         }
 
 
@@ -1688,7 +1423,7 @@ body {
     <div class="status-bar">
       <span>MoonStar Veri Gezgini</span>
       <span class="status-sep"></span>
-      <span id="statusText">TRK: 17.975 | TUR: 26.775 | SYN: 10.640 | REV: 37.043 | KELİME OYUNU: 12.437</span>
+      <span id="statusText"></span>
     </div>
   </div>
 </div>
@@ -1762,13 +1497,13 @@ body {
             v4.0 (Modern Web Sürümü)
           </div>
           <ul style="margin:0 0 12px 0;padding-left:18px;">
-            <li><strong>Kelime Oyunu:</strong> 36 farklı konu başlığı, 12.437 kelimelik soru havuzu, retro ses efektleri ve 10 aşamalı darağacı.</li>
+            <li><strong>Kelime Oyunu:</strong> MTU.ING konu etiketli kelimeleri (32 konu), retro ses efektleri ve 10 aşamalı darağacı.</li>
             <li><strong>Türkçe Q & F Sanal Klavye:</strong> Özel karakter seçimi, CP1254 karakter tablosu ve editöre aktarma desteği.</li>
             <li><strong>Sözlük Motoru:</strong>
               <div style="margin-left:8px;font-size:11px;color:#333;">
                 • İngilizce ➔ Türkçe (17.988 kelime)<br>
-                • Türkçe ➔ İngilizce (31.821 kelime)<br>
-                • Türkçe Eş Anlamlılar (28.266 kelime)<br>
+                • Türkçe ➔ İngilizce (24.042 madde)<br>
+                • Türkçe Eş Anlamlılar (13.657 kelime)<br>
                 • Türkçe Leb Demeden (26.775 kelime)
               </div>
             </li>
@@ -1818,10 +1553,10 @@ body {
       </div>
       <div style="margin-bottom:8px;">
         <label>Bulma tipleri:</label><br>
-        <label><input type="radio" name="findType" checked onclick="document.getElementById('findInput').placeholder='Kelime girin...'"> Tüm sözlükler</label><br>
-        <label><input type="radio" name="findType" onclick="document.getElementById('findInput').placeholder='İngilizce kelime girin...'"> İngilizce → Türkçe</label><br>
-        <label><input type="radio" name="findType" onclick="document.getElementById('findInput').placeholder='Türkçe kelime girin...'"> Türkçe → Türkçe</label><br>
-        <label><input type="radio" name="findType" onclick="document.getElementById('findInput').placeholder='Konu veya kelime...'"> Adam Asma</label>
+        <label><input type="radio" name="findType" value="all" checked onclick="document.getElementById('findInput').placeholder='Kelime girin...'"> Tüm sözlükler</label><br>
+        <label><input type="radio" name="findType" value="trk" onclick="document.getElementById('findInput').placeholder='İngilizce kelime girin...'"> İngilizce → Türkçe</label><br>
+        <label><input type="radio" name="findType" value="tur" onclick="document.getElementById('findInput').placeholder='Türkçe kelime girin...'"> Türkçe → Türkçe</label><br>
+        <label><input type="radio" name="findType" value="quiz" onclick="document.getElementById('findInput').placeholder='Konu veya kelime...'"> Adam Asma</label>
       </div>
       <div style="margin-top:8px;text-align:right;">
         <button class="win-btn primary" onclick="doFind()">Bul</button>
@@ -2072,7 +1807,7 @@ function winAlert(msg) {
       <div class="win-title-btns"><button onclick="document.getElementById('${id}').remove()">✕</button></div>
     </div>
     <div class="win-body" style="padding:20px;text-align:center;">
-      <div style="font-size:14px;margin-bottom:16px;white-space:pre-line;">${msg}</div>
+      <div style="font-size:14px;margin-bottom:16px;white-space:pre-line;">${escHtml(msg)}</div>
       <button class="win-btn" onclick="document.getElementById('${id}').remove()">Tamam</button>
     </div>
   </div>`;
@@ -2298,9 +2033,10 @@ function openWindow(type, opts) {
       <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-shrink:0;gap:8px;">
         <div style="flex:1;display:flex;flex-direction:column;gap:4px;">
           <div style="font-size:13px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">Sözcük</div>
-          <input class="win-input" type="text" style="width:100%;background:#c0c0c0;" id="${id}-search" value="${rememberedQuery}" oninput="dictSearchDebounced('${id}')" onkeydown="if(event.key==='Enter') closeWindow('${id}')">
+          <input class="win-input" type="text" style="width:100%;background:#c0c0c0;" id="${id}-search" value="${escHtml(rememberedQuery)}" oninput="dictSearchDebounced('${id}')" onkeydown="if(event.key==='Enter'){event.preventDefault();}">
         </div>
-        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="closeWindow('${id}')" title="Tamam"></div>
+        <!-- EXE (DICTDLG): Tamam (id 501) ends the dialog like Esc; Enter (IDOK) is ignored, search is live -->
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="clearTimeout(_searchTimer['${id}']);closeWindow('${id}')" title="Tamam"></div>
       </div>
 
       <!-- Mid lists row: left listbox and right listbox -->
@@ -2330,7 +2066,7 @@ function openWindow(type, opts) {
           <!-- Sözcük Row -->
           <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">
             <div style="font-size:14px;font-weight:bold;color:#000;text-shadow:0.5px 0.5px #fff;">Sözcük</div>
-            <input class="win-input" type="text" style="width:100%;background:#c0c0c0;font-weight:bold;font-family:inherit;" id="${id}-search" value="${rememberedQuery}" oninput="synTriggerSearch('${id}')" onkeydown="if(event.key==='Enter'){event.preventDefault();synTriggerSearch('${id}');}">
+            <input class="win-input" type="text" style="width:100%;background:#c0c0c0;font-weight:bold;font-family:inherit;" id="${id}-search" value="${escHtml(rememberedQuery)}" oninput="synTriggerSearch('${id}')" onkeydown="if(event.key==='Enter'){event.preventDefault();synTriggerSearch('${id}');}">
           </div>
           
           <!-- Kök Sözcük Row -->
@@ -2363,7 +2099,7 @@ function openWindow(type, opts) {
   } else if (config.type === 'tur') {
     html += `<div class="win-body" style="padding:4px;flex:1;display:flex;flex-direction:column;min-height:0;">
       <div style="margin-bottom:4px;flex-shrink:0;">
-        <input class="win-input" type="text" placeholder="Sözcük ara..." style="width:100%;" id="${id}-search" value="${rememberedQuery}" oninput="dictSearchDebounced('${id}')">
+        <input class="win-input" type="text" placeholder="Sözcük ara..." style="width:100%;" id="${id}-search" value="${escHtml(rememberedQuery)}" oninput="dictSearchDebounced('${id}')">
       </div>
       <div class="group-box" style="flex:1;display:flex;flex-direction:column;margin-bottom:4px;"><legend>Türkçe Sözcükler</legend>
         <div class="win-list" style="flex:1;overflow-y:auto;" id="${id}-list"></div>
@@ -2412,7 +2148,7 @@ function closeWindow(id) {
 
 // ─── Turkish Stemming Helper ──────────────────────────────────────────────
 function getTurkishStem(word) {
-  word = word.trim().replace(/^#/, '').toLowerCase();
+  word = trLower(word.trim().replace(/^#/, ''));
   const suffixes = [
     'lerindeki', 'larındaki',
     'lerinde', 'larında', 'lerinden', 'larından',
@@ -2461,15 +2197,15 @@ function synTriggerSearch(winId) {
   const fullData = state.windowData && state.windowData[winId];
   if (!fullData || !fullData.length) return;
   
-  const qLower = q.toLowerCase();
+  const qLower = trLower(q);
   // 1. Exact Turkish match (e.g. 'açık' -> 'açık', avoids collision with 'acık')
-  let match = fullData.find(e => e.word.toLowerCase() === qLower);
+  let match = fullData.find(e => trLower(e.word) === qLower);
 
   // 2. Exact match with circumflex normalization (e.g. 'mali' -> 'malî')
   if (!match) {
     const qCirc = qLower.replace(/î/g,'i').replace(/â/g,'a').replace(/û/g,'u');
     match = fullData.find(e => {
-      const wCirc = e.word.toLowerCase().replace(/î/g,'i').replace(/â/g,'a').replace(/û/g,'u');
+      const wCirc = trLower(e.word).replace(/î/g,'i').replace(/â/g,'a').replace(/û/g,'u');
       return wCirc === qCirc;
     });
   }
@@ -2516,7 +2252,7 @@ function synTriggerSearch(winId) {
     } else {
       grp.innerHTML = clusters.map((c, ci) => {
         return `<div class="dict-meaning${ci===0?' meaning-sel':''}" style="cursor:pointer; border-bottom:none; font-weight:bold; font-family:inherit; padding:2px 4px;"
-          onclick="synFilterGroup('${winId}', ${ci}, this)">${c.label}</div>`;
+          onclick="synFilterGroup('${winId}', ${ci}, this)">${escHtml(c.label)}</div>`;
       }).join('');
       synFilterGroup(winId, 0, grp.querySelector('.dict-meaning'));
     }
@@ -2548,11 +2284,13 @@ function synFilterGroup(winId, clusterIdx, el) {
   }
   
   const currentWord = (document.getElementById(winId + '-search').value || '').trim();
-  const synList = trWords.filter(w => w.toLowerCase() !== currentWord.toLowerCase());
+  const synList = trWords.filter(w => trLower(w) !== trLower(currentWord));
   const displayWords = (synList.length > 0 ? synList : trWords).slice().sort((a, b) => a.localeCompare(b, 'tr'));
 
+  state.synDisplayWords = state.synDisplayWords || {};
+  state.synDisplayWords[winId] = displayWords;
   df.innerHTML = displayWords.map((m, i) => {
-    return `<div class="dict-word${i===0?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; box-sizing:border-box;" onclick="synonymSelect('${winId}',${i},'${m}')" ondblclick="synonymDblClick('${winId}','${m}')" title="${m}">${m}</div>`;
+    return `<div class="dict-word${i===0?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:100%; box-sizing:border-box;" onclick="synonymSelect('${winId}',${i})" ondblclick="synonymDblClick('${winId}',${i})" title="${escHtml(m)}">${escHtml(m)}</div>`;
   }).join('');
   
   state.synSelectedWord = state.synSelectedWord || {};
@@ -2560,7 +2298,10 @@ function synFilterGroup(winId, clusterIdx, el) {
   synSetReplaceEnabled(winId, false);
 }
 
-function synonymDblClick(winId, word) {
+function synonymDblClick(winId, idx) {
+  const words = (state.synDisplayWords && state.synDisplayWords[winId]) || [];
+  const word = words[idx];
+  if (word === undefined) return;
   const input = document.getElementById(winId + '-search');
   if (input) {
     input.value = word;
@@ -2568,7 +2309,9 @@ function synonymDblClick(winId, word) {
   }
 }
 
-function synonymSelect(winId, idx, word) {
+function synonymSelect(winId, idx) {
+  const words = (state.synDisplayWords && state.synDisplayWords[winId]) || [];
+  const word = words[idx] || '';
   document.querySelectorAll(`#${winId}-defn .dict-word`).forEach(el => el.classList.remove('dict-sel'));
   const items = document.querySelectorAll(`#${winId}-defn .dict-word`);
   if (items[idx]) items[idx].classList.add('dict-sel');
@@ -2650,12 +2393,36 @@ function loadWindowDict(winId, type, apiUrl) {
     });
 }
 
+function renderLabelLines(winId, lines) {
+  const df = document.getElementById(winId + '-defn');
+  if (!df) return;
+  const items = lines.filter(l => l.trim()).map(l => {
+    const m = l.match(/^\s*(\d+)\.(.*)$/);
+    return m ? { num: m[1] + '.', text: m[2].trim() } : { num: '', text: l.trim() };
+  });
+  _meaningWin = _meaningWin || {};
+  _meaningWin[winId] = { parts: items.map(it => it.text), sel: 0 };
+  df.innerHTML = items.map((it, i) =>
+    `<div class="dict-meaning${i===0?' meaning-sel':''}" onclick="selectMeaning('${winId}',${i})">
+      <span class="row-num">${escHtml(it.num)}</span>
+      <div class="meaning-content"><div>${escHtml(it.text)}</div></div>
+    </div>`).join('');
+  const dt = document.getElementById(winId + '-detail');
+  if (dt) dt.value = items.length ? items[0].text : '';
+}
+
 function renderMeanings(winId, meanings) {
   if (!meanings) {
     const df = document.getElementById(winId + '-defn');
     if (df) df.innerHTML = '<div style="color:#888;padding:8px;">Anlam yok</div>';
     const dt = document.getElementById(winId + '-detail');
     if (dt) dt.value = '';
+    return;
+  }
+
+  // MTU.ING (Türkçe İngilizce): one EXE label per line, numbered only where the data numbers it
+  if (meanings.includes('\n')) {
+    renderLabelLines(winId, meanings.split('\n'));
     return;
   }
 
@@ -2688,7 +2455,7 @@ function renderMeanings(winId, meanings) {
     
     return `<div class="dict-meaning${i===0?' meaning-sel':''}" onclick="selectMeaning('${winId}',${i})">
       <span class="row-num">${numText}</span>
-      <div class="meaning-content"><div>${content}</div></div>
+      <div class="meaning-content"><div>${escHtml(content)}</div></div>
     </div>`;
   }).join('');
   const dt = document.getElementById(winId + '-detail');
@@ -2749,7 +2516,7 @@ function dictSelect(winId, key2, idx) {
       } else {
         grp.innerHTML = clusters.map((c, ci) =>
           `<div class="dict-meaning${ci===0?' meaning-sel':''}" style="cursor:pointer; border-bottom:none; font-weight:bold; font-family:inherit; padding:3px 6px;"
-            onclick="synFilterGroup('${winId}', ${ci}, this)">${c.label}</div>`
+            onclick="synFilterGroup('${winId}', ${ci}, this)">${escHtml(c.label)}</div>`
         ).join('');
         synFilterGroup(winId, 0, grp.querySelector('.dict-meaning'));
       }
@@ -2759,8 +2526,12 @@ function dictSelect(winId, key2, idx) {
   }
 }
 
+function trLower(s) {
+  return String(s).replace(/İ/g, 'i').replace(/I/g, 'ı').toLowerCase().replace(/\u0307/g, '');
+}
+
 function normalizeSearch(s) {
-  return s.toLowerCase()
+  return trLower(s)
     .replace(/î/g,'i').replace(/â/g,'a').replace(/û/g,'u')
     .replace(/ı/g,'i').replace(/ş/g,'s').replace(/ç/g,'c').replace(/ö/g,'o').replace(/ü/g,'u').replace(/ğ/g,'g');
 }
@@ -2794,7 +2565,7 @@ function dictSearch(winId) {
   }
 
   // Win16 davranışı: Türkçe küçük harf normalizasyonu + prefix eşleşmesi
-  const turkishLowercase = (s) => s.replace(/İ/g, 'i').replace(/I/g, 'ı').toLowerCase();
+  const turkishLowercase = trLower;
   const qnStrict = turkishLowercase(q);
 
   // 1. Birebir prefix eşleşmesi (Türkçe küçük harf)
@@ -2809,8 +2580,8 @@ function dictSearch(winId) {
   filtered.sort((a, b) => {
     const va = (a[key1] || '').trim();
     const vb = (b[key1] || '').trim();
-    const vaLow = va.toLowerCase();
-    const vbLow = vb.toLowerCase();
+    const vaLow = trLower(va);
+    const vbLow = trLower(vb);
     
     if (vaLow === qnStrict && vbLow !== qnStrict) return -1;
     if (vbLow === qnStrict && vaLow !== qnStrict) return 1;
@@ -2836,7 +2607,7 @@ function dictSearch(winId) {
 
   const listHtml = state.activeData[winId].map((e, i) => {
     const label = e[key1] || '';
-    return `<div class="dict-word${i===0?' dict-sel':''}" onclick="dictSelect('${winId}','${key2||''}',${i})">${label}</div>`;
+    return `<div class="dict-word${i===0?' dict-sel':''}" onclick="dictSelect('${winId}','${key2||''}',${i})">${escHtml(label)}</div>`;
   }).join('');
 
   if (listEl) {
@@ -2857,7 +2628,7 @@ function dictSearchDebounced(winId) {
 let quizTopicState = { topics: [], selected: null, hostId: null, typePrefix: '', lastTopicIdx: null };
 
 function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 function showQuizTopicDialog(hostId) {
@@ -3164,9 +2935,23 @@ function activeHangmanId() {
   return found || null;
 }
 
+function isWindowTopmost(winId) {
+  const el = document.getElementById(winId);
+  if (!el) return false;
+  // A modal dialog (alert, topic list, …) takes keyboard input instead
+  if (document.querySelector('.dialog-overlay.open')) return false;
+  let topId = null;
+  let topZ = -Infinity;
+  document.querySelectorAll('#workArea .win-window').forEach(w => {
+    const z = parseInt(w.style.zIndex, 10) || 0;
+    if (z >= topZ) { topZ = z; topId = w.id; }
+  });
+  return topId === winId;
+}
+
 window.addEventListener('keydown', function(ev) {
   const id = activeHangmanId();
-  if (!id) return;
+  if (!id || !isWindowTopmost(id)) return;
   const isEditing = ev.target && (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA');
   if (isEditing) return;
   if (ev.key === ' ') {
@@ -3198,13 +2983,16 @@ function startHangmanRound(id, topicIdx, topicName) {
     .then(r => r.json()).then(d => {
       if (!state.windows[id]) return;
       if (d.error) {
-        document.getElementById(id + '-game').innerHTML =
-          '<p style="color:#800;padding:8px;">' + escHtml(d.error) + '</p>';
-        // keep board playable — reopen empty state
+        // keep board playable — reopen empty state, then show the error on top
         if (win.hangman) {
           win.hangman.started = false;
           win.hangman.word = '';
           renderHangman(id);
+        }
+        const game = document.getElementById(id + '-game');
+        if (game) {
+          game.insertAdjacentHTML('afterbegin',
+            '<p style="color:#800;padding:8px;">' + escHtml(d.error) + '</p>');
         }
         return;
       }
@@ -3220,7 +3008,9 @@ function initHangmanGame(id, word, hint, topicIdx) {
   const info = {
     word: wordUpper, hint: hint, topicIdx: topicIdx,
     guessed: [], wrong: 0, maxWrong: 9, done: false, id: id,
-    score: (typeof prev.score === 'number' ? prev.score : HM_START_SCORE),
+    // A lost round zeroes the score; the next round starts fresh
+    score: (typeof prev.score === 'number' && !(prev.done && prev.wrong >= prev.maxWrong)
+      ? prev.score : HM_START_SCORE),
     started: true
   };
   state.windows[id].hangman = info;
@@ -3900,17 +3690,17 @@ function doFind() {
       if (trk.total > 0) {
         total += trk.total;
         html += '<div style="margin-top:4px;"><b>İngilizce → Türkçe</b></div>';
-        trk.data.slice(0,20).forEach(e => { html += `<div style="padding:1px 4px;">${e.en} → ${e.tr}</div>`; });
+        trk.data.slice(0,20).forEach(e => { html += `<div style="padding:1px 4px;">${escHtml(e.en)} → ${escHtml(e.tr)}</div>`; });
       }
       if (tur.total > 0) {
         total += tur.total;
         html += '<div style="margin-top:4px;"><b>Türkçe Leb Demeden</b></div>';
-        tur.data.slice(0,20).forEach(e => { html += `<div style="padding:1px 4px;">${e.word}</div>`; });
+        tur.data.slice(0,20).forEach(e => { html += `<div style="padding:1px 4px;">${escHtml(e.word)}</div>`; });
       }
       if (quiz.total > 0) {
         total += quiz.total;
         html += '<div style="margin-top:4px;"><b>Kelime Oyunu</b></div>';
-        quiz.data.slice(0,20).forEach(e => { html += `<div style="padding:1px 4px;">[${e.topic}] ${e.en}</div>`; });
+        quiz.data.slice(0,20).forEach(e => { html += `<div style="padding:1px 4px;">[${escHtml(e.topic)}] ${escHtml(e.en)}</div>`; });
       }
       if (total === 0) html = '<div style="color:#666;">Sonuç bulunamadı.</div>';
       else html = `<div style="color:#444;margin-bottom:4px;">${total} sonuç</div>` + html;
@@ -3929,7 +3719,7 @@ function doFind() {
         r.data.slice(0,20).forEach(e => {
           const text = e.en || e.word || '';
           const def = e.tr || e.def || e.synonyms || '';
-          html += `<div style="padding:1px 4px;">${text} ${def ? '→ '+def : ''}</div>`;
+          html += `<div style="padding:1px 4px;">${escHtml(text)} ${def ? '→ '+escHtml(def) : ''}</div>`;
         });
       }
     });
@@ -3937,10 +3727,6 @@ function doFind() {
     else html = `<div style="color:#444;margin-bottom:4px;">${total} sonuç</div>` + html;
     document.getElementById('findResults').innerHTML = html;
   });
-}
-
-function closeDialog(id) {
-  document.getElementById(id).classList.remove('open');
 }
 
 // ─── Check Options Dialog ─────────────────────────────────────────────────
@@ -4146,6 +3932,9 @@ function openTextEditor() {
     } else if (event.key === 'F7') {
       event.preventDefault();
       editorLookupSyn(id);
+    } else if (event.altKey && event.key === 'F8') {
+      event.preventDefault();
+      editorSave(id);
     } else if (event.key === 'F8' && !event.shiftKey) {
       event.preventDefault();
       editorLookupRev(id);
@@ -4161,9 +3950,6 @@ function openTextEditor() {
     } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'w') {
       event.preventDefault();
       editorLowercase(id);
-    } else if (event.altKey && event.key === 'F8') {
-      event.preventDefault();
-      editorSave(id);
     }
   });
 }
@@ -4459,39 +4245,60 @@ function editorShowStats(winId) {
   document.getElementById('textStatsDialog').classList.add('open');
 }
 
+function fetchTextCheck(text) {
+  return fetch('/api/check/text', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: text })
+  }).then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(d => d.tokens || []);
+}
+
 function editorDictCheck(winId) {
   closeAllMenus();
   const t = document.getElementById(winId + '-textarea');
   const text = t.value;
-  const words = text.match(/[a-zA-ZçÇğĞıİöÖşŞüÜâîû]+/g) || [];
-  if (words.length === 0) {
+  if (!text.trim()) {
     winAlert('Metinde kontrol edilecek sözcük bulunamadı.');
     return;
   }
-  const uniqueWords = Array.from(new Set(words.map(w => w.toLocaleLowerCase('tr'))));
   document.getElementById(winId + '-status').textContent = 'Sözlük kontrolü yapılıyor...';
-  
-  fetch('/api/check/bulk?q=' + encodeURIComponent(uniqueWords.join(',')))
-    .then(r => r.json())
-    .then(results => {
+
+  fetchTextCheck(text)
+    .then(tokens => {
+      if (tokens.length === 0) {
+        winAlert('Metinde kontrol edilecek sözcük bulunamadı.');
+        return;
+      }
+      // One row per distinct word; a word is wrong if any occurrence is wrong in its context
+      const byWord = new Map();
+      tokens.forEach(tk => {
+        const ok = tk.valid || state.userDictionary.has(tk.word.toLocaleLowerCase('tr'));
+        byWord.set(tk.word, (byWord.has(tk.word) ? byWord.get(tk.word) : true) && ok);
+      });
       let validCount = 0;
       let invalidCount = 0;
       let listHtml = '';
-      uniqueWords.forEach(w => {
-        const res = results[w];
-        const isValid = (res && res.valid) || state.userDictionary.has(w);
+      byWord.forEach((isValid, w) => {
         if (isValid) {
           validCount++;
-          listHtml += `<div style="padding:2px 6px;border-bottom:1px solid #eee;color:#008000;">✓ <b>${w}</b> (Geçerli)</div>`;
+          listHtml += `<div style="padding:2px 6px;border-bottom:1px solid #eee;color:#008000;">✓ <b>${escHtml(w)}</b> (Geçerli)</div>`;
         } else {
           invalidCount++;
-          listHtml += `<div style="padding:2px 6px;border-bottom:1px solid #eee;color:#c00;">✕ <b>${w}</b> (Sözlükte Yok)</div>`;
+          listHtml += `<div style="padding:2px 6px;border-bottom:1px solid #eee;color:#c00;">✕ <b>${escHtml(w)}</b> (Sözlükte Yok)</div>`;
         }
       });
+      const uniqueWords = Array.from(byWord.keys());
       document.getElementById('dict-check-summary').textContent = `Toplam ${uniqueWords.length} farklı sözcük: ${validCount} geçerli, ${invalidCount} hatalı.`;
       document.getElementById('dict-check-list').innerHTML = listHtml;
       document.getElementById('dictCheckDialog').classList.add('open');
       document.getElementById(winId + '-status').textContent = 'Sözlük kontrolü tamamlandı.';
+    })
+    .catch(() => {
+      const st = document.getElementById(winId + '-status');
+      if (st) st.textContent = 'Hata: Sunucu bağlantısı başarısız.';
     });
 }
 
@@ -4550,7 +4357,7 @@ function renderUserDictList() {
     return;
   }
   listEl.innerHTML = Array.from(state.userDictionary).sort().map(w => 
-    `<div style="padding:3px 6px;border-bottom:1px solid #eee;font-weight:bold;">${w}</div>`
+    `<div style="padding:3px 6px;border-bottom:1px solid #eee;font-weight:bold;">${escHtml(w)}</div>`
   ).join('');
 }
 
@@ -4583,45 +4390,24 @@ function editorSpellCheck(winId) {
     return;
   }
   
-  // Extract words with offsets
-  const regex = /[a-zA-ZçÇğĞıİöÖşŞüÜâîû]+/g;
-  let match;
-  const words = [];
-  const uniqueWords = new Set();
-  
-  while ((match = regex.exec(text)) !== null) {
-    words.push({
-      word: match[0],
-      start: match.index,
-      end: regex.lastIndex
-    });
-    uniqueWords.add(match[0].toLocaleLowerCase('tr'));
-  }
-  
-  if (words.length === 0) {
-    winAlert('Denetlenecek sözcük bulunamadı.');
-    return;
-  }
-  
-  // Perform bulk check
-  const wordsList = Array.from(uniqueWords).join(',');
   status.textContent = 'Kelimeler sözlükte denetleniyor...';
-  
-  fetch('/api/check/bulk?q=' + encodeURIComponent(wordsList))
-    .then(r => r.json())
-    .then(results => {
+
+  fetchTextCheck(text)
+    .then(tokens => {
+      if (tokens.length === 0) {
+        winAlert('Denetlenecek sözcük bulunamadı.');
+        return;
+      }
+      const words = tokens.map(tk => ({ word: tk.word, start: tk.start, end: tk.end }));
+      const results = {};
       const errors = [];
-      words.forEach((w, idx) => {
-        const lower = w.word.toLocaleLowerCase('tr');
-        if (state.userDictionary && state.userDictionary.has(lower)) {
-          return;
-        }
-        const check = results[w.word] || results[lower];
-        if (check && !check.valid) {
+      tokens.forEach((tk, idx) => {
+        if (!tk.valid && !(state.userDictionary && state.userDictionary.has(tk.word.toLocaleLowerCase('tr')))) {
           errors.push(idx);
+          results[tk.word] = tk;
         }
       });
-      
+
       if (errors.length === 0) {
         winAlert('✓ Tebrikler! Metinde hiçbir yazım hatası bulunamadı.');
         status.textContent = '✓ Yazım denetimi tamamlandı: Hata bulunamadı.';
@@ -4676,10 +4462,13 @@ function spellCheckNext() {
   const sugList = document.getElementById('spell-suggestions');
   
   sugList.innerHTML = '';
+  sState.currentSuggestions = suggestions;
   if (suggestions.length > 0) {
-    sugInput.value = suggestions[0].word;
+    // The EXE preselects its best-scored suggestion, not necessarily the first one
+    const best = (check && Number.isInteger(check.best) && check.best < suggestions.length) ? check.best : 0;
+    sugInput.value = suggestions[best].word;
     sugList.innerHTML = suggestions.map((s, idx) => 
-      `<div class="dict-word${idx===0?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit; padding:3px 6px; cursor:pointer;" onclick="selectSpellSuggestion(this, '${s.word}')">${s.word}</div>`
+      `<div class="dict-word${idx===best?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit; padding:3px 6px; cursor:pointer;" onclick="selectSpellSuggestion(this, ${idx})">${escHtml(s.word)}</div>`
     ).join('');
   } else {
     sugInput.value = errWordOccur.word;
@@ -4689,8 +4478,10 @@ function spellCheckNext() {
   status.textContent = `Hata ${sState.errorIdx + 1} / ${sState.errors.length}: "${errWordOccur.word}"`;
 }
 
-function selectSpellSuggestion(el, word) {
-  document.getElementById('spell-sug-word').value = word;
+function selectSpellSuggestion(el, idx) {
+  const sug = (spellCheckState.currentSuggestions || [])[idx];
+  if (!sug) return;
+  document.getElementById('spell-sug-word').value = sug.word;
   const sugList = document.getElementById('spell-suggestions');
   sugList.querySelectorAll('.dict-word').forEach(e => e.classList.remove('dict-sel'));
   el.classList.add('dict-sel');
@@ -4742,15 +4533,38 @@ function spellCheckReplaceAll() {
   const repWord = document.getElementById('spell-sug-word').value;
   if (!repWord) return;
   
-  const regex = new RegExp('\\b' + targetWord + '\\b', 'g');
-  textarea.value = textarea.value.replace(regex, repWord);
-  
-  sState.errors = sState.errors.filter((errIdx, idx) => {
-    if (idx <= sState.errorIdx) return true;
-    return sState.words[errIdx].word.toLocaleLowerCase('tr') !== targetWord.toLocaleLowerCase('tr');
+  // JS \b only knows ASCII letters; use Unicode letter look-arounds for Turkish words
+  const escaped = targetWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp('(?<!\\p{L})' + escaped + '(?!\\p{L})', 'gu');
+  let shift = 0;
+  const newText = textarea.value.replace(regex, (m, offset) => {
+    if (offset < errWordOccur.start) shift += repWord.length - m.length;
+    return repWord;
   });
-  
-  sState.errorIdx++;
+  textarea.value = newText;
+  const resumeAt = errWordOccur.start + shift + repWord.length;
+
+  // Words still pending as errors (other-case forms of the target stay flagged)
+  const pending = new Set(
+    sState.errors.slice(sState.errorIdx + 1).map(i => sState.words[i].word.toLocaleLowerCase('tr'))
+  );
+
+  // Rescan the text so offsets and highlights match the new content
+  // Same tokenization as the server (apostrophe-attached suffixes stay with the word)
+  const wordRe = /[A-Za-zÇĞİÖŞÜçğıöşüÂÎÛâîû]+(?:['’`][A-Za-zÇĞİÖŞÜçğıöşüÂÎÛâîû]+)*/g;
+  const words = [];
+  const errors = [];
+  let m;
+  while ((m = wordRe.exec(newText)) !== null) {
+    const idx = words.length;
+    words.push({ word: m[0], start: m.index, end: wordRe.lastIndex });
+    if (m.index >= resumeAt && m[0] !== repWord && pending.has(m[0].toLocaleLowerCase('tr'))) {
+      errors.push(idx);
+    }
+  }
+  sState.words = words;
+  sState.errors = errors;
+  sState.errorIdx = 0;
   spellCheckNext();
 }
 
@@ -4783,6 +4597,12 @@ function showChangelog() {
 
 // ─── Init ─────────────────────────────────────────────────────────────────
 showWelcomeWindow();
+
+fetch('/api/stats').then(r => r.json()).then(st => {
+  const el = document.getElementById('statusText');
+  const n = v => v.toLocaleString('tr-TR');
+  if (el) el.textContent = `TRK: ${n(st.trk.total)} | TUR: ${n(st.tur.total)} | SYN: ${n(st.syn.total)} | REV: ${n(st.rev.total)} | KELİME OYUNU: ${n(st.quiz.total)}`;
+}).catch(() => {});
 </script>
 </body>
 </html>
@@ -4830,9 +4650,16 @@ def main():
     import subprocess
     my_pid = str(os.getpid())
     try:
-        pid = subprocess.run(['lsof', '-ti', f":{PORT}"], capture_output=True, text=True).stdout.strip()
+        pid = subprocess.run(['lsof', '-ti', f"tcp:{PORT}", '-sTCP:LISTEN'], capture_output=True, text=True).stdout.strip()
         if pid:
-            pids = [p for p in pid.split() if p != my_pid]
+            pids = []
+            for p in pid.split():
+                if p == my_pid:
+                    continue
+                cmdline = subprocess.run(['ps', '-o', 'command=', '-p', p], capture_output=True, text=True).stdout
+                # Only stop stale instances of this server, never unrelated processes
+                if 'ui.py' in cmdline:
+                    pids.append(p)
             if pids:
                 print(f"  ⚠ Port {PORT} kullanımda (PID:{', '.join(pids)}), eski process sonlandırılıyor…")
                 for p in pids:
@@ -4842,25 +4669,29 @@ def main():
         pass
 
     http.server.HTTPServer.allow_reuse_address = True
-    server = http.server.HTTPServer(("0.0.0.0", PORT), MoonStarHandler)
+    server = http.server.HTTPServer((HOST, PORT), MoonStarHandler)
 
     def shutdown(signum=None, frame=None):
-        print("\nSunucu durduruldu.")
-        server.shutdown()
-        server.server_close()
-        sys.exit(0)
+        # server.shutdown() blocks until serve_forever() returns; calling it from
+        # the signal handler (same thread) would deadlock, so run it separately.
+        import threading
+        threading.Thread(target=server.shutdown, daemon=True).start()
 
     signal.signal(signal.SIGTERM, shutdown)
 
     print(f"\n🌙 MoonStar Veri Gezgini çalışıyor:")
-    print(f"   http://localhost:{PORT}")
+    print(f"   http://{'localhost' if HOST in ('127.0.0.1', '0.0.0.0') else HOST}:{PORT}")
     print(f"\n   Sözlükler: İng→Tr ({len(TRK_DATA)}), Tr→Tr ({len(TUR_DATA)}), EşAnlam ({len(SYN_DATA)})")
-    print(f"   Kelime Oyunu: {len(QUIZ_DATA)} kelime, {len([t for t in TOPIC_NAMES if len(t) > 1])} konu")
+    print(f"   Kelime Oyunu: {len(QUIZ_DATA)} kelime, {len(QUIZ_TOPIC_NAMES)} konu")
     print(f"\n   Çıkmak için Ctrl+C\n")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        shutdown()
+        pass
+    finally:
+        server.server_close()
+        print("\nSunucu durduruldu.")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
