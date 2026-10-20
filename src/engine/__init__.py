@@ -4,12 +4,14 @@ engine — MoonStar Core Reverse-Engineered Linguistic Engine
 """
 
 from .binary_parser import TesBinaryParser
+from .ing import IngDictionary
 from .speller import Speller, UserDictionary
 from .thesaurus import ThesaurusEngine
 from .tur_lexicon import TurLexicon, get_suffix_table
 
 __all__ = [
     "ThesaurusEngine",
+    "IngDictionary",
     "Speller",
     "UserDictionary",
     "TesBinaryParser",
