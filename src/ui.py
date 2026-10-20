@@ -14,11 +14,11 @@ import http.server
 import urllib.parse
 
 try:
-    from spell_check import TurkishSpellChecker
+    from spell_check import TurkishSpellChecker, text_check_response
     from core.constants import TOPIC_NAMES as QUIZ_TOPIC_NAMES
     from core.text import tr_lower, turkish_sort_key
 except ImportError:
-    from src.spell_check import TurkishSpellChecker
+    from src.spell_check import TurkishSpellChecker, text_check_response
     from src.core.constants import TOPIC_NAMES as QUIZ_TOPIC_NAMES
     from src.core.text import tr_lower, turkish_sort_key
 
@@ -40,20 +40,18 @@ HOST = os.environ.get("MOONSTAR_HOST", "127.0.0.1")
 # ─── Data Loaders ───────────────────────────────────────────────────────────
 
 def load_trk():
-    """Load TRK English→Turkish dictionary."""
-    entries = []
-    path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
-    if not os.path.exists(path):
-        return entries
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.rstrip('\r\n')
-            if line:
-                # Fixed 30-column English headword field (may contain spaces)
-                en, tr = line[:30].rstrip(), line[30:].strip()
-                if en:
-                    entries.append({"en": en, "tr": tr})
-    return sorted(entries, key=lambda x: x["en"].lower())
+    """
+    İngilizce Türkçe Sözlük from MTU.TRK (engine.trk, port of FUN_1010_397b), in the EXE's
+    order. `key` is the lowercase text the window matches, `lines` the "Türkçe Karşılıklar" list.
+    """
+    try:
+        from engine.trk import TrkDictionary
+    except ImportError:
+        from src.engine.trk import TrkDictionary
+    entries = TrkDictionary().entries()
+    for e in entries:
+        e["tr"] = " ".join(line.strip() for line in e["lines"])
+    return entries
 
 
 def load_tur():
@@ -119,12 +117,43 @@ REV_DATA, QUIZ_DATA = load_ing()
 
 CHECKER = TurkishSpellChecker()
 
+
+def load_help():
+    """MTU.HLP (WinHelp 3.0) decoded by mtu_hlp."""
+    try:
+        from mtu_hlp import help_json, parse_hlp
+    except ImportError:
+        from src.mtu_hlp import help_json, parse_hlp
+    path = os.path.join(DATA_DIR, "MTU.HLP")
+    return help_json(parse_hlp(path)) if os.path.exists(path) else {"topics": [], "index_topic": None}
+
+
+HELP_DATA = load_help()
+
+
+def load_game_words():
+    """Kelime Oyunu word pools: "Ana Sözlükten" (MTU.TUR) and "Kullanıcı Sözlükten" (MTU.SOZ)."""
+    try:
+        from engine.game import MAIN, USER, game_words
+    except ImportError:
+        from src.engine.game import MAIN, USER, game_words
+    lexicon = CHECKER.lexicon
+    return {"main": game_words(lexicon, source=MAIN),
+            "user": game_words(lexicon, CHECKER.speller.user, USER)}
+
+
+GAME_WORDS = load_game_words()
+
 print(f"  TRK: {len(TRK_DATA)} entries")
 print(f"  TUR: {len(TUR_DATA)} entries")
 print(f"  SYN: {len(SYN_DATA)} entries")
 print(f"  REV: {len(REV_DATA)} entries")
 print(f"  QUIZ: {len(QUIZ_DATA)} entries")
 print(f"  Topics: {len(QUIZ_TOPIC_NAMES)}")
+
+
+# POST endpoints answered by spell_check.text_check_response
+CHECK_PATHS = ("/api/check/text", "/api/check/next", "/api/check/control", "/api/check/start", "/api/check/complete")
 
 
 # ─── HTTP Handler ───────────────────────────────────────────────────────────
@@ -166,6 +195,8 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
                 self.json_response(self.get_hangman_word(params))
             elif path == "/api/check":
                 self.json_response(self.search_check(params))
+            elif path == "/api/help":
+                self.json_response(HELP_DATA)
             elif path == "/api/editor/demo":
                 try:
                     p = os.path.join(DATA_DIR, "TEST")
@@ -233,7 +264,7 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path != "/api/check/text":
+        if parsed.path not in CHECK_PATHS:
             self.send_error(404)
             return
         try:
@@ -245,11 +276,12 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
             return
         try:
             body = json.loads(self.rfile.read(length).decode("utf-8"))
-            text = body.get("text", "") if isinstance(body, dict) else ""
         except (ValueError, UnicodeDecodeError):
             self.send_error(400)
             return
-        self.json_response({"tokens": CHECKER.check_text(text if isinstance(text, str) else "")})
+        if not isinstance(body, dict):
+            body = {}
+        self.json_response(text_check_response(CHECKER, parsed.path, body))
 
     def json_response(self, data):
         try:
@@ -379,37 +411,13 @@ class MoonStarHandler(http.server.SimpleHTTPRequestHandler):
         return {"data": results, "total": len(results)}
 
     def get_hangman_word(self, params):
+        # MTU.EXE FUN_1010_4b79: a random playable word of the chosen dictionary, no hint
         import random
-        topic_param = params.get("topic", [None])[0]
-        # Hangman uses Turkish alphabet keys → the word is a single-word MTU.ING entry,
-        # its English meaning is the hint.
-        letters = set("abcçdefgğhıijklmnoöprsştuüvyzâîû")
-
-        topic = None
-        if topic_param is not None and topic_param != "" and topic_param != "-1":
-            try:
-                topic = int(topic_param)
-            except ValueError:
-                topic = None
-
-        pool = []
-        for q in QUIZ_DATA:
-            if topic is not None and q["topic_idx"] != topic:
-                continue
-            word = q["tr"]
-            if 3 <= len(word) <= 14 and all(ch in letters for ch in word):
-                pool.append(q)
+        source = params.get("source", ["main"])[0]
+        pool = GAME_WORDS.get(source, GAME_WORDS["main"])
         if not pool:
             return {"error": "Kelime bulunamadı"}
-        q = random.choice(pool)
-        return {
-            "word": q["tr"],
-            "en": q["en"],
-            "tr": q["tr"],
-            "hint": q["en"],
-            "topic": q["topic"],
-            "topic_idx": q["topic_idx"],
-        }
+        return {"word": random.choice(pool)}
 
 
 # ─── HTML Page ──────────────────────────────────────────────────────────────
@@ -679,6 +687,17 @@ body {
 .dict-word:hover { background: #e8e8ff; }
 
 .dict-sel { background: #000080; color: #fff; }
+.exe-dlg { padding: 6px 14px 10px; background: #c0c0c0; color: #000; font-family: 'MS Sans Serif', Tahoma, Arial, sans-serif; font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
+.exe-rect3d { position: relative; border: 1px solid #808080; box-shadow: 1px 1px 0 #fff, inset 1px 1px 0 #fff; padding: 9px 8px; }
+.exe-group { padding-top: 14px; }
+.exe-group-label { position: absolute; top: -8px; left: 8px; background: #c0c0c0; padding: 0 3px; }
+.exe-static { min-height: 16px; font-weight: bold; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.exe-btn-row { display: flex; justify-content: space-around; }
+.exe-bmp-btn { width: 63px; height: 39px; border: 0; padding: 0; cursor: pointer; background: var(--up) center / 63px 39px no-repeat; image-rendering: pixelated; }
+.exe-bmp-btn:active { background-image: var(--down); }
+.help-topic { flex: 1; overflow-y: auto; background: #fff; border: 1px solid #808080; padding: 6px 10px; font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #000; }
+.help-topic p { margin: 0; min-height: 1em; white-space: pre-wrap; tab-size: 4; }
+.help-link { color: #008000; text-decoration: underline; cursor: pointer; }
 .dict-sel:hover { background: #000080; }
 .dict-meaning {
   padding: 2px 4px;
@@ -1342,7 +1361,7 @@ body {
 
       <!-- Main Desktop Dropdown Menus -->
       <div class="dropdown" id="mainHelpMenu">
-        <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Denetim Editörü Kılavuzu:\n\n• F5: İmla Denetimi\n• Shift+F5: Sözlük Kontrol Raporu\n• F3: Bul\n• F4: Değiştir\n• F6: Türkçe Leb Demeden\n• F7: Eş Anlamlı Kelimeler\n• F8: Türkçe -> İngilizce\n• F9: Metin İstatistikleri\n• Ctrl+Q: Büyük Harf\n• Ctrl+W: Küçük Harf\n• Alt+F8: Kaydet')">İçerik (F1)</div>
+        <div class="dropdown-item" onclick="openHelp()">İçerik (F1)</div>
         <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="showChangelog()">Change Log</div>
         <div class="dropdown-sep"></div>
@@ -1389,7 +1408,7 @@ body {
         <div class="dropdown-item" onclick="winAlert('Kontrol sözlüğü (KONTROL.SOZ) hazır.')">Kontrol sözlük...</div>
         <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="editorLookupTur('win-edt')">Leb demeden (Türkçe) <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F6</span></div>
-        <div class="dropdown-item" onclick="editorLookupTrk('win-edt')">Leb demeden (İngilizce) <span style="float:right;color:#666;font-size:11px;margin-left:12px;">Shift+F6</span></div>
+        <div class="dropdown-item" onclick="editorLookupEld('win-edt')">Leb demeden (İngilizce) <span style="float:right;color:#666;font-size:11px;margin-left:12px;">Shift+F6</span></div>
         <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="editorLookupSyn('win-edt')">Eş Anlamlı kelimeler <span style="float:right;color:#666;font-size:11px;margin-left:12px;">F7</span></div>
         <div class="dropdown-sep"></div>
@@ -1406,7 +1425,7 @@ body {
         <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Dil Denetim ve Editör Sistemi v4.0')">Genel tanımlar...</div>
       </div>
       <div class="dropdown" id="edtHelpMenu">
-        <div class="dropdown-item" onclick="winAlert('MoonStar Türkçe Denetim Editörü Kılavuzu:\n\n• F5: İmla Denetimi\n• Shift+F5: Sözlük Kontrol Raporu\n• F3: Bul\n• F4: Değiştir\n• F6: Türkçe Leb Demeden\n• F7: Eş Anlamlı Kelimeler\n• F8: Türkçe -> İngilizce\n• F9: Metin İstatistikleri\n• Ctrl+Q: Büyük Harf\n• Ctrl+W: Küçük Harf\n• Alt+F8: Kaydet')">İçerik (F1)</div>
+        <div class="dropdown-item" onclick="openHelp()">İçerik (F1)</div>
         <div class="dropdown-sep"></div>
         <div class="dropdown-item" onclick="showChangelog()">Change Log</div>
         <div class="dropdown-sep"></div>
@@ -1571,36 +1590,39 @@ body {
 <input type="file" id="editorFileInput" style="display:none;" accept=".txt,.doc,.bak,.soz,text/*" onchange="editorHandleFileOpen(event)">
 <input type="file" id="editorMergeInput" style="display:none;" accept=".txt,.doc,.bak,.soz,text/*" onchange="editorHandleFileMerge(event)">
 
-<!-- Spell Check Dialog (Enhanced Win16 Modal) -->
+<!-- Spell check dialogs: MTU.EXE dialog resources 2217 and 2218, buttons are the EXE's own bitmaps -->
 <div class="dialog-overlay" id="spellCheckDialog">
-  <div class="win-window" style="width:420px;">
-    <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Yazım Denetimi</span>
-      <div class="win-title-btns"><button onclick="closeSpellCheck()">✕</button></div>
+  <div class="win-window" style="width:368px;">
+    <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Hatalı veya Bilinmeyen Sözcük</span>
+      <div class="win-title-btns"><button onclick="spellCheckStop()">✕</button></div>
     </div>
-    <div class="win-body" style="padding:10px;background:#c0c0c0;color:#000;font-family:'MS Sans Serif', Tahoma, Arial, sans-serif;font-size:12px;display:flex;gap:12px;box-sizing:border-box;">
-      <!-- Left side (Fields and List) -->
-      <div style="flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;">
-        <div>
-          <div style="font-weight:bold;margin-bottom:2px;">Hatalı Sözcük:</div>
-          <input class="win-input" type="text" id="spell-err-word" style="width:100%;font-weight:bold;background:#d8d8d8;color:#555;" readonly>
-        </div>
-        <div>
-          <div style="font-weight:bold;margin-bottom:2px;">Öneri / Düzeltme:</div>
-          <input class="win-input" type="text" id="spell-sug-word" style="width:100%;font-weight:bold;background:#fff;" onkeydown="if(event.key==='Enter') spellCheckReplace()">
-        </div>
-        <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
-          <div style="font-weight:bold;margin-bottom:2px;">Alternatifler:</div>
-          <div class="win-list" id="spell-suggestions" style="flex:1;overflow-y:auto;background:#fff;height:120px;"></div>
-        </div>
+    <div class="win-body exe-dlg">
+      <div class="exe-rect3d"><div id="spell-err-word" class="exe-static"></div></div>
+      <div class="exe-rect3d exe-group"><span class="exe-group-label">Öneriler</span>
+        <div class="win-list" id="spell-suggestions" style="height:128px;overflow-y:auto;background:#fff;"></div>
       </div>
-      <!-- Right side (Actions) -->
-      <div style="width:95px;display:flex;flex-direction:column;gap:6px;justify-content:flex-start;align-items:stretch;padding-top:4px;flex-shrink:0;">
-        <button class="win-btn" onclick="spellCheckIgnore()" style="height:23px;font-size:11px;font-weight:bold;">Geç</button>
-        <button class="win-btn" onclick="spellCheckIgnoreAll()" style="height:23px;font-size:11px;font-weight:bold;">Tümünü Geç</button>
-        <button class="win-btn primary" onclick="spellCheckReplace()" style="height:23px;font-size:11px;font-weight:bold;">Değiştir</button>
-        <button class="win-btn" onclick="spellCheckReplaceAll()" style="height:23px;font-size:11px;font-weight:bold;">Tümünü Değ.</button>
-        <button class="win-btn" onclick="spellCheckAdd()" style="height:23px;font-size:11px;font-weight:bold;">Sözlüğe Ekle</button>
-        <button class="win-btn" onclick="closeSpellCheck()" style="height:23px;font-size:11px;font-weight:bold;margin-top:12px;">Durdur</button>
+      <div class="exe-btn-row">
+        <button class="exe-bmp-btn" style="--up:url('/assets/exe/btn_sozluk.png');--down:url('/assets/exe/btn_sozluk_down.png')" onclick="spellCheckAddWord()" title="Sözlük"></button>
+        <button class="exe-bmp-btn" style="--up:url('/assets/exe/btn_degistir.png');--down:url('/assets/exe/btn_degistir_down.png')" onclick="spellCheckReplace()" title="Değiştir"></button>
+        <button class="exe-bmp-btn" style="--up:url('/assets/exe/btn_devam.png');--down:url('/assets/exe/btn_devam_down.png')" onclick="spellCheckContinue()" title="Devam"></button>
+        <button class="exe-bmp-btn" style="--up:url('/assets/exe/btn_dur.png');--down:url('/assets/exe/btn_dur_down.png')" onclick="spellCheckStop()" title="Dur"></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="dialog-overlay" id="punctCheckDialog">
+  <div class="win-window" style="width:284px;">
+    <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Noktalama Hatası</span>
+      <div class="win-title-btns"><button onclick="spellCheckStop()">✕</button></div>
+    </div>
+    <div class="win-body exe-dlg">
+      <div class="exe-rect3d"><div id="punct-err-word" class="exe-static"></div></div>
+      <div class="exe-rect3d"><div id="punct-replacement" class="exe-static"></div></div>
+      <div class="exe-btn-row">
+        <button class="exe-bmp-btn" style="--up:url('/assets/exe/btn_degistir.png');--down:url('/assets/exe/btn_degistir_down.png')" onclick="spellCheckReplace()" title="Değiştir"></button>
+        <button class="exe-bmp-btn" style="--up:url('/assets/exe/btn_devam.png');--down:url('/assets/exe/btn_devam_down.png')" onclick="spellCheckContinue()" title="Devam"></button>
+        <button class="exe-bmp-btn" style="--up:url('/assets/exe/btn_dur.png');--down:url('/assets/exe/btn_dur_down.png')" onclick="spellCheckStop()" title="Dur"></button>
       </div>
     </div>
   </div>
@@ -1631,18 +1653,18 @@ body {
   </div>
 </div>
 
-<!-- Dict Check Dialog (Shift+F5) -->
-<div class="dialog-overlay" id="dictCheckDialog">
-  <div class="win-window" style="width:440px;height:380px;">
-    <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Sözlük Kontrol Raporu</span>
-      <div class="win-title-btns"><button onclick="closeDialog('dictCheckDialog')">✕</button></div>
+<!-- Help viewer: MTU.HLP (WinHelp 3.0) topics -->
+<div class="dialog-overlay" id="helpDialog">
+  <div class="win-window" style="width:560px;height:440px;">
+    <div class="win-title"><img class="win-title-icon" src="/assets/moonstar_icon.png?v=2"><span class="win-title-text">Yardım - MTU.HLP</span>
+      <div class="win-title-btns"><button onclick="closeDialog('helpDialog')">✕</button></div>
     </div>
-    <div class="win-body" style="padding:10px;display:flex;flex-direction:column;gap:8px;height:100%;box-sizing:border-box;">
-      <div id="dict-check-summary" style="font-weight:bold;font-size:12px;color:#000;"></div>
-      <div class="win-list" id="dict-check-list" style="flex:1;overflow-y:auto;background:#fff;font-size:12px;"></div>
-      <div style="display:flex;justify-content:center;margin-top:4px;">
-        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="closeDialog('dictCheckDialog')" title="Tamam"></div>
+    <div class="win-body" style="padding:4px;display:flex;flex-direction:column;gap:4px;height:100%;box-sizing:border-box;background:#c0c0c0;">
+      <div style="display:flex;gap:4px;">
+        <button class="win-btn" style="height:23px;font-size:11px;" onclick="helpShow(helpState.data.index_topic)">İçerik</button>
+        <button class="win-btn" id="help-back" style="height:23px;font-size:11px;" onclick="helpBack()">Geri</button>
       </div>
+      <div id="help-topic" class="help-topic"></div>
     </div>
   </div>
 </div>
@@ -1992,7 +2014,10 @@ function openWindow(type, opts) {
       config = { title: 'Türkçe Eş Anlamlı Sözcükler', type: 'syn', w: 600, h: 420 };
       break;
     case 'tr-tr':
-      config = { title: 'Türkçe Leb Demeden', type: 'tur', w: 480, h: 380 };
+      config = { title: 'Türkçe Leb Demeden ...', type: 'tur', w: 300, h: 360 };
+      break;
+    case 'en-ld':
+      config = { title: 'İngilizce Leb Demeden ...', type: 'eld', w: 300, h: 360 };
       break;
     case 'stats':
       config = { title: 'Metin İstatistik', type: 'stats', w: 480, h: 340 };
@@ -2096,13 +2121,18 @@ function openWindow(type, opts) {
         </div>
       </div>
     </div>`;
-  } else if (config.type === 'tur') {
-    html += `<div class="win-body" style="padding:4px;flex:1;display:flex;flex-direction:column;min-height:0;">
-      <div style="margin-bottom:4px;flex-shrink:0;">
-        <input class="win-input" type="text" placeholder="Sözcük ara..." style="width:100%;" id="${id}-search" value="${escHtml(rememberedQuery)}" oninput="dictSearchDebounced('${id}')">
+  } else if (config.type === 'tur' || config.type === 'eld') {
+    // MTU.EXE dialogs 2207 / 2208: Sözcük, word list, Tamam (501) and Değiştir (516)
+    html += `<div class="win-body exe-dlg" style="flex:1;min-height:0;">
+      <div class="exe-rect3d exe-group"><span class="exe-group-label">Sözcük</span>
+        <input class="win-input" type="text" style="width:100%;" id="${id}-search" value="${escHtml(rememberedQuery)}" oninput="dictSearchDebounced('${id}')" onkeydown="if(event.key==='Enter'){event.preventDefault();}">
       </div>
-      <div class="group-box" style="flex:1;display:flex;flex-direction:column;margin-bottom:4px;"><legend>Türkçe Sözcükler</legend>
+      <div class="exe-rect3d exe-group" style="flex:1;display:flex;flex-direction:column;min-height:0;"><span class="exe-group-label">${config.type === 'tur' ? 'Türkçe Sözcükler' : 'İngilizce Sözcükler'}</span>
         <div class="win-list" style="flex:1;overflow-y:auto;" id="${id}-list"></div>
+      </div>
+      <div style="display:flex;justify-content:space-around;">
+        <div class="sprite-btn btn-sprite-dialog btn-sprite-tamam" onclick="closeWindow('${id}')" title="Tamam"></div>
+        <button class="exe-bmp-btn" style="--up:url('/assets/exe/btn_degistir.png');--down:url('/assets/exe/btn_degistir_down.png')" onclick="lebReplace('${id}')" title="Değiştir"></button>
       </div>
     </div>`;
   } else if (config.type === 'stats') {
@@ -2127,7 +2157,8 @@ function openWindow(type, opts) {
     case 'trk': loadWindowDict(id, 'trk', '/api/trk'); break;
     case 'rev': loadWindowDict(id, 'rev', '/api/rev'); break;
     case 'syn': loadWindowDict(id, 'syn', '/api/syn'); break;
-    case 'tur': loadWindowDict(id, 'tur', '/api/tur'); break;
+    case 'tur': lebSearch(id); break;
+    case 'eld': loadWindowDict(id, 'trk', '/api/trk'); break;
     case 'stats': loadWindowStats(id); break;
   }
 }
@@ -2535,11 +2566,100 @@ function normalizeSearch(s) {
     .replace(/î/g,'i').replace(/â/g,'a').replace(/û/g,'u')
     .replace(/ı/g,'i').replace(/ş/g,'s').replace(/ç/g,'c').replace(/ö/g,'o').replace(/ü/g,'u').replace(/ğ/g,'g');
 }
+// İngilizce Türkçe Sözlük (MTU.EXE FUN_1010_397b): only words starting with the typed text
+// are listed, in the EXE's order, after at least two letters a–z; only A–Z are case folded.
+function trkSearch(winId, raw) {
+  const fullData = state.windowData && state.windowData[winId];
+  if (!fullData) return;
+  const key = raw.replace(/[A-Z]/g, c => c.toLowerCase());
+  const found = /^[a-z]{2}/.test(key) ? fullData.filter(e => e.key.startsWith(key)) : [];
+  state.activeData = state.activeData || {};
+  state.activeData[winId] = found;
+  const listEl = document.getElementById(winId + '-list');
+  listEl.innerHTML = found.map((e, i) =>
+    `<div class="dict-word${i === 0 ? ' dict-sel' : ''}" onclick="trkSelect('${winId}',${i})">${escHtml(e.en)}</div>`).join('');
+  listEl.scrollTop = 0;
+  trkSelect(winId, 0);
+}
+
+// Türkçe Leb Demeden (MTU.EXE FUN_1010_3648): words starting with the typed text
+function lebSearch(winId) {
+  const input = document.getElementById(winId + '-search');
+  const text = input ? input.value : '';
+  postJson('/api/check/complete', { text: text }).then(r => {
+    const listEl = document.getElementById(winId + '-list');
+    if (!listEl) return;
+    state.activeData = state.activeData || {};
+    state.activeData[winId] = r.words.map(w => ({ en: w }));
+    listEl.innerHTML = r.words.map((w, i) =>
+      `<div class="dict-word${i === 0 ? ' dict-sel' : ''}" onclick="trkSelect('${winId}',${i})">${escHtml(w)}</div>`).join('');
+    listEl.scrollTop = 0;
+  });
+}
+
+// "Değiştir" (516): the selected word replaces the word at the editor's cursor
+function lebReplace(winId) {
+  const sel = document.querySelector(`#${winId}-list .dict-sel`);
+  const src = state.lebSource;
+  if (sel && src) {
+    const t = document.getElementById(src.winId + '-textarea');
+    if (t) {
+      t.value = t.value.slice(0, src.start) + sel.textContent + t.value.slice(src.end);
+      t.focus();
+      t.setSelectionRange(src.start + sel.textContent.length, src.start + sel.textContent.length);
+    }
+  }
+  closeWindow(winId);
+}
+
+function trkFirstMeaning(line) {
+  // "Türkçe Karşılık": the line without its "%2d." number, at most 60 characters
+  const c = line.charAt(0);
+  return (c === ' ' || (c >= '1' && c <= '8') ? line.slice(3) : line).slice(0, 60);
+}
+
+function trkSelect(winId, idx) {
+  const items = document.querySelectorAll(`#${winId}-list .dict-word`);
+  items.forEach((el, i) => el.classList.toggle('dict-sel', i === idx));
+  const e = (state.activeData[winId] || [])[idx];
+  const df = document.getElementById(winId + '-defn');
+  const dt = document.getElementById(winId + '-detail');
+  if (!df) return;
+  if (!e) {
+    df.innerHTML = '';
+    if (dt) dt.value = '';
+    return;
+  }
+  df.innerHTML = e.lines.map((l, i) =>
+    `<div class="dict-meaning${i === 0 ? ' meaning-sel' : ''}" style="white-space:pre;" onclick="trkSelectLine('${winId}',${idx},${i})">${escHtml(l)}</div>`).join('');
+  if (dt) dt.value = trkFirstMeaning(e.lines[0] || '');
+}
+
+function trkSelectLine(winId, idx, line) {
+  const e = (state.activeData[winId] || [])[idx];
+  if (!e) return;
+  document.querySelectorAll(`#${winId}-defn .dict-meaning`).forEach((el, i) => el.classList.toggle('meaning-sel', i === line));
+  const dt = document.getElementById(winId + '-detail');
+  if (dt) dt.value = trkFirstMeaning(e.lines[line] || '');
+}
+
 function dictSearch(winId) {
   const input = document.getElementById(winId + '-search');
   const q = input ? input.value.trim() : '';
   const win = state.windows[winId];
   if (!win) return;
+  if (win.type === 'trk' || win.type === 'eld') {
+    if (q) {
+      state.lastDictQuery = state.lastDictQuery || {};
+      state.lastDictQuery[win.type] = q;
+    }
+    trkSearch(winId, input ? input.value : '');
+    return;
+  }
+  if (win.type === 'tur') {
+    lebSearch(winId);
+    return;
+  }
 
   if (q) {
     state.lastSearchQuery = q;
@@ -2997,20 +3117,17 @@ function startHangmanRound(id, topicIdx, topicName) {
         return;
       }
       const word = toTrUpper(d.word || '');
-      initHangmanGame(id, word, d.hint || d.en || '', topicIdx);
+      initHangmanGame(id, word, '', topicIdx);
       SoundFX.playStart();
     });
 }
 
 function initHangmanGame(id, word, hint, topicIdx) {
   const wordUpper = toTrUpper(word);
-  const prev = (state.windows[id] && state.windows[id].hangman) || {};
   const info = {
     word: wordUpper, hint: hint, topicIdx: topicIdx,
     guessed: [], wrong: 0, maxWrong: 9, done: false, id: id,
-    // A lost round zeroes the score; the next round starts fresh
-    score: (typeof prev.score === 'number' && !(prev.done && prev.wrong >= prev.maxWrong)
-      ? prev.score : HM_START_SCORE),
+    score: HM_START_SCORE,  // "Başla" sets the score to 10000 (ds:0x240C)
     started: true
   };
   state.windows[id].hangman = info;
@@ -3132,20 +3249,17 @@ function guessLetter(id, letter) {
   const info = state.windows[id] && state.windows[id].hangman;
   if (!info || !info.started || !info.word || info.done || info.guessed.includes(letter)) return;
   if (letter === '?') {
-    // Hint: reveal one unrevealed letter (costs a wrong step and halves score)
-    let revealed = false;
+    // EXE: the "?" button opens the first hidden letter and halves the score; it is not a
+    // wrong guess, and like every letter button it is disabled once pressed
+    info.guessed.push('?');
     for (const c of info.word) {
       if (!info.guessed.includes(c)) {
         info.guessed.push(c);
-        revealed = true;
         break;
       }
     }
-    if (revealed) {
-      info.wrong = Math.min(info.wrong + 1, info.maxWrong);
-      info.score = Math.floor(info.score / 2);
-      SoundFX.playHint();
-    }
+    info.score = Math.floor(info.score / 2);
+    SoundFX.playHint();
   } else {
     info.guessed.push(letter);
     if (!info.word.includes(letter)) {
@@ -3760,47 +3874,28 @@ function runSpellCheck(winId) {
 
   statusEl.textContent = 'Denetleniyor…';
   resultsEl.innerHTML = '';
-
-  const words = text.match(/[a-zA-ZçÇğĞışİöÖşŞüÜâîû]+/g) || [];
-  if (words.length === 0) {
-    statusEl.textContent = 'Denetlenecek kelime bulunamadı.';
-    return;
-  }
-
-  let checked = 0;
-  let errors = [];
-
-  words.forEach((w, idx) => {
-    fetch(`/api/check?q=${encodeURIComponent(w)}`)
-      .then(r => r.json())
-      .then(data => {
-        checked++;
-        statusEl.textContent = `${checked}/${words.length} denetlendi`;
-        if (!data.valid) {
-          let sug = '';
-          if (data.suggestions && data.suggestions.length > 0) {
-            sug = ' → ' + data.suggestions.slice(0, 5).map(s => s.word).join(', ');
-          }
-          errors.push({ word: data.word, suggestions: data.suggestions });
-          const div = document.createElement('div');
-          div.style.cssText = 'padding:2px 0;color:#c33;';
-          div.textContent = data.word + sug;
-          resultsEl.appendChild(div);
-        }
-        if (checked === words.length) {
-          statusEl.textContent = errors.length > 0
-            ? `${errors.length} hatalı kelime bulundu.`
-            : '✓ Hiçbir hata bulunamadı.';
-        }
-      })
-      .catch(() => {
-        checked++;
-        if (checked === words.length) {
-          statusEl.textContent = errors.length > 0
-            ? `${errors.length} hatalı kelime bulundu.`
-            : '✓ Hiçbir hata bulunamadı.';
-        }
-      });
+  // The EXE's check loop over the whole text, every error answered with "Devam"
+  fetchTextCheck(text).then(res => {
+    if (res.words.length === 0) {
+      statusEl.textContent = 'Denetlenecek kelime bulunamadı.';
+      return;
+    }
+    res.errors.forEach(err => {
+      const div = document.createElement('div');
+      div.style.cssText = 'padding:2px 0;color:#c33;';
+      if (err.kind === 'punct') {
+        div.textContent = err.word + ' → ' + err.replacement + ' (noktalama)';
+      } else {
+        const sug = err.suggestions.slice(0, 5).map(s => s.word).join(', ');
+        div.textContent = err.word + (sug ? ' → ' + sug : '');
+      }
+      resultsEl.appendChild(div);
+    });
+    statusEl.textContent = res.errors.length > 0
+      ? `${res.errors.length} hata bulundu (${res.words.length} sözcük).`
+      : '✓ Hiçbir hata bulunamadı.';
+  }).catch(() => {
+    statusEl.textContent = 'Hata: Sunucu bağlantısı başarısız.';
   });
 }
 
@@ -3907,7 +4002,7 @@ function openTextEditor() {
   textarea.addEventListener('keydown', function(event) {
     if (event.key === 'F1') {
       event.preventDefault();
-      winAlert('MoonStar Türkçe Denetim Editörü Kılavuzu:\n\n• F5: İmla Denetimi\n• Shift+F5: Sözlük Kontrol Raporu\n• F3: Bul\n• F4: Değiştir\n• F6: Türkçe Leb Demeden\n• F7: Eş Anlamlı Kelimeler\n• F8: Türkçe -> İngilizce\n• F9: Metin İstatistikleri\n• Ctrl+Q: Büyük Harf\n• Ctrl+W: Küçük Harf\n• Alt+F8: Kaydet');
+      openHelp();
     } else if (event.key === 'F2' || (event.key === 'F5' && !event.shiftKey)) {
       event.preventDefault();
       editorSpellCheck(id);
@@ -3928,7 +4023,7 @@ function openTextEditor() {
       editorLookupTur(id);
     } else if (event.key === 'F6' && event.shiftKey) {
       event.preventDefault();
-      editorLookupTrk(id);
+      editorLookupEld(id);
     } else if (event.key === 'F7') {
       event.preventDefault();
       editorLookupSyn(id);
@@ -4245,60 +4340,40 @@ function editorShowStats(winId) {
   document.getElementById('textStatsDialog').classList.add('open');
 }
 
-function fetchTextCheck(text) {
-  return fetch('/api/check/text', {
+function postJson(url, body) {
+  return fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: text })
+    body: JSON.stringify(body)
   }).then(r => {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
-  }).then(d => d.tokens || []);
+  });
+}
+
+// Whole text as the EXE checks it when every error gets "Devam": {errors, words}
+function fetchTextCheck(text) {
+  return postJson('/api/check/text', { text: text });
 }
 
 function editorDictCheck(winId) {
+  // MTU.EXE "Sözlük kontrol" (FUN_1018_10c4): from the cursor, stop at the first word that is
+  // a form of a control dictionary (KONTROL.SOZ) entry and select it; nothing is shown otherwise.
   closeAllMenus();
   const t = document.getElementById(winId + '-textarea');
-  const text = t.value;
-  if (!text.trim()) {
-    winAlert('Metinde kontrol edilecek sözcük bulunamadı.');
-    return;
-  }
-  document.getElementById(winId + '-status').textContent = 'Sözlük kontrolü yapılıyor...';
-
-  fetchTextCheck(text)
-    .then(tokens => {
-      if (tokens.length === 0) {
-        winAlert('Metinde kontrol edilecek sözcük bulunamadı.');
-        return;
+  const status = document.getElementById(winId + '-status');
+  postJson('/api/check/control', { text: t.value, pos: t.selectionEnd })
+    .then(r => {
+      t.focus();
+      if (r.match) {
+        t.setSelectionRange(r.match.start, r.match.end);
+        status.textContent = `Kontrol sözlüğünde bulunan sözcük: "${r.match.word}"`;
+      } else {
+        status.textContent = 'Sözlük kontrol tamamlandı.';
       }
-      // One row per distinct word; a word is wrong if any occurrence is wrong in its context
-      const byWord = new Map();
-      tokens.forEach(tk => {
-        const ok = tk.valid || state.userDictionary.has(tk.word.toLocaleLowerCase('tr'));
-        byWord.set(tk.word, (byWord.has(tk.word) ? byWord.get(tk.word) : true) && ok);
-      });
-      let validCount = 0;
-      let invalidCount = 0;
-      let listHtml = '';
-      byWord.forEach((isValid, w) => {
-        if (isValid) {
-          validCount++;
-          listHtml += `<div style="padding:2px 6px;border-bottom:1px solid #eee;color:#008000;">✓ <b>${escHtml(w)}</b> (Geçerli)</div>`;
-        } else {
-          invalidCount++;
-          listHtml += `<div style="padding:2px 6px;border-bottom:1px solid #eee;color:#c00;">✕ <b>${escHtml(w)}</b> (Sözlükte Yok)</div>`;
-        }
-      });
-      const uniqueWords = Array.from(byWord.keys());
-      document.getElementById('dict-check-summary').textContent = `Toplam ${uniqueWords.length} farklı sözcük: ${validCount} geçerli, ${invalidCount} hatalı.`;
-      document.getElementById('dict-check-list').innerHTML = listHtml;
-      document.getElementById('dictCheckDialog').classList.add('open');
-      document.getElementById(winId + '-status').textContent = 'Sözlük kontrolü tamamlandı.';
     })
     .catch(() => {
-      const st = document.getElementById(winId + '-status');
-      if (st) st.textContent = 'Hata: Sunucu bağlantısı başarısız.';
+      status.textContent = 'Hata: Sunucu bağlantısı başarısız.';
     });
 }
 
@@ -4320,10 +4395,27 @@ function getEditorSelectedOrWord(winId) {
   return '';
 }
 
+function editorWordRange(winId) {
+  const t = document.getElementById(winId + '-textarea');
+  const val = t.value;
+  let start = t.selectionStart, end = t.selectionEnd;
+  if (start === end) {
+    while (start > 0 && /[^\s.,;:!?"()]/.test(val[start - 1])) start--;
+    while (end < val.length && /[^\s.,;:!?"()]/.test(val[end])) end++;
+  }
+  return { winId: winId, start: start, end: end, word: val.slice(start, end) };
+}
+
 function editorLookupTur(winId) {
   closeAllMenus();
-  const w = getEditorSelectedOrWord(winId);
-  openWindow('tr-tr', { query: w });
+  state.lebSource = editorWordRange(winId);
+  openWindow('tr-tr', { query: state.lebSource.word });
+}
+
+function editorLookupEld(winId) {
+  closeAllMenus();
+  state.lebSource = editorWordRange(winId);
+  openWindow('en-ld', { query: state.lebSource.word });
 }
 
 function editorLookupTrk(winId) {
@@ -4368,220 +4460,185 @@ function clearUserDict() {
   }
 }
 
-// ─── Interactive Spell Checker Logic ─────────────────────────────────────────
-let spellCheckState = {
-  winId: null,
-  words: [],
-  currentIdx: 0,
-  errors: [],
-  errorIdx: 0
-};
+// ─── Interactive Spell Checker (MTU.EXE FUN_1018_11e0) ──────────────────────
+// The server runs the EXE's check loop up to the next error; the buttons do what the
+// EXE's do: Sözlük adds the word and checks it again, Değiştir replaces it, Devam skips
+// it and every later occurrence, Dur ends the check.
+let spellCheckState = { winId: null };
 
 function editorSpellCheck(winId) {
   closeAllMenus();
   const status = document.getElementById(winId + '-status');
-  status.textContent = 'Yazım denetimi başlatılıyor...';
-  
   const textarea = document.getElementById(winId + '-textarea');
-  const text = textarea.value;
-  if (!text.trim()) {
+  if (!textarea.value.trim()) {
     winAlert('Denetlenecek metin yok.');
     status.textContent = 'Yazım denetimi iptal edildi (metin boş).';
     return;
   }
-  
-  status.textContent = 'Kelimeler sözlükte denetleniyor...';
-
-  fetchTextCheck(text)
-    .then(tokens => {
-      if (tokens.length === 0) {
-        winAlert('Denetlenecek sözcük bulunamadı.');
-        return;
-      }
-      const words = tokens.map(tk => ({ word: tk.word, start: tk.start, end: tk.end }));
-      const results = {};
-      const errors = [];
-      tokens.forEach((tk, idx) => {
-        if (!tk.valid && !(state.userDictionary && state.userDictionary.has(tk.word.toLocaleLowerCase('tr')))) {
-          errors.push(idx);
-          results[tk.word] = tk;
-        }
-      });
-
-      if (errors.length === 0) {
-        winAlert('✓ Tebrikler! Metinde hiçbir yazım hatası bulunamadı.');
-        status.textContent = '✓ Yazım denetimi tamamlandı: Hata bulunamadı.';
-        return;
-      }
-      
-      // Initialize spell check loop state
-      spellCheckState = {
-        winId: winId,
-        words: words,
-        errors: errors,
-        errorIdx: 0,
-        results: results
-      };
-      
-      document.getElementById('spellCheckDialog').classList.add('open');
-      spellCheckNext();
-    })
-    .catch(() => {
-      status.textContent = 'Hata: Sunucu bağlantısı başarısız.';
-    });
+  // FUN_1018_11e0 starts at the cursor; the word before it sets the sentence state
+  const pos = textarea.selectionStart;
+  spellCheckState = { winId: winId, pos: pos, state: 0x80, ignore: [], punct: null, err: null, sel: 0 };
+  status.textContent = 'Yazım denetimi yapılıyor...';
+  postJson('/api/check/start', { text: textarea.value, pos: pos }).then(r => {
+    spellCheckState.state = r.state;
+    spellCheckStep();
+  }).catch(() => {
+    status.textContent = 'Hata: Sunucu bağlantısı başarısız.';
+  });
 }
 
-function spellCheckNext() {
-  const sState = spellCheckState;
-  const textarea = document.getElementById(sState.winId + '-textarea');
-  const status = document.getElementById(sState.winId + '-status');
-  
-  if (sState.errorIdx >= sState.errors.length) {
-    closeSpellCheck();
-    winAlert('✓ Yazım denetimi başarıyla tamamlandı.');
-    status.textContent = '✓ Yazım denetimi tamamlandı.';
+function spellCheckStep() {
+  const s = spellCheckState;
+  const textarea = document.getElementById(s.winId + '-textarea');
+  const status = document.getElementById(s.winId + '-status');
+  postJson('/api/check/next', {
+    text: textarea.value, pos: s.pos, state: s.state, ignore: s.ignore,
+    user_words: Array.from(state.userDictionary || []), punct_continue: s.punct,
+  }).then(r => {
+    const err = r.error;
+    s.err = err;
+    document.getElementById('spellCheckDialog').classList.remove('open');
+    document.getElementById('punctCheckDialog').classList.remove('open');
+    if (!err) {
+      status.textContent = '✓ Yazım denetimi tamamlandı.';
+      winAlert('Yazım denetimi tamamlandı.');
+      textarea.focus();
+      return;
+    }
     textarea.focus();
-    return;
-  }
-  
-  const errWordIdx = sState.errors[sState.errorIdx];
-  const errWordOccur = sState.words[errWordIdx];
-  
-  textarea.focus();
-  textarea.setSelectionRange(errWordOccur.start, errWordOccur.end);
-  
-  const lineNum = textarea.value.substr(0, errWordOccur.start).split("\n").length;
-  const lineHeight = 19;
-  textarea.scrollTop = (lineNum - 4) * lineHeight;
-  
-  document.getElementById('spell-err-word').value = errWordOccur.word;
-  
-  const check = sState.results[errWordOccur.word] || sState.results[errWordOccur.word.toLocaleLowerCase('tr')];
-  const suggestions = (check && check.suggestions) || [];
-  const sugInput = document.getElementById('spell-sug-word');
-  const sugList = document.getElementById('spell-suggestions');
-  
-  sugList.innerHTML = '';
-  sState.currentSuggestions = suggestions;
-  if (suggestions.length > 0) {
-    // The EXE preselects its best-scored suggestion, not necessarily the first one
-    const best = (check && Number.isInteger(check.best) && check.best < suggestions.length) ? check.best : 0;
-    sugInput.value = suggestions[best].word;
-    sugList.innerHTML = suggestions.map((s, idx) => 
-      `<div class="dict-word${idx===best?' dict-sel':''}" style="border-bottom:none; font-weight:bold; font-family:inherit; padding:3px 6px; cursor:pointer;" onclick="selectSpellSuggestion(this, ${idx})">${escHtml(s.word)}</div>`
+    textarea.setSelectionRange(err.start, err.end);
+    const lineNum = textarea.value.substr(0, err.start).split("\n").length;
+    textarea.scrollTop = (lineNum - 4) * 19;
+    if (err.kind === 'punct') {
+      document.getElementById('punct-err-word').textContent = err.word;
+      document.getElementById('punct-replacement').textContent = err.replacement;
+      document.getElementById('punctCheckDialog').classList.add('open');
+      status.textContent = `Noktalama hatası: "${err.word}"`;
+      return;
+    }
+    document.getElementById('spell-err-word').textContent = err.word;
+    const list = document.getElementById('spell-suggestions');
+    s.sel = Number.isInteger(err.best) ? err.best : 0;
+    list.innerHTML = err.suggestions.map((sug, idx) =>
+      `<div class="dict-word${idx === s.sel ? ' dict-sel' : ''}" style="border-bottom:none;font-family:inherit;padding:1px 4px;cursor:default;" onclick="selectSpellSuggestion(this, ${idx})" ondblclick="selectSpellSuggestion(this, ${idx});spellCheckReplace()">${escHtml(sug.word)}</div>`
     ).join('');
-  } else {
-    sugInput.value = errWordOccur.word;
-    sugList.innerHTML = '<div style="color:#888;padding:6px;font-style:italic;">Öneri bulunamadı.</div>';
-  }
-  
-  status.textContent = `Hata ${sState.errorIdx + 1} / ${sState.errors.length}: "${errWordOccur.word}"`;
+    document.getElementById('spellCheckDialog').classList.add('open');
+    status.textContent = `Hatalı veya bilinmeyen sözcük: "${err.word}"`;
+  }).catch(() => {
+    status.textContent = 'Hata: Sunucu bağlantısı başarısız.';
+  });
 }
 
 function selectSpellSuggestion(el, idx) {
-  const sug = (spellCheckState.currentSuggestions || [])[idx];
-  if (!sug) return;
-  document.getElementById('spell-sug-word').value = sug.word;
-  const sugList = document.getElementById('spell-suggestions');
-  sugList.querySelectorAll('.dict-word').forEach(e => e.classList.remove('dict-sel'));
+  spellCheckState.sel = idx;
+  const list = document.getElementById('spell-suggestions');
+  list.querySelectorAll('.dict-word').forEach(e => e.classList.remove('dict-sel'));
   el.classList.add('dict-sel');
 }
 
-function spellCheckIgnore() {
-  spellCheckState.errorIdx++;
-  spellCheckNext();
-}
-
-function spellCheckIgnoreAll() {
-  const sState = spellCheckState;
-  const errWord = sState.words[sState.errors[sState.errorIdx]].word.toLocaleLowerCase('tr');
-  sState.errors = sState.errors.filter((errIdx, idx) => {
-    if (idx <= sState.errorIdx) return true;
-    return sState.words[errIdx].word.toLocaleLowerCase('tr') !== errWord;
-  });
-  sState.errorIdx++;
-  spellCheckNext();
-}
-
 function spellCheckReplace() {
-  const sState = spellCheckState;
-  const textarea = document.getElementById(sState.winId + '-textarea');
-  const errWordIdx = sState.errors[sState.errorIdx];
-  const errWordOccur = sState.words[errWordIdx];
-  
-  const repWord = document.getElementById('spell-sug-word').value;
-  if (!repWord) return;
-  
+  const s = spellCheckState;
+  const err = s.err;
+  if (!err) return;
+  const textarea = document.getElementById(s.winId + '-textarea');
   const text = textarea.value;
-  textarea.value = text.substring(0, errWordOccur.start) + repWord + text.substring(errWordOccur.end);
-  
-  const diff = repWord.length - errWordOccur.word.length;
-  for (let i = errWordIdx + 1; i < sState.words.length; i++) {
-    sState.words[i].start += diff;
-    sState.words[i].end += diff;
+  if (err.kind === 'punct') {
+    // "kitap,defter" → "kitap, defter"; the loop checks the word again from its start
+    textarea.value = text.substring(0, err.start) + err.replacement + text.substring(err.end);
+    s.pos = err.start;
+    s.state = err.state;
+    s.punct = null;
+  } else {
+    const sug = err.suggestions[s.sel];
+    if (!sug) return;
+    textarea.value = text.substring(0, err.start) + sug.word + text.substring(err.start + sug.replace_len);
+    s.pos = err.start + sug.word.length;
+    s.state = sug.state;
+    s.punct = null;
   }
-  
-  sState.errorIdx++;
-  spellCheckNext();
+  spellCheckStep();
 }
 
-function spellCheckReplaceAll() {
-  const sState = spellCheckState;
-  const textarea = document.getElementById(sState.winId + '-textarea');
-  const errWordOccur = sState.words[sState.errors[sState.errorIdx]];
-  const targetWord = errWordOccur.word;
-  const repWord = document.getElementById('spell-sug-word').value;
-  if (!repWord) return;
-  
-  // JS \b only knows ASCII letters; use Unicode letter look-arounds for Turkish words
-  const escaped = targetWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const regex = new RegExp('(?<!\\p{L})' + escaped + '(?!\\p{L})', 'gu');
-  let shift = 0;
-  const newText = textarea.value.replace(regex, (m, offset) => {
-    if (offset < errWordOccur.start) shift += repWord.length - m.length;
-    return repWord;
-  });
-  textarea.value = newText;
-  const resumeAt = errWordOccur.start + shift + repWord.length;
-
-  // Words still pending as errors (other-case forms of the target stay flagged)
-  const pending = new Set(
-    sState.errors.slice(sState.errorIdx + 1).map(i => sState.words[i].word.toLocaleLowerCase('tr'))
-  );
-
-  // Rescan the text so offsets and highlights match the new content
-  // Same tokenization as the server (apostrophe-attached suffixes stay with the word)
-  const wordRe = /[A-Za-zÇĞİÖŞÜçğıöşüÂÎÛâîû]+(?:['’`][A-Za-zÇĞİÖŞÜçğıöşüÂÎÛâîû]+)*/g;
-  const words = [];
-  const errors = [];
-  let m;
-  while ((m = wordRe.exec(newText)) !== null) {
-    const idx = words.length;
-    words.push({ word: m[0], start: m.index, end: wordRe.lastIndex });
-    if (m.index >= resumeAt && m[0] !== repWord && pending.has(m[0].toLocaleLowerCase('tr'))) {
-      errors.push(idx);
-    }
+function spellCheckContinue() {
+  const s = spellCheckState;
+  const err = s.err;
+  if (!err) return;
+  if (err.kind === 'punct') {
+    // the word before the punctuation is checked on its own
+    s.pos = err.start;
+    s.state = err.state;
+    s.punct = err.start;
+  } else {
+    s.ignore.push(err.word);
+    s.pos = err.continue.pos;
+    s.state = err.continue.state;
+    s.punct = null;
   }
-  sState.words = words;
-  sState.errors = errors;
-  sState.errorIdx = 0;
-  spellCheckNext();
+  spellCheckStep();
 }
 
-function spellCheckAdd() {
-  const sState = spellCheckState;
-  const word = sState.words[sState.errors[sState.errorIdx]].word;
+function spellCheckAddWord() {
+  const s = spellCheckState;
+  const err = s.err;
+  if (!err || err.kind !== 'word') return;
   if (!state.userDictionary) state.userDictionary = new Set();
-  state.userDictionary.add(word.toLocaleLowerCase('tr'));
-  spellCheckIgnoreAll();
+  state.userDictionary.add(err.word.replace(/\.$/, '').toLocaleLowerCase('tr'));
+  s.pos = err.start;
+  s.state = err.state;
+  s.punct = null;
+  spellCheckStep();
 }
 
-function closeSpellCheck() {
+function spellCheckStop() {
   document.getElementById('spellCheckDialog').classList.remove('open');
+  document.getElementById('punctCheckDialog').classList.remove('open');
   if (spellCheckState.winId) {
     const ta = document.getElementById(spellCheckState.winId + '-textarea');
     if (ta) ta.focus();
+    const st = document.getElementById(spellCheckState.winId + '-status');
+    if (st) st.textContent = 'Yazım denetimi durduruldu.';
   }
+  spellCheckState.err = null;
+}
+
+// ─── Help (MTU.HLP) ─────────────────────────────────────────────────────────
+// Every help request of the EXE opens the index topic (all |CTXOMAP contexts map to it).
+const helpState = { data: null, history: [] };
+
+function openHelp() {
+  closeAllMenus();
+  const show = () => {
+    helpState.history = [];
+    helpState.current = null;
+    helpShow(helpState.data.index_topic);
+    document.getElementById('helpDialog').classList.add('open');
+  };
+  if (helpState.data) { show(); return; }
+  fetch('/api/help').then(r => r.json()).then(d => { helpState.data = d; show(); })
+    .catch(() => winAlert('Yardım dosyası yüklenemedi.'));
+}
+
+function helpShow(title, fromBack) {
+  const topic = helpState.data.topics.find(t => t.title === title);
+  if (!topic) return;
+  if (!fromBack && helpState.current && helpState.current !== title) helpState.history.push(helpState.current);
+  helpState.current = title;
+  const el = document.getElementById('help-topic');
+  el.innerHTML = topic.paragraphs.map(para => '<p>' + para.map(run => {
+    let html = escHtml(run.text);
+    if (run.bold) html = '<b>' + html + '</b>';
+    if (run.italic) html = '<i>' + html + '</i>';
+    if (run.link) html = `<span class="help-link" data-topic="${escHtml(run.link)}">${html}</span>`;
+    return html;
+  }).join('') + '</p>').join('');
+  el.querySelectorAll('.help-link').forEach(a => a.onclick = () => helpShow(a.dataset.topic));
+  el.scrollTop = 0;
+  document.getElementById('help-back').disabled = helpState.history.length === 0;
+}
+
+function helpBack() {
+  const prev = helpState.history.pop();
+  if (prev) helpShow(prev, true);
 }
 
 // ─── Show About & Changelog ──────────────────────────────────────────────

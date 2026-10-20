@@ -7,16 +7,19 @@
 # ui.py; the spell checker runs the Python engine in the browser (Pyodide),
 # see src/static/api.js.
 #
-# Requires data/ and the output/*.TXT files (run mtu_trk.py and mtu_tur.py first).
+# Requires data/ and output/MTU.TUR.TXT (run mtu_tur.py first).
 #
 #     python3 src/build_static.py [output_dir]
+#     python3 src/build_static.py --publish     # build site/ and push it as the gh-pages branch
 #
 # @yasinkuyu
 
 import json
 import os
 import shutil
+import subprocess
 import sys
+import tempfile
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 if script_dir not in sys.path:
@@ -45,7 +48,7 @@ def page_html():
 
 
 def copy_python(out_dir):
-    """Engine sources + MTU.TUR / MTU.SOZ, and an MTU.EXE stand-in that holds only the
+    """Engine sources + MTU.TUR / MTU.SOZ / KONTROL.SOZ, and an MTU.EXE stand-in that holds only the
     256-byte final-letter mutation table (ds:0x1588), the only EXE bytes the speller reads."""
     manifest = []
     py_dir = os.path.join(out_dir, "py")
@@ -60,7 +63,7 @@ def copy_python(out_dir):
             manifest.append(rel)
 
     os.makedirs(os.path.join(py_dir, "data"), exist_ok=True)
-    for name in ("MTU.TUR", "MTU.SOZ"):
+    for name in ("MTU.TUR", "MTU.SOZ", "KONTROL.SOZ"):
         shutil.copy(project_path("data", name), os.path.join(py_dir, "data", name))
         manifest.append("data/" + name)
 
@@ -74,8 +77,25 @@ def copy_python(out_dir):
     write_json(os.path.join(py_dir, "manifest.json"), manifest)
 
 
+def publish(out_dir):
+    """Pushes out_dir as the single commit of the gh-pages branch of the origin remote."""
+    git = lambda *args, cwd=None: subprocess.run(["git", *args], cwd=cwd, check=True,
+                                                 capture_output=True, text=True).stdout.strip()
+    root = project_path()
+    remote = git("remote", "get-url", "origin", cwd=root)
+    name, email = git("config", "user.name", cwd=root), git("config", "user.email", cwd=root)
+    with tempfile.TemporaryDirectory() as tmp:
+        shutil.copytree(out_dir, tmp, dirs_exist_ok=True)
+        git("init", "-q", "-b", "gh-pages", cwd=tmp)
+        git("add", "-A", cwd=tmp)
+        git("-c", f"user.name={name}", "-c", f"user.email={email}", "commit", "-q", "-m", "Deploy web UI", cwd=tmp)
+        git("push", "-q", "--force", remote, "gh-pages", cwd=tmp)
+    print(f"Published to the gh-pages branch of {remote}")
+
+
 def main():
-    out_dir = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else project_path("site"))
+    args = [a for a in sys.argv[1:] if a != "--publish"]
+    out_dir = os.path.abspath(args[0] if args else project_path("site"))
     if os.path.isdir(out_dir):
         shutil.rmtree(out_dir)
     os.makedirs(os.path.join(out_dir, "api"))
@@ -89,11 +109,14 @@ def main():
     write_json(os.path.join(api, "syn.json"), ui.SYN_DATA)
     write_json(os.path.join(api, "rev.json"), ui.REV_DATA)
     write_json(os.path.join(api, "quiz.json"), ui.QUIZ_DATA)
+    write_json(os.path.join(api, "help.json"), ui.HELP_DATA)
+    write_json(os.path.join(api, "game.json"), ui.GAME_WORDS)
     with open(project_path("data", "TEST"), "r", encoding="cp857", errors="replace") as f:
         write_json(os.path.join(api, "demo.json"), {"content": f.read(), "filename": "TEST"})
 
     for name in ASSETS:
         shutil.copy(project_path("assets", name), os.path.join(out_dir, "assets", name))
+    shutil.copytree(project_path("assets", "exe"), os.path.join(out_dir, "assets", "exe"))  # EXE dialog bitmaps
     shutil.copy(os.path.join(script_dir, "static", "api.js"), os.path.join(out_dir, "api.js"))
     copy_python(out_dir)
 
@@ -103,6 +126,8 @@ def main():
 
     size = sum(os.path.getsize(os.path.join(d, n)) for d, _, ns in os.walk(out_dir) for n in ns)
     print(f"Static site written to {out_dir} ({size / 1e6:.1f} MB)")
+    if "--publish" in sys.argv[1:]:
+        publish(out_dir)
 
 
 if __name__ == "__main__":

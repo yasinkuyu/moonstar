@@ -69,17 +69,12 @@
     });
   }
 
-  const HANGMAN_LETTERS = new Set('abcçdefgğhıijklmnoöprsştuüvyzâîû');
-
+  // Kelime Oyunu (MTU.EXE FUN_1010_4b79): a random word of the chosen dictionary, no hint
   function hangmanWord(params) {
-    const t = params.get('topic');
-    const topic = t !== null && t !== '' && t !== '-1' && !isNaN(parseInt(t, 10)) ? parseInt(t, 10) : null;
-    return loadJson('quiz').then(quiz => {
-      const pool = quiz.filter(q => (topic === null || q.topic_idx === topic) &&
-        q.tr.length >= 3 && q.tr.length <= 14 && [...q.tr].every(ch => HANGMAN_LETTERS.has(ch)));
+    return loadJson('game').then(pools => {
+      const pool = pools[params.get('source')] || pools.main;
       if (!pool.length) return { error: 'Kelime bulunamadı' };
-      const q = pool[Math.floor(Math.random() * pool.length)];
-      return { word: q.tr, en: q.en, tr: q.tr, hint: q.en, topic: q.topic, topic_idx: q.topic_idx };
+      return { word: pool[Math.floor(Math.random() * pool.length)] };
     });
   }
 
@@ -127,16 +122,16 @@
 import os, sys, json
 os.chdir("/moonstar/src")
 sys.path.insert(0, "/moonstar/src")
-from spell_check import TurkishSpellChecker
+from spell_check import TurkishSpellChecker, text_check_response
 _checker = TurkishSpellChecker()
+
+def _post(path, body):
+    return json.dumps(text_check_response(_checker, path, json.loads(body)), ensure_ascii=False)
 
 def _check(q):
     r = _checker.check(q)
     r["dictionary"] = {"total": _checker.lexicon.word_count, "suffix_count": _checker.lexicon.suffix_count}
     return json.dumps(r, ensure_ascii=False)
-
-def _check_text(text):
-    return json.dumps({"tokens": _checker.check_text(text)}, ensure_ascii=False)
 `);
         return py;
       })();
@@ -155,13 +150,13 @@ def _check_text(text):
     return getChecker().then(py => JSON.parse(py.globals.get('_check')(q)));
   }
 
-  function checkText(body) {
-    let text = '';
+  function postCheck(path, body) {
+    let json = '{}';
     try {
       const b = JSON.parse(body || '{}');
-      if (b && typeof b.text === 'string') text = b.text;
-    } catch (e) { /* empty text */ }
-    return getChecker().then(py => JSON.parse(py.globals.get('_check_text')(text)));
+      if (b && typeof b === 'object' && !Array.isArray(b)) json = JSON.stringify(b);
+    } catch (e) { /* empty request */ }
+    return getChecker().then(py => JSON.parse(py.globals.get('_post')(path, json)));
   }
 
   const GET_ROUTES = {
@@ -194,6 +189,7 @@ def _check_text(text):
     '/api/hangman/word': hangmanWord,
     '/api/check': checkWord,
     '/api/editor/demo': () => loadJson('demo'),
+    '/api/help': () => loadJson('help'),
   };
 
   function jsonResponse(data, status) {
@@ -213,8 +209,8 @@ def _check_text(text):
     const path = url.pathname.slice(apiAt);
     const method = ((init && init.method) || 'GET').toUpperCase();
     let handler;
-    if (method === 'POST' && path === '/api/check/text') {
-      handler = () => checkText(init && init.body);
+    if (method === 'POST' && path.startsWith('/api/check/')) {
+      handler = () => postCheck(path, init && init.body);
     } else if (method === 'GET' && GET_ROUTES[path]) {
       handler = () => GET_ROUTES[path](url.searchParams);
     }
