@@ -7,127 +7,252 @@
 - **EXE format**: Win16 NE (New Executable) at file offset 0x250, 6 segments, 512B alignment
 - **Entry**: CS=1 IP=0, Auto data seg=6, Stack SS=6 SP=0
 - **Encoding**: CP857 for DOS strings (high bytes 0x80-0x9F), ISO-8859-9 for UI strings (0xA0-0xFF)
-- **Engine Architecture**: Completely decoupled into `src/engine/` (`thesaurus.py`, `morphology.py`).
-- **Ground Truth Screenshots**: 100% verified against live Win16 screenshots saved in `assets/screenshots/` (`öz`, `kitap`, `elma`, `ekmek`, `gelmek`, `yüz`, `göz`, `akıl`, `güzel`).
+- **Goal**: every decoder must produce exactly what MTU.EXE produces. Rules come from the decompiled EXE, not from Turkish grammar guesses — no hand-written phonetics, no per-word patches.
+- **Engine Architecture**: `src/engine/` — `tur_lexicon.py` (MTU.TUR words, suffixes, word recognizer), `binary_parser.py` (MTU.TES record decoder), `thesaurus.py` (thesaurus API), `ing.py` (MTU.ING Turkish→English dictionary), `speller.py` (spell checker + `*.SOZ` user dictionaries).
+- **Ground Truth**: live Win16 RAM dump `data/ntvdm.exe.dmp` (thesaurus buffer at `0x60348`) and the screenshot word lists in `assets/GROUND_TRUTH_DATA.md` (`öz`, `kitap`, `elma`, `ekmek`, `gelmek`, `yüz`, `göz`, `akıl`, `güzel`, `test`, `mali`, `hafif`, `dolu`, `ağır`, `boş`, `adalet`, `cesaret`, `hürriyet`, `barış`, `zengin`, `ölüm`, `giriş`, `çıkış`). Screenshots show only the visible part of long lists, so extra words that sort after the last visible one are expected.
+
+## Reverse-Engineering Workflow
+
+REA (`rea`) cannot open Win16 NE files. Use Ghidra 12.1.4 headless directly (it has an NE loader). The analysed project, scripts and saved decompiled output live in `re/` (git-ignored; see `re/README.md`):
+
+```bash
+/opt/homebrew/Cellar/ghidra/12.1.4/libexec/support/analyzeHeadless <proj_dir> mtu \
+    -import data/MTU.EXE -scriptPath <scripts> -postScript <Script>.java <args>
+```
+
+- The live DGROUP in `data/ntvdm.exe.dmp` is at `0x5999E` (runtime tables such as `ds:0x09CA` are only valid there).
+- Ghidra maps segments as `Code1`=`1000:0000`, `Code2`=`1008:0000`, `Code3`=`1010:0000`, `Code4`=`1018:0000`, `Code5`=`1020:0000`, `Data6`(DGROUP)=`1028:0000`.
+- File offset of `1010:xxxx` = `0xA200 + xxxx`; DGROUP offset `ds:xxxx` = file `0x19E00 + xxxx`.
+- Some DGROUP tables are filled at runtime (e.g. the character table at `ds:0x09CA` is garbage in the file); static tables such as `ds:0x1588` and `ds:0x15AD` are valid in the file.
+
+### Ground truth by emulation (`re/tools/`)
+The decisive check is running the EXE's own code. `re/tools/mtu_emu.py` loads MTU.EXE into a 16-bit Unicorn emulator (`re/pylib`, git-ignored):
+- Segments are placed at real-mode paragraphs and NE relocations applied (`KERNEL.113 __AHSHIFT = 12` for huge blocks).
+- The KERNEL file/memory calls are stubbed (**349 = `_hread`**, 350 = `_hwrite`).
+- The runtime tables `ds:0x09CA` / `0x0A8B` are copied from the live DGROUP in the RAM dump.
+- The EXE's own loader `FUN_1010_0000` reads MTU.TUR, MTU.SOZ, MTU.TES, MTU.ING.
+- Before calling `0842`/`0ba3`, the harness calls `FUN_1010_0691` to lock the dictionary blocks, as the document loop does.
+
+| Script | Compares | Result |
+|--------|----------|--------|
+| `verify_thesaurus.py` | `engine.thesaurus` vs `FUN_1010_256c`, every headword | 13,829 / 13,829 identical |
+| `verify_ing.py` | `engine.ing` vs `FUN_1010_3114`, every TUR word | 26,452 / 26,452 identical; `ahfat` hangs the EXE |
+| `verify_speller.py [n] [seed]` | `engine.speller` check + suggestions vs `0842` + `0ba3`, at sentence start and mid-sentence | 9,670 / 9,670 identical (seed 2026, 4,835 words) |
+
+```bash
+PYTHONPATH=re/pylib python3 re/tools/verify_thesaurus.py [word …]
+```
 
 ### EXE EXTRACTED RESOURCES
 All UI strings found in data segment (0x19E00-0x24800) and post-segment area (0x24800-0x62200):
 - **Dialog/menu labels**: "Kelime Oyunu", "İngilizce Türkçe Sözlük", "Türkçe Eş Anlamlı Sözcükler", etc.
 - **Spell check options**: Paragraf başı kontrol, Bileşik isim denetimi, Özel isim yumuşama denetimi, etc.
-- **Quiz modes**: TESING1.Anlam (Test/English 1st Meaning), Mecaz, Argo, etc.
-- **File type identifiers**: TUR, TES, ING, TRK — correspond to data file names
+- **File type identifiers**: `TESING` at `ds:0x182C` (file `0x1B62C`) — `FUN_1010_2fec(n)` replaces the extension of `MTU.EXE` with `"TESING"[n*3:n*3+3]`, so `n=0` opens **MTU.TES** and `n=1` opens **MTU.ING**.
 
 ### Data File Usage — EXE-Verified Offsets
 
-Each data file's usage was confirmed by searching the EXE binary for filename/extension references and cross-referencing with menu strings:
+| File | EXE Evidence | Used By |
+|------|-------------|---------|
+| MTU.TRK | `TRK` in `TURTESINGTRK` roster (`0x1B61D`); 195-entry English suffix table at `0x1B8B8-0x1BC45` | `İngilizce Türkçe Sözlük` (`0x1BC6C`), Kelime Oyunu |
+| MTU.TUR | `TUR` in file-open filter `".SOZ\0MG2\x1a\0.SOZ\0TUR"` (`0x1BC54`) and roster | Word list for every Turkish feature, Leb Demeden suffix analyzer, spell check |
+| MTU.TES | `FUN_1010_2fec(0)`, decoded by `FUN_1010_256c` | `Türkçe Eş Anlamlı Sözcükler` |
+| MTU.ING | `FUN_1010_2fec(1)`, decoded by `FUN_1010_3114` | `Türkçe İngilizce Sözlük` |
+| MTU.SOZ | `FUN_1010_0391(4)` loads `<name>.SOZ` (name `MTU` at `ds:0x00A4`), checks `MG2\x1a` (`ds:0x1E4A`); saved by `FUN_1010_04b9` | User dictionary 0 — searched by the spell checker after MTU.TUR |
+| MTU.HLP | `HLP` in class registration (`0x1B23B`) | `Yardım` (F1) |
+| MTU.INI / MTU1.INI | `INI` in class registration (`0x1B23B`) | `Seçenekler`, `Klavye Seçimi` (`0x5DE0F`), window state |
+| KONTROL.SOZ | Same format | One-word user dictionary (`denir`) |
+| TEST | — | CP857 Turkish text with `<BL>`/`<IT>` markup; `Dosya Açma` demo document |
 
-| File | EXE Offset | Evidence | Used By (EXE Menu String) |
-|------|-----------|----------|--------------------------|
-| MTU.TRK | `0x1B61D` (roster), `0x1B8B8` (suffix table) | `TRK` in `TURTESINGTRK` roster; 195-entry English suffix table at `0x1B8B8-0x1BC45` used for morpheme decoding | `İngilizce Türkçe Sözlük` (`0x1BC6C`), `Türkçe Eş Anlamlı Sözcükler` (`0x5D60F`), `İngilizce Leb Demeden` (`0x5EA0F`), Kelime Oyunu |
-| MTU.TUR | `0x1BC54` (file filter), `0x1B61D` (roster) | `TUR` in file-open filter `".SOZ\0MG2\x1a\0.SOZ\0TUR"`; `TUR` in roster | `Türkçe Leb Demeden` (`0x5E80F`), `Denetim Opsiyonlar` (`0x5FA0F`) |
-| MTU.ING | `0x1B61D` (roster) | `ING` in `TURTESINGTRK` roster | `Kelime Oyunu` (`0x5D80F`), `Oyun Kelimeleri` (`0x5F40F`) |
-| MTU.TES | `0x1B62C` (dialog tag), `0x1B61D` (roster) | `TES` in `TURTESINGTRK` roster; `TESING` tag at `0x182C` | `Türkçe Eş Anlamlı Sözcükler` (`TRTHESDLG`, Ordinal 9, Seg 2 `0x281a` / `0x5e1a`) |
-| MTU.SOZ | `0x1B31F` (filter), `0x1BC4F` (dialog) | `*.SOZ` file filter; `MG2\x1a` magic check; `.SOZ` extension in open dialog | `Denetim Opsiyonlar` supplementary spell list (yer adları) |
-| MTU.HLP | `0x1B23B` (class reg) | `HLP` in Windows class registration for WinHelp integration | `Yardım` (F1) |
-| MTU.INI | `0x1B23B` (class reg) | `INI` in class registration for profile loading | `Seçenekler`, `Klavye Seçimi` (`0x5DE0F`), window state |
-| MTU1.INI | — | Same format as MTU.INI | Alternate settings profile |
-| KONTROL.SOZ | — | 12B, `MG2\x1a` magic + 8B data | Unknown (spell check init checksum?) |
-| TEST | — | CP857 Turkish text with `<BL>`/`<IT>` markup | `Dosya Açma` demo document |
+## MTU.TUR (Turkish word list + suffix table) ✅ EXE-exact
 
-## Decoded Files
+**Code**: `src/engine/tur_lexicon.py` (`TurLexicon`), exported by `src/mtu_tur.py` → `output/MTU.TUR.TXT` (26,775 words).
 
-### MTU.TRK (English→Turkish Dictionary) ✅
+### File layout
+```
+"MG2\x1a"
+header: u16 word_count (26775), suffix_count (3218), sec5_len (62800), sec6_count (910)
+Section 1: 33 × u16   per-letter index into Section 3
+Section 2: 1025 × u16 two-letter prefix table (32×32 + 1): first word index of each prefix (ds:0x8B99)
+Section 3: 3218 × 14B suffix records (ds:0x93DD)
+Section 4: 26775 × 4B word records (ds:0x93E9)
+Section 5: 62800B     letter codes for word bodies and long suffixes (ds:0x93E5)
+Section 6: 910 × 4B   morphological class records (ds:0x8B97)
+```
+All text uses the 32-letter alphabet `abcçdefgğhıijklmnoöpqrsştuüvwxyz`; code `| 0x20` is the circumflex variant (â = 0x20, î = 0x2B, û = 0x3A).
+
+### Word text — `FUN_1010_2e73` + `FUN_1010_1bc4`
+- **Prefix**: the 2-letter prefix `k` with `Section2[k] <= idx < Section2[k+1]` (codes `k >> 5`, `k & 31`).
+- **Section 4 record** `[b0, b1, b2, b3]`, `flags = b0 | b1 << 8`:
+  - `flags & 0x3FF` = **Section 6 index (10 bits)**.
+  - `flags >> 11` = body code: `0` no body; `1` → `[b2]`; `2` → `[b2, b3]`; `3..22` → that many codes at `Section5[b2|b3<<8]`; `23+` → `n = (code-23)//3 + 3` codes at the offset, rotated by `(code-23)%3`: 0 = last letter first, 1 = first letter last, 2 = reversed.
+  - `flags & 0x400` (b1 bit 2) with body code 3..22 → the last body letter is replaced through the **mutation table `ds:0x1588`** (file `0x1B388`). This is how hardened forms (`ahmağ → ahmak`, `ahbab → ahbap`) and other final-letter alternations (`abonmaz → abonman`) are stored.
+- **Section 6 flags** `f = s6[0] | s6[1] << 8`:
+  - `f & 0x40` → prefix letters a/i/u (codes 0x00/0x0B/0x1A) get the circumflex (`âcil`, `âdil`, `âdet`).
+  - `f & 0x100` → capitalize the first letter (1,379 words; proper nouns).
+
+### Suffix text — `FUN_1010_2f55`
+Section 3 record `e` (14 bytes): `n = e[0] & 0x7F` letters; `n < 3` → `e[1:1+n]`, else `Section5[e[1]|e[2]<<8 :+n]`; if `e[0] & 0x80` the last letter goes through `ds:0x1588`. The EXE **appends suffix text verbatim** — each suffix ID is one fixed allomorph (`0x07DC` = `sız`, `0x07EF` = `siz`, `0x04BB` = `lüksüz`); there is no vowel harmony or consonant softening at runtime. `data/suffixes.json` is generated from this (`src/suffix_extractor.py`).
+
+Bytes 3–13 of a suffix record are the morphological class data used by the analyzer below (`e[3]`, `e[4]`, `e[5..6]`, `e[7..8]`, `e[9]`, `e[10]`, `e[11]`, `e[12]`, `e[13]`).
+
+### Word recognition (Leb Demeden analyzer) — `FUN_1010_18f3`, `FUN_1010_0a0e`
+Ported in `TurLexicon.find_index()`:
+1. Typed text → letter codes, case and circumflex folded; apostrophe = 0x60; `.` ends the word (`18f3`).
+2. Try stems from the longest down to the 2-letter prefix (`0a0e`). For each stem, find the first word with that exact body (`1a3c`/`1b3e`), then walk same-spelled homonyms, accepting the first one where the remainder validates (`1d8b`).
+3. Empty remainder (`1f1e`/`1f9c`): rejected if Section 6 `s6[2] & 0x80` (word cannot stand alone, e.g. `dolu` #6100) — or for `da` when `s6[2] & 0x40`.
+4. Non-empty remainder: rejected if `s6[1] & 0x04`; proper nouns (`s6[1] & 0x80`) need an apostrophe; then `20de` splits the remainder into Section 3 suffixes (longest first, recursive), each checked by `234d` against the current class state and updating it from `e[9]`, `e[11]`, `e[12]`, `e[13]`; finally the class byte must not have bit 7.
+5. The thesaurus window masks the option flags (`ds:0x7A1B &= 0xC3`), which fixes several branches; spell-check mode uses the unmasked options and is **not** ported yet.
+
+Examples: `giriş → gir`, `kitaplar → kitap`, `evlerimizden → ev`, `Ankara'dan → Ankara`, `dolu → #6101`.
+
+## MTU.TES (Türkçe Eş Anlamlı Sözcükler) ✅ EXE-exact
+
+`TES` = **T**ürkçe **E**ş Anlamlı **S**özcükler (Fono Turkish Thesaurus). Earlier notes calling it "test/quiz metadata" were wrong.
+
+**Code**: `src/engine/binary_parser.py` (`TesBinaryParser`), API `src/engine/thesaurus.py` (`ThesaurusEngine.lookup` / `lookup_ordered`), export `src/mtu_tes.py` → `output/MTU.TES.TXT` (13,657 headwords).
+
+### Slot loading — `FUN_1010_2fec`
+- 32,000 × 3-byte little-endian offsets at `i*3`; slot `i` = `data[off[i]:off[i+1]]`, indexed by **MTU.TUR word index**.
+- A 3-byte slot `FF lo hi` is a **redirect**: the EXE follows it to word `lo | hi << 8`; if that slot is empty it moves to the next index.
+- `FUN_1010_256c` also moves to the next same-spelled homonym while the slot is empty.
+
+### Record stream — `FUN_1010_256c`
+Every word is a u16 chain: first value `& 0x7FFF` = MTU.TUR word index (`2e73`), following values = Section 3 suffix IDs (`2f55`), bit 15 = "more follows". Texts are concatenated verbatim.
+
+| First byte | Meaning |
+|-----------|---------|
+| slot starts `0xC0` | **Alias**: one chain (target word + suffixes) names the target; the target slot is decoded instead; entries equal to the headword are dropped. 5,534 slots. |
+| `b & 0x80` | Suffix chain appended to the current string. At slot start (`0x80`, 1,727 slots) it turns the headword into a derived headword (`gir` + `iş` = `giriş`, `sev` + `mek` = `sevmek`). |
+| `b & 0x40` (bit 7 clear) | **Sub-record title**: headword + suffix chain (`yüz` → `yüzlemek`, `yüzsüzce`, `yüzsüz`). `b & 0x0F` = number of leading letters the typed text must match to select it (0 = whole title). Resets the topic state. |
+| otherwise | **Synonym entry**: `((b >> 4) & 3) + 1` words joined by spaces; group code `b & 0x0F`. |
+
+- **Topic groups**: code `0x0C–0x0F` reads one topic byte `t` **only when the code differs from the previous topic code**; following records with the same code reuse it. Group code becomes `t + 0x10`, label `TOPIC_NAMES[t + 4]`.
+- **Group labels** (`ds:0x15CD` / `ds:0x15B7`): codes 0–4 → `N.Anlam` (N counts these groups in display order, it is not the code); 5–6 → Mecaz; 7–8 → Argo; 9 → Renk; 0x0A → Türemiş; `≥ 0x10` → topic names. Consecutive entries with the same code form one group, so two Mecaz groups can appear (`el`).
+- **Selection**: without a matching sub-record title, the groups before the first title are shown; otherwise the groups after the matched title, up to the next title. Words in a group are sorted by `FUN_1010_2e13` (alphabet order, non-letters as space).
+- The buffer this produces for `yüz` is identical, in order, to the 61 strings at RAM dump `0x60348`.
+- One slot (`güvenoy`, #9205) starts with `0x90` and makes the EXE read suffix IDs past the table — a defect in the original data.
+
+## MTU.TRK (English→Turkish Dictionary) ✅
 - **Format**: 3B header + 676×3B prefix-offset table (A-Z×26) + morpheme-encoded English words (127,519B) + Turkish definitions (702,248B)
-- **Output**: 17,988 entries, format `english → türkçe`
-- **Script**: `src/mtu_trk.py` — fully functional
-- **Key insight**: English words stored as prefix(2 letters from table) + morpheme text + suffix instruction (195-entry suffix table at EXE 0x1B8B8-0x1BC45)
-- **Verified**: All 17,988 words decode correctly
+- **Output**: 17,988 entries, `english` padded to a fixed 30-column field + `türkçe`. Headwords may contain spaces (`believe in`, `upside down`): readers must split at column 30, not at the first space.
+- **Script**: `src/mtu_trk.py`
+- **Key insight**: English words stored as prefix (2 letters from table) + morpheme text + suffix instruction (195-entry suffix table at EXE 0x1B8B8-0x1BC45)
 
-### MTU.TUR (Turkish→Turkish Dictionary — Leb Demeden) ✅
-- **Output**: 26,775 entries, clean
-- **Script**: `src/mtu_tur.py`
+## MTU.ING (Türkçe İngilizce Sözlük) ✅ EXE-exact
 
-### MTU.ING (Quiz Metadata — Kelime Oyunu Format Instructions) ✅✅
-- **Format**: 32,000-slot offset table (96,003B header), data starts at byte 96,003
-- **Offset table**: `struct.unpack("<L", data[i*3:(i+1)*3] + b'\x00')[0]` ✅
-- **Slot header**: `[0x00, (trk_idx+1)%256, category_byte]` (3 bytes)
-  - **First byte**: always 0x00 for valid entries (2,027 non-standard: 1,802×0xFF, 190×0x10, 35×0x20)
-  - **Second byte**: `(trk_idx + 1) % 256` — verified 12,426/12,437 slots match ✅
-  - **Third byte (flag/category)**: 0x00–0xE8, 210 distinct values.
-    - 0x00–0x68 (104 values): evenly distributed topics
-    - 0x80–0xE8 (106 values): quiz mode variants (bit 7 set)
-- **Slot position = TRK index**: 12,437/17,988 words have quiz data (69% coverage).
-- **11 "overflow/alternate" entries**: header_idx does NOT match slot+1 — extra quizzes at arbitrary slots
-- **Avg body**: 40.2 B (range 0–720 B)
-- **Segment count**: 1–103 per entry (49% have 1–2 segments)
-- **ING body contains format instructions, NOT text** — the ASCII chars extracted from decoded data are garbled (e.g. "padZ_dhd | {" for word "abase"). The actual quiz text comes from TRK (English→Turkish pairs).
-- **Script**: `src/mtu_ing.py` — EXE decode simulator + export
+MTU.ING is the **Turkish→English dictionary**, not quiz metadata. Earlier notes ("32,000-slot table, data at 96,003, slot header `[0x00, (trk_idx+1)%256, category]`", `decode_letter`/`format_sub` jump tables) misread it: the offset table was read 3 bytes off and the slots were keyed to MTU.TRK.
 
-### MTU.TES (Turkish Thesaurus Database — Türkçe Eş Anlamlı Sözcükler) ✅✅✅
-- **Major Finding (2026-09-02)**: Legacy notes previously misidentified `TES` as "Test Metadata" or "İngilizce Leb Demeden test modu". In reality, `TES` stands for **T**ürkçe **E**ş Anlamlı **S**özcükler (Fono Turkish Thesaurus).
-- **Format**: 32,000-slot offset table (96,000B header: 32,000 × 3-byte little-endian pointers), data starts at byte 96,000. Total size: 640,866 bytes.
-- **Index Alignment**: Directly maps 1-to-1 to the 26,775 words of `MTU.TUR`. Exactly 21,076 valid slots contain thesaurus records.
-- **Binary Record Layout**:
-  - **Meaning Group Flag (`flag`)**: 1 byte determining syntactic section:
-    - `0x00`: `1.Anlam`
-    - `0x01`: `2.Anlam`
-    - `0x02`: `3.Anlam`
-    - `0x05`: `Mecaz` (Metaphorical meaning)
-    - `0x09`: `Renk` (Color topic)
-    - `0x0A`: `Türemiş` (Derived headwords)
-    - `flag & 0x40 != 0`: **Record Boundary Delimiter & Deverbal Sub-Record Prefix** (`0x40`, `0x45`, `0x50`).
-      - Inside root verb slots (e.g. `çık`, `gir`, `aç`, `acı`), `0x40` initiates embedded **deverbal sub-records** (1,906 distinct sub-records across `MTU.TES`).
-      - `0x40` is immediately followed by 16-bit suffix IDs defining the derived headword: e.g. `çık` + `0x02F9` (-ış) = `çıkış` (`çıkak, çıkıt, kaynak, köken, mahreç, menşe, orijin, öz, soy, töz`); `çık` + `-maz` = `çıkmaz` (`arapsaçı, kördüğüm, problem...`).
-  - **Morphological Slot Headers (`0x80`)**:
-    - Exactly 1,727 slots begin with `0x80` followed by a 16-bit suffix ID defining the primary derived headword: e.g. Slot 8646 (`Gir`) has `[0x80, 0xAC, 0x03]` = `Gir` + `0x03AC` (-iş) ➔ **`Giriş`** (`açılış, açış, aralık, aşama, atılım, basamak, başlama, başlangıç...`).
-  - **Universal Multi-Word Collocation Formula (EXE Routine `0xD5BD`)**:
-    $$\text{word\_count} = ((\text{flag} \gg 4) \ \& \ 3) + 1$$
-    - `0x00`: 1 word (e.g. `battal`, `kunt`)
-    - `0x10`: 2 words (e.g. `balyoz gibi`, `bir dolu`, `hâk yemezlik`, `avuç avuç`, `açık seçik`)
-    - `0x20`: 3 words (e.g. `az buz değil`, `tartıda az çeken`, `mal ile ilgili`)
-    - `0x30`: 4 words
-  - **16-bit Pointers & Bit-15 Morpheme Chaining (EXE CS:0xD5D3 - 0xD62A)**:
-    - Each word begins with a little-endian `u16`: `w_idx = raw_w & 0x7FFF`.
-    - Continuation bit: `has_more = bool(raw_w & 0x8000)`.
-    - While `has_more` is set, reads subsequent `u16` values as Section 3 suffix rule IDs (`suf_id = raw_suf & 0x7FFF`), advancing until `has_more == False`.
-    - Supports multi-morpheme agglutinative chains: e.g. `ye` + `-me` + `-z` + `-lik` = `yemezlik` (`hâk yemezlik`); `çek` + `-in` + `-me` + `-z` + `-lik` = `çekinmezlik`.
-  - **Decoded 16-Bit Suffix Morpheme Rules**:
-    - `0x048A, 0x0498, 0x04A6, 0x04B4`: `-lık / -lik / -luk / -lük` (abstract nouns: `ataklık`, `efelik`, `cesurluk`, `hürlük`)
-    - `0x0488`: `-lığ / -liğ` (`ağır` ➔ `ağırlığı`)
-    - `0x04A2, 0x0486, 0x04B0, 0x0494`: `-lu / -lü / -lı / -li` (`kilolu`, `okkalı`, `yüklü`)
-    - `0x07DF, 0x0805`: `-sızlık / -sizlik / -suzluk / -süzlük` (`bağımsızlık`, `tarafsızlık`, `korkusuzluk`)
-    - `0x07EF, 0x07DC`: `-siz / -sız / -suz / -süz` (`emeksiz`, `değersiz`, `önemsiz`, `sıkıntısız`)
-    - `0x04BB`: `-lıksız / -liksiz / -lüksüz` (`güçlüksüz`)
-    - `0x035C`: `-ın / -in` (reflexive: `çek` ➔ `çekin`)
-    - `0x0507`: `-me / -ma` (negation: `çekin` ➔ `çekinme`)
-    - `0x0C36`: `-z` (negative aorist: `çekinme` ➔ `çekinmez`)
-    - `0x02AA`: `-ına / -ine` (`baş` ➔ `başına buyrukluk`)
-    - `0x0980, 0x0A32, 0x02F9, 0x03AC`: `-uş / -üş / -ış / -iş` (`uy` ➔ `uyuş`, `göç` ➔ `göçüş`, `gir` ➔ `giriş`, `aç` ➔ `açış`)
-    - `0x0292`: `-ıl / -il / -ul / -ül` (`aç` ➔ `açıl`)
-    - `0x09FF`: `-ıp / -ip / -up / -üp` (`göç` ➔ `göçüp`)
-    - `0x0B7E`: `-yış / -yiş` (`başla` ➔ `başlayış`)
-    - `0x0831`: `-ta / -te / -da / -de` (`baş` ➔ `başta`)
-    - `0x0000`: `-a / -e` (yönelme/dative: `can` ➔ `cana`)
-    - `0x07DB`: `-sıyla / -siyle` (`fazla` ➔ `fazlasıyla`)
-    - `0x0834`: `-ten / -tan / -den / -dan` (`ciddiyetten uzak`)
-    - `0x0127`: `-de / -da` (`tartıda az çeken`)
-    - `0x0245`: `-en / -an` (`çeken`)
-    - `0x0797`: `-sal / -sel` (`parasal`)
-    - `0x07CD`: `-sı / -si` (`amerikaelması`)
-    - `0x0447, 0x0407`: `-le / -la` (`denetleme`, `yoklama`)
-    - `0x04C5, 0x04C6, 0x0506`: `-me / -ma` (`tatma`, `deneme`)
-  - **Circumflex Vowel Harmony**: Full 11-vowel harmony (`a, ı, o, u, â, û` back vs `e, i, ö, ü, î` front) yielding exact forms (`fedaîlik`, `cüretkârlık`, `âlicenaplık`).
-  - **Homonym & Alias Resolution**:
-    - 3-byte `0xFF` redirect stubs are bypassed when primary data slots exist (e.g. `dolu` slot 6100 `0xFF` redirect to `Dola` bypassed in favor of primary slot 6101).
-    - Distinct homonyms (`barış` #2295 noun vs #2296 verb) resolve to primary entry without cross-pollution.
-- **Ground Truth Verification**: 100% verified against live Win16 DOSBox-X screenshots for 22 words (`öz`, `kitap`, `elma`, `ekmek`, `gelmek`, `yüz`, `göz`, `akıl`, `güzel`, `test`, `mali`, `hafif`, `açık`, `dolu`, `ağır`, `boş`, `adalet`, `cesaret`, `hürriyet`, `barış`, `zengin`, `ölüm`, `giriş`, `çıkış`). Zero hardcoding, zero external JSON dependencies.
-- **Engine Script**: `src/engine/thesaurus.py`.
+**Code**: `src/engine/ing.py` (`IngDictionary`, port of `FUN_1010_3114`), export `src/mtu_ing.py` → `output/MTU.ING.TXT` (24,042 Turkish entries, 50,789 English meanings) and `output/MTU.ING.BY_TOPIC.TXT`.
 
-### MTU.EXE (Decode Engine) — FULLY REVERSE-ENGINEERED (segments)
+- **Slots**: same layout and loader as MTU.TES (`FUN_1010_2fec(1)`): 32,000 × 3-byte offsets at `i*3`, indexed by MTU.TUR word index, `FF lo hi` redirects, homonym fallback. The typed word is recognised with the same analyzer as the thesaurus.
+- **Turkish entry** (bit 7 clear): `((b >> 4) & 3) + 1` words, each a u16 chain (TUR word + Section 3 suffixes). Example: `göz`, `göz atmak`, `gözlük`.
+- **English label** (bit 7 set), belonging to the preceding entry:
+  - `b & 0x0F` = part of speech. Names are inferred from the data, the EXE shows no text for them: 1 noun, 3 conjunction, 4 adverb, 5 verb, 6 postposition, 7 adjective, 8 interjection, 0xA idiom.
+  - `b & 0x10` → one usage byte. Inferred: 7 British English (crisps), 8 vulgar, 9 slang, 10 figurative…
+  - `b & 0x20` → one topic byte `t` = `TOPIC_NAMES[t + 3]` (1 Anatomi … 32 Yerbilim).
+  - `b & 0x40` → numbered meaning: prefix `"%2d."` (`ds:0x1E5A`). Otherwise `"   "` (`ds:0x1E5F`) after a numbered one.
+  - Text: bytes until bit 7. `c & 0x40` → English morpheme `ds:0x1617[c & 0x3F]` ("to make ", "tion", "somebody", …). Otherwise 6-bit letter code. The Turkish-only letter codes are punctuation (jump table `CS:0x361C`: 03 space, 08 `,`, 0A `?`, 12 `/`, 17 `(`, 23 `.`, 28 `'`, 2B `!`, 32 `-`, 37 `)`, 3A = byte 0x82 = CP857 `é`). `c & 0x20` → uppercase.
+- **Selection**: the first entry starting with the typed text, else the entry with the longest common prefix; its labels are listed as stored (`" 1.eye"`, `"   look"`, unnumbered `"book"`).
+- **Data quirks**:
+  - `ilkyardım`, `incehastalık`, `karatahta` have a duplicated entry header without labels; `intak` has no meanings.
+  - `ahfat` and `itburun` redirect to an empty slot just before themselves. `2fec` then loops forever: typing `ahfat` hangs the original window. The port returns no result instead.
+- **Word game**: the web UI's topic list and hangman use the 1,890 topic-tagged meanings. Which data the EXE's own "Kelime Oyunu" uses is not verified.
 
-#### NE Header (file offset 0x250)
+### Topic Names (EXE `0x1B63A`, DGROUP `0x183A`)
+| Cat | Topic | Cat | Topic | Cat | Topic |
+|-----|-------|-----|-------|-----|-------|
+| 0 | Mecaz | 12 | Ekonomi | 24 | Meteoroloji |
+| 1 | Argo | 13 | Elektrik, elektronik | 25 | Mimarlık |
+| 2 | Renk | 14 | Felsefe | 26 | Müzik |
+| 3 | Türemiş | 15 | Fizik | 27 | Otomobil, otomotiv |
+| 4 | Anatomi | 16 | Gökbilim (astronomi) | 28 | Ruhbilim (psikoloji) |
+| 5 | Askerlik | 17 | Hayvanbilim | 29 | Sinema |
+| 6 | Bitkibilim | 18 | Hekimlik | 30 | Spor |
+| 7 | Biyoloji | 19 | Hukuk | 31 | Teknik, teknoloji |
+| 8 | Coğrafya | 20 | İskambil | 32 | Ticaret |
+| 9 | Denizcilik | 21 | Kimya | 33 | Tiyatro |
+| 10 | Dilbilgisi, dilbilim | 22 | Mantık | 34 | Yazın (edebiyat) |
+| 11 | Dinsel | 23 | Matematik | 35 | Yerbilim (jeoloji) |
 
-Parsed directly from EXE binary (verified match with AGENTS legacy notes):
+Thesaurus topic groups use entry `t + 4` of this list, MTU.ING label topics entry `t + 3`.
+
+## MTU.SOZ (User dictionary) ✅ EXE-exact
+
+`*.SOZ` is the EXE's **user dictionary** format (load `FUN_1010_0391`, save `FUN_1010_04b9`). Earlier notes ("two alphabet32 streams, 20 group blocks, substring search, word boundaries not stored") were wrong; the "verified" matches `ankara`, `marmara`, `edirne` were substring accidents. Ankara, Edirne and Marmara are in MTU.TUR itself.
+
+```
+"MG2\x1a"  u16 count (2193)  u16 text_len (14227)  text[text_len]  records[count × 4]     8 + 14227 + 8772 = 23007 bytes
+```
+- **Records**: Section 4 layout without the 2-letter prefix (`FUN_1010_1bc4` user branch, `ds:0x8B90 = 0`):
+  - `flags & 0x3FF` = Section 6 index.
+  - `flags >> 11` = length code (same rules as MTU.TUR, no final-letter mutation).
+  - `flags & 0x400` selects the dictionary's own text area; otherwise MTU.TUR Section 5 is used.
+- **Codes**: `| 0x80` = uppercase letter (abbreviations `ABD`, `CHP`, `Cad`).
+- **Content**: MTU.SOZ = 2,193 proper names (places, people, abbreviations), records sorted for binary search. `KONTROL.SOZ` = one word (`denir`).
+- **Code**: `engine.speller.UserDictionary`; export `src/mtu_soz.py` → `output/MTU.SOZ.TXT`, `output/KONTROL.SOZ.TXT`.
+
+## Spell Checker (Türkçe Denetim) ✅ EXE-exact decisions and suggestions
+
+**Code**: `src/engine/speller.py` (`Speller`), used by `src/spell_check.py` and the web UI (`POST /api/check/text`).
+
+- **`FUN_1010_0842`**: checks one word.
+  - Fewer than `ds:0x009F` (= 2) letters → accepted.
+  - Otherwise `0a0e`: MTU.TUR stems as in the thesaurus; then user dictionary 0 (MTU.SOZ) for every prefix length; plus a special case for the pronoun `o` (Section 6 classes 0x373 / 0x28D).
+  - If nothing is found → `07bf`: Roman numerals (letters c l m v x, plus `I` typed uppercase or `i` typed lowercase).
+- **Spell mode differences from the thesaurus**: `ds:0x8B8C = 0`, and the option byte `ds:0x7A1B = ds:0x009E = 0x94` (MTU.INI offset 0x48) is not masked:
+  - Proper nouns (`s6[1] & 1`) must be typed with a capital (`ankara` ✗, `Ankara'dan` ✓).
+  - Proper nouns take suffixes only after an apostrophe (`s6[1] & 0x80`).
+  - Words with `s6[1] & 4` take no suffix.
+  - Option bits 0x30 = 1: a required prefix circumflex (`s6[0] & 0x40` without `0x20`) must be typed.
+  - A typed circumflex must exist in the word.
+- **Case** (`ds:0x8B8A` from `18f3`): mixed case (`kiTap`) or a backquote is an error. At a sentence start (`ds:0x8B8B = 0x80`) a lowercase word is an error.
+- **Sentence state** (`ds:0x8B8B`):
+  - After a word it holds the harmony class (`f93 & 3`) of its last suffix, or 0x80 when the word ends in `.`.
+  - Enclitics (`s6[2] & 0x40`: `mı`, `de`, …) must match the previous word's class: `okudum mu` ✓, `okudum mı` ✗.
+  - Vowel classes come from `ds:0x15AD`.
+- **Suggestions** (`FUN_1010_0ba3`, only when option bit 0x80 "Öneri getirme" is set):
+  - **Suggestion mode** (`ds:0x8B8C = 0x40`): the analysis accepts and repairs instead of rejecting. `1f9c` copies the stored spelling (circumflexes) into the candidate, and proper nouns get their capital.
+  - **A known word that broke a rule** gets one suggestion: the repaired word. An enclitic gets the vowel from `ds:0x15A9` (ü u i ı) matching the previous word (`okudum mı` → `mu`).
+  - **Otherwise, in this order:**
+    - Deleting each letter, swapping each adjacent pair (score 8).
+    - All 32 letters inserted or replaced at positions 0 and 1 (`10e4`).
+    - One missing / one wrong letter against every MTU.TUR word with the same two-letter prefix and every user-dictionary word (`116c`).
+    - For exact stems (`1396`): a word split `kitap okudum` (`144d`), an apostrophe for proper nouns `Ankara'da`, and one missing / wrong letter inside the suffix chain (`158a`, recursive over Section 3).
+  - **Scores**: `|ds:0x1568[a] − ds:0x1568[b]|` (keyboard/sound position), 8 for deletions and insertions, 0 for splits and exact suffixes. The lowest score is preselected; ties keep the first. A duplicate re-selects the earlier entry (`0f93`).
+  - **Formatting** (`0f93`): the typed word's case is applied. Abbreviations (`s6[1] & 0x84`) get a period (`Prof` → `Prof.`), and abbreviations typed with the period are valid.
+  - **Reach**: only edits at the first two letters or within one letter of a stored word/suffix are found, so `yanlis` (two wrong letters) gets no suggestion — in the EXE too.
+- **Not ported**: the document tokenizer (`FUN_1018_11e0`) is approximated:
+  - Words keep apostrophe-attached suffixes; a period right after a word belongs to it (sentence end or abbreviation).
+  - `!`, `?` and other periods end a sentence unless the period touches a digit.
+- **Global state the port reproduces.** The EXE keeps these in globals that leak from one candidate to the next; the suggestions depend on it:
+  - `0x8B8D` / `0x8B82`: proper-noun softening flag and position survive a failed analysis. `0ba3` then hardens `Muttalib` → `Muttalip` before editing.
+  - `0x8B8C` bit 2: one rejected abbreviation record lets the next one pass (`hk`).
+  - `0x8B10`: a rejected homonym can leave its circumflex in the candidate (`hak` at sentence start → `Hâk`).
+  - `0x8B8E`: set by the last `1b3e` compare, e.g. the binary-search probe, not the candidate.
+  - `0x8B80` / `0x8ADE`: the body length and body buffer used by `1f9c` can be stale (`halayığ` → `hâla yığ`).
+  - `0x8B42`: comparisons past the end of the typed word read the NUL as letter "a" (`atac` gets no `ataca`).
+  - `158a` recurses with the state `20de` left behind.
+- **EXE bugs kept on purpose** (they are what the program shows):
+  - After an abbreviation stem a split overwrites the space (`drpiş` → `Drşpiş`).
+  - An empty prefix range looks at the next prefix's first word (`dçağı` → `dç ağı`).
+- **Window lookups** (thesaurus and Türkçe İngilizce) use the same analyzer: `Speller.for_windows()` = suggestion mode, options `& 0xC3`, no user dictionary. A typed circumflex moves to the next same-body homonym (`dahi` / `dâhi`).
+- **Demo document** `data/TEST` (2,392 words): 6 errors, all explainable — unknown names (Akat, Emsan, Ofas), one real typo (`Göceçlik`), `"…"dir` split by a quote, lowercase after `...`.
+
+### Runtime tables (live DGROUP)
+The live DGROUP is at **`0x5999E` in `data/ntvdm.exe.dmp`** (the copies at `0x4EB9E` and `0x4A577E` are the unrelocated file image).
+- `ds:0x09CA`: letter code → CP857 character (`abcçdefgğhıijklmnoöpqrsştuüvwxyzâ…î…û`, `+0x80` uppercase, `0xC0–0xD6` = `ÄÅÁÀÂÉÊË…`).
+- `ds:0x0A8B`: CP857 character → letter class (`0x60` apostrophe, `0xFC` `.`/`,`, `0xFD` digits, `0xFF` space/hyphen).
+- `ds:0x7A1B = 0x94`, `ds:0x009F = 2`.
+
+## Other Data Files
+
+| File | Size | Format | Notes |
+|------|------|--------|-------|
+| MTU.HLP | 26KB | Windows HLP (`3F 5F 03 00`) | Turkish help text, unread |
+| MTU.INI / MTU1.INI | 1.5KB | Binary + text | Window state, font (Times New Roman / System), keyboard layout table |
+| TEST | 19KB | CP857 text with `<BL>`, `<IT>` | Demo document |
+
+## MTU.EXE — NE Header (file offset 0x250)
 
 | Field | Value |
 |-------|-------|
@@ -144,374 +269,142 @@ Parsed directly from EXE binary (verified match with AGENTS legacy notes):
 | **Target OS** | 2 (Windows) |
 | **Windows ver** | 3.0 (0x0008) |
 
-Segment table entries use sector-based offsets (offset × 512 = file offset):
-
 | Seg | Sector | File Offset | Length | Flags | Type |
 |-----|--------|------------|--------|-------|------|
 | 1 | 9 | 0x1200 | 9,051B | 0x1D50 | Code |
 | 2 | 27 | 0x3600 | 20,985B | 0x1D50 | Code |
-| 3 | 81 | 0xA200 | 19,697B | 0x1D50 | Code |
+| 3 | 81 | 0xA200 | 19,697B | 0x1D50 | Code (Turkish lexicon, analyzer, TES/ING decoders) |
 | 4 | 124 | 0xF800 | 12,311B | 0x1D50 | Code |
 | 5 | 155 | 0x13600 | 24,347B | 0x1D50 | Code |
 | 6 | 207 | 0x19E00 | 43,516B | 0x0D51 | Data (DGROUP) |
 
-#### ING Decode Algorithm (EXE file 0x14457–0x148A0)
-Sequential byte processing with 3 categories:
+### Key routines (segment 3)
+| Ghidra address | File offset | Function |
+|---------------|-------------|----------|
+| `1010:0391` | 0xA591 | Open data file by roster index; `.SOZ` user dictionaries |
+| `1010:04b9` | 0xA6B9 | Save user dictionary |
+| `1010:07bf` | 0xA9BF | Roman numerals (letter table at `CS:0x0826`) |
+| `1010:0842` | 0xAA42 | **Spell check one word** |
+| `1010:0a0e` | 0xAC0E | Stem search over MTU.TUR, then user dictionary 0 |
+| `1010:0ba3` | 0xADA3 | **Suggestions** (`0f93` add, `10e4` letters, `116c` near words, `1396`/`144d`/`158a` stem repairs) |
+| `1010:18f3` | 0xBAF3 | Typed text → letter codes |
+| `1010:1bc4` | 0xBDC4 | Word body from Section 4 |
+| `1010:1d8b` | 0xBF8B | Validate stem + remainder |
+| `1010:20de` | 0xC2DE | Suffix chain analyzer (recursive) |
+| `1010:234d` | 0xC54D | Suffix/class compatibility |
+| `1010:256c` | 0xC76C | **MTU.TES record decoder** |
+| `1010:2e13` | 0xD013 | Sort key for display |
+| `1010:2e73` | 0xD073 | Headword text (prefix + body + Section 6) |
+| `1010:2f55` | 0xD155 | Suffix text from Section 3 |
+| `1010:2fec` | 0xD1EC | Slot loader for TES/ING |
+| `1010:3114` | 0xD314 | **MTU.ING record decoder** — Türkçe İngilizce Sözlük (contains file `0xD5BD`, which older notes wrongly called the TES routine) |
 
-| Byte range | Handler | Description |
-|------------|---------|-------------|
-| >= 0x80 | **ADD 0x80** | Clear high bit (tb = (b+0x80)&0xFF). If prev byte was 0x1B → literal CP437 char. If tb=0x0D and next=0x0A → slot end (CRLF). Otherwise process tb as new byte. |
-| 0x20–0x7E | **ASCII** | Output character directly |
-| < 0x20 | **decode_letter** | Dispatch via 24-entry jump table at CS:0x1237 (file 0x1437). SUB 2 from freq, if >23 → exit, else BX=(freq-2)*2, JMP [CS:BX+0x1237] |
-| 0x00 | **separator** | Segment boundary |
-| 0x1A | **ctrl** | Sets mode=2 flag in decode context |
+### Important DGROUP addresses
+| ds: | Meaning |
+|-----|---------|
+| `0x009E` / `0x009F` | Default option byte (0x94) / minimum word length (2) |
+| `0x0A8B` | Character → letter class table (runtime) |
+| `0x09CA` | Letter code → display character (runtime) |
+| `0x1588` | Final-letter mutation table (static) |
+| `0x15AD` | Vowel harmony class per letter (static) |
+| `0x15A9` | High vowel per harmony class: ü u i ı (static) |
+| `0x1568` | Keyboard/sound position per letter, suggestion scores (static) |
+| `0x15B7` / `0x15CD` | Group label pointer tables |
+| `0x182C` | `TESING` extension roster |
+| `0x7A1B` | Option flags (copy of `0x009E`; the thesaurus masks it with 0xC3) |
+| `0x93FB` / `0x9403` | User dictionary 0 / 1 headers (magic, count, text length) |
+| `0x8B10` | Typed text as letter codes |
+| `0x8B97`, `0x8B99` | Section 6 base, Section 2 prefix table |
+| `0x93DD`, `0x93E5`, `0x93E9` | Section 3, Section 5, Section 4 bases |
 
-#### decode_letter Jump Table (24 entries, file 0x1437)
-| freq | idx | CS:offset | file offset | Handler action |
-|------|-----|-----------|-------------|----------------|
-| 0x02 | 0 | 0x81E8 | 0x83E8 | Format_sub(0) → `<36 1a>`; toggles flag bit 0 |
-| 0x03 | 1 | 0xFFFE | 0x101FE | Format_sub(2) → `<3E 18>`; toggles flag bit 2 |
-| 0x04 | 2 | 0xEC1E | 0xEE1E | Passive (returns immediately) |
-| 0x05 | 3 | 0x901F | 0x921F | Passive |
-| 0x06 | 4 | 0xE80E | 0xEA0E | Passive |
-| 0x07 | 5 | 0xFE8B | 0x1008B | Passive |
-| 0x08 | 6 | 0x0E90 | 0x1090 | Passive |
-| 0x09 | 7 | 0x85E8 | 0x87E8 | Passive |
-| 0x0A | 8 | 0x83FE | 0x85FE | Passive |
-| 0x0B | 9 | 0x067E | 0x87E | Passive |
-| 0x0C | 10 | 0x7500 | 0x7700 | Passive |
-| 0x0D | 11 | 0x0B15 | 0xD15 | Passive |
-| 0x0E | 12 | 0x75F6 | 0x77F6 | **Special** — calls external function (not format_sub) with buffer+pointer args → indirect format effect |
-| 0x0F | 13 | 0xFF08 | 0x10108 | Format_sub(1) → `<00 89>`; toggles flag bit 1 |
-| 0x10 | 14 | 0xF01E | 0xF21E | Passive |
-| 0x11 | 15 | 0xFF1F | 0x1011F | Passive |
-| 0x12 | 16 | 0xF41E | 0xF61E | Passive |
-| 0x13 | 17 | 0xFF1F | 0x1011F | Passive |
-| 0x14 | 18 | 0x0476 | 0x676 | Passive |
-| 0x15 | 19 | 0x6DE8 | 0x6FE8 | Format_sub(4) → `<16 1E>`; toggles flag bit 4 |
-| 0x16 | 20 | 0x59FE | 0x5BFE | Format_sub(4) → `<16 1E>`; toggles flag bit 4 |
-| 0x17 | 21 | 0x5D5E | 0x5F5E | Format_sub(3) then Format_sub(4) → `<00 89>` `<16 1E>`; toggles bits 3+4 |
-| 0x18 | 22 | 0x5D5E | 0x5F5E | Passive (same handler as 0x17 but returns differently?) |
-| 0x19 | 23 | 0x06C2 | 0x8C2 | Passive |
-
-#### format_sub Function (CS:0x14667, file 0x14867)
-Fully disassembled and understood:
-
-```
-mov ax, ds           ; save DS
-inc bp / push bp     ; standard DOS prologue
-mov bp, sp
-...
-mov dl, [bp+0x6]     ; DL = parameter (0-7)
-mov ax, dl
-shl ax, 1            ; AX = param * 2
-add ax, 0x1015       ; AX = param*2 + 0x1015 (table entry)
-mov si, ax           ; SI → table entry
-mov al, 1
-mov cl, dl
-shl al, cl           ; AL = 1 << param
-xor [0x283A], al     ; toggle flag bit: flag ^= (1<<param)
-; Output to buffer at [0xA81E]:
-; <  B1  B2  >
-; 3C  B1  B2  3E
-; where B1, B2 = word at CS:table_entry
-; buffer pointer [0xA81E] advanced by 4
-retf
-```
-
-**Output format**: `<B1B2>` (4 bytes: 0x3C, byte1, byte2, 0x3E) written to output buffer.
-
-**Side effect**: Toggles bit in global flag at [0x283A]: `flag ^= (1 << param)`. The main decode loop checks this flag at 0x14775.
-
-#### Format Marker Table (CS:0x1015, file 0x1215)
-Each entry is 2 bytes, indexed by param*2. First 10 entries:
-
-| Param | Markers `<B1 B2>` | Used by |
-|-------|-------------------|---------|
-| 0 | `<36 1a>` | freq 0x02 |
-| 1 | `<00 89>` | freq 0x0F, freq 0x17 (first) |
-| 2 | `<3e 18>` (= `>0x18`) | freq 0x03 |
-| 3 | `<00 89>` | freq 0x17 (second) |
-| 4 | `<16 1e>` | freq 0x15, freq 0x16 |
-| 5 | `<00 b8>` | (unused?) |
-
-#### CP437 Escape Sequences (0x1B-prefixed instructions)
-When instruction byte (>=0x80) is preceded by 0x1B, it's output as literal CP437 char (format markers). Top escapes:
-- î (0xEE): 238× | Æ (0xC6): 76× | ä (0xE4): 67× | Ö (0x99): 46×
-- Ï (0xCF): 45× | ñ (0xF1): 41× | (others: 0x9E/0xF9/0xCA/0x8A)
-
-#### Flag [0x283A] Main Loop Check (at file 0x14775)
-After decode_letter returns, the main loop checks:
-1. `test byte [0x283A], 0x04` (bit 2) → if set, calls format_sub(2) again
-2. `test byte [0x283A], 0x01` (bit 0) → if NOT set, exits slot processing; else continues
-
-This means:
-- format_sub(2) (from freq 0x03) triggers a SECOND format_sub(2) call
-- format_sub(0) (from freq 0x02) must be preceded by other state for processing to continue
-
-#### Legacy Decode Path (instructions >= 0x80)
-1. `>= 0x80`: transform via ADD 0x80, check for ESC prefix (0x1B), check for CRLF (0x8D 0x0A)
-2. The 0x1B ESC byte is a NO-OP in decode_letter (SUB 2 → negative → index >23 → return)
-3. CRLF (0x8D, 0x0A → 0x0D, 0x0A) marks end of slot data
-
-## Quiz Category → Topic Mapping
-
-The ING category byte (3rd byte of slot header) maps to topic names found in EXE data segment at 0x1B600. Structure:
-- **0x1B600**: 28B index table (14 `1E xx` record-separator pairs with IDs 3,6,9,...,66)
-- **0x1B61D**: `TURTESINGTRK` — file type identifiers
-- **0x1B62C**: `TESING1.Anlam` — quiz type: Test/English 1st Meaning
-- **0x1B63A-0x1B7B6**: 36 topic names (null-terminated, CP857 encoded)
-- **0x1B7B7-0x1B7FF**: 13 English helper patterns (`to make`, `to have`, `to be`, `tion`, `ing`, etc.)
-
-### Topic Name Table (indices 0-35)
-| Cat | Topic | Description |
-|-----|-------|-------------|
-| 0 | Mecaz | Metaphor |
-| 1 | Argo | Slang |
-| 2 | Renk | Color |
-| 3 | Türemiş | Derived |
-| 4 | Anatomi | Anatomy |
-| 5 | Askerlik | Military |
-| 6 | Bitkibilim | Botany |
-| 7 | Biyoloji | Biology |
-| 8 | Coğrafya | Geography |
-| 9 | Denizcilik | Maritime |
-| 10 | Dilbilgisi, dilbilim | Grammar, Linguistics |
-| 11 | Dinsel | Religious |
-| 12 | Ekonomi | Economics |
-| 13 | Elektrik, elektronik | Electrical, Electronics |
-| 14 | Felsefe | Philosophy |
-| 15 | Fizik | Physics |
-| 16 | Gökbilim (astronomi) | Astronomy |
-| 17 | Hayvanbilim | Zoology |
-| 18 | Hekimlik | Medicine |
-| 19 | Hukuk | Law |
-| 20 | İskambil | Cards/Gambling |
-| 21 | Kimya | Chemistry |
-| 22 | Mantık | Logic |
-| 23 | Matematik | Mathematics |
-| 24 | Meteoroloji | Meteorology |
-| 25 | Mimarlık | Architecture |
-| 26 | Müzik | Music |
-| 27 | Otomobil, otomotiv | Automotive |
-| 28 | Ruhbilim (psikoloji) | Psychology |
-| 29 | Sinema | Cinema |
-| 30 | Spor | Sports |
-| 31 | Teknik, teknoloji | Technology |
-| 32 | Ticaret | Commerce |
-| 33 | Tiyatro | Theater |
-| 34 | Yazın (edebiyat) | Literature |
-| 35 | Yerbilim (jeoloji) | Geology |
-
-### Category Byte Structure
-The 3rd byte of each ING header encodes topic index AND quiz mode in a single byte:
-
-**Correct decoding formula**:
-```python
-flag_low   = flag & 0x7F       # strip variant bit (bit 7)
-is_variant = bool(flag & 0x80) # bit 7 = variant/alternate mode
-topic_idx  = flag_low % 36     # topic (0-35), cycles every 36
-quiz_mode  = flag_low // 36    # quiz mode: 0, 1, or 2
-```
-
-- **flag range**: 0x00–0xE8 (210 distinct values across 12,437 normal slots)
-- **Normal flags** (bit 7 = 0): 0x00–0x68 (104 values), 3 quiz modes × 36 topics
-  - mode 0: flags 0–35, mode 1: flags 36–71, mode 2: flags 72–107 (max 0x68)
-  - Topics 33–35 only have 2 modes (flags 33/69, 34/70, 35/71)
-- **Variant flags** (bit 7 = 1): 0x80–0xE8 (106 values), same topic/mode layout
-  - Variant entries use the same topic/mode structure but flag bit 7 is set
-- **⚠️ WRONG formula**: `flag % 36` — breaks for flags ≥ 128 (variant range)
-- **✅ Correct formula**: `(flag & 0x7F) % 36`
-
-### 0xFF Slot Semantics (1,802 entries)
-Slots with first_byte = 0xFF are **alias/redirect** entries:
-- They have **zero body length** (no quiz data of their own)
-- Second+third bytes encode a u16 TRK index (different from the slot's own position)
-- Meaning: "this word has no quiz; if referenced, use the quiz data for TRK word N"
-- Current script **skips** these slots (correct: they add no new quiz content)
-
-## Key Insight
-The ING data is NOT self-contained quiz text. It stores FORMAT INSTRUCTION sequences that reference externally-loaded Turkish text strings from MTU.TRK (English→Turkish dictionary). The format_sub function produces `<B1B2>` markers that render quiz UI elements. The ASCII characters in ING bodies are UI control characters (not readable text). The actual quiz questions pair English words from TRK with their Turkish translations, organized by the 36 topic categories.
-
-### MTU.TUR Section 3 — Suffix Stripping Table (Leb Demeden)
-
-#### Section 3 Entry Structure (14 bytes each, 3,218 entries total)
-```
-[byte0:1] [val:2] [bytes11:11]
-```
-- **byte0** bits 0–6 = `count` = suffix byte count; bit 7 = unused (always 0 in practice)
-- **val** = u16 **offset into Section 5** (plain suffix bytes area)
-- **bytes11** = morphological class data (NOT English text)
-
-#### MTU.TUR Section 6 — Morphological Flags & Consonant Hardening (RESOLVED ✅)
-The 910 Section 6 entries (4 bytes each) encode root properties and phonetic rules:
-- **byte0**:
-  - `0x0B, 0x0F, 0x2F, 0x4B, 0x4F, 0x6F`: Proper nouns (capitalization)
-  - `0x20, 0x2F`: Circumflex vowels (`â`, `î`, `û`)
-  - `0x80`: Compound word flag
-- **byte1**:
-  - bit 0 (`0x01`): Capitalization flag
-  - bit 4 (`0x10`): Hardened stem indicator (e.g. `0x50`, `0x51`, `0x58`, `0x59`)
-- **byte2**:
-  - bit 7 (`0x80`): Soft/mutated stem in morphological dictionary (e.g. `0x8B`, `0x8A`) — 5,325 entries
-  - `0x06, 0x07`: Hard root form
-- **Consonant Mutation / Hardening**:
-  - Suffixes/roots undergoing yumuşama are stored in soft forms (`ğ`, `b`, `c`, `d`, `g`)
-  - When Section 6 indicates hard/base form (`byte2 & 0x80 == 0` and `(byte1 & 0x10) != 0`):
-    - `ğ` → `k` (`Ahdiatiğ` → `Ahdiatik`, `ahmağ` → `ahmak`, `açığ` → `açık`)
-    - `b` → `p` (`ahbab` → `ahbap`, `ahşab` → `ahşap`)
-    - `c` → `ç` (`acıağac` → `acıağaç`)
-    - `d` → `t` (`ahfad` → `ahfat`, `Ahdicedid` → `Ahdicedit`)
-    - `g` → `k` (`aheng` → `ahenk`)
-
-#### TR_EN & ES_ANLAM: Correct Source
-- **⚠️ WRONG approach**: Section 3 decode via EXE table_A/table_B → garbled output (control chars)
-- **✅ Correct approach**: Reverse the TRK file (İngilizce→Türkçe) to get Türkçe→İngilizce
-  - TR_EN: 27,105 clean entries (reversed from TRK English→Turkish pairs) ✅
-  - ES_ANLAM: 20,289 clean entries (Turkish words grouped by shared English headword) ✅
-  - Coverage: ~26% of TUR words have direct TR_EN match; rest are proper nouns/compounds not in TRK
-- Implemented in `ImportTurkishEnglishFromTRK()` in `mtu_tur.py`
-
-#### EXE Code Locations
-- Two decode functions found in **seg3** (file 0xA200):
-  - Function 1: file offset `0xC460` (seg3+0x1C60)
-  - Function 2: file offset `0xD158` (seg3+0x2F58)
-- Section 3 base pointer at DGROUP `[0x93DD:0x93DF]` (file 0x1A9DD)
-- Section 4 base pointer at DGROUP `[0x93E5:0x93E7]` (file 0x1A9E5)
-
-### Other Data Files
-
-| File | Size | Format | Status | EXE Evidence | Notes |
-|------|------|--------|--------|-------------|-------|
-| MTU.TRK | 832KB | Custom (no MG2 magic) | ✅ Decoded | `0x1B61D` roster, `0x1B8B8` suffix table | 17,988 İngilizce→Türkçe pairs |
-| MTU.TUR | 221KB | MG2\x1a | ✅ Decoded | `0x1BC54` filter, `0x1B61D` roster | 26,775 Türkçe kelime (Leb Demeden) |
-| MTU.ING | 655KB | Custom offset table | ✅ Decoded | `0x1B61D` roster, `0x5D80F` menu | 12,437 quiz metadata slots |
-| MTU.TES | 641KB | Same as ING | ✅ Same structure | `0x1B62C` quiz label, `0x1B61D` roster | 6,027 test metadata slots |
-| MTU.EXE | 402KB | Win16 NE | ✅ Analyzed | — | Borland C++ decode engine. All decode logic, UI strings, lookup tables |
-| **MTU.SOZ** | 23KB | **MG2\x1a** | ✅ Format Decoded | `0x1B31F` `*.SOZ` filter, `0x1BC4F` `.SOZ` dialog | Two alphabet32 word streams separated by 0x20+ bytes. **header[0]=2193** = byte offset of Stream 2. **header[1]≈14227** = end of alphabetic zone (measured 14065). Stream 1 [12:2193] and Stream 2 [2193:14065] = 14,034 alphabet32 chars total, ~1,800–2,800 place names bitiştik. 19 group separators (0x20/0x2B). High-byte section [14065:23007] = 8,942B (morphology/flags, TUR-like). **EXE algorithm: substring search** — `word in block` for each group block. Word boundaries NOT stored. ❌ **4-byte entry format: WRONG (old)**. ❌ **sec5=place name suffixes claim: WRONG (old)**. See `output/SOZ_ANALYSIS_NOTES.txt`. |
-| **MTU.HLP** | 26KB | **Windows HLP** | ⚠️ Unread | `0x1B23B` `HLP` Windows class reg | Magic `3F 5F 03 00` = standard Windows Help file. Turkish help text |
-| **MTU.INI** | 1.5KB | Binary + text | ℹ️ Low priority | `0x1B23B` `INI` Windows class reg | Window state/preferences (font=Times New Roman). Keyboard layout table |
-| **MTU1.INI** | 1.5KB | Binary + text | ℹ️ Low priority | Same format as MTU.INI | Alternate settings profile (font=System) |
-| **KONTROL.SOZ** | 12 bytes | MG2\x1a | ⚠️ Tiny | No direct EXE reference found | `01 00 00 00 7F F1 10 45` — possible checksum/version stamp |
-| **TEST** | 19KB | RTF-like markup | ℹ️ Content file | `Dosya Açma` menu (`0x5C21E`) | Turkish literary text with `<BL>`, `<IT>` markup. Demo document |
-
-#### Decode Priority
-1. **MTU.SOZ** (COMPLETED) — Format decoded and verified via live Windows XP NTVDM dump. Two alphabet32 streams (20 group blocks, 14,034 chars). `mtu_soz.py` implemented as stream & substring-search DB matching EXE behavior.
-2. **MTU.HLP** (LOW) — Standard Windows Help; extract with `decompile_hlp.py` or similar tool for user documentation
-3. **TEST** (LOW) — Turkish CP857 text file with simple markup; straightforward to render
-4. **KONTROL.SOZ** (LOW) — 12 bytes, purpose unclear; possibly version/integrity check
+## Win16 Search Behavior (dictionary windows)
+- **Client-side only** — all data loaded once on window open.
+- **Incremental scroll-to-match**: as the user types, the list scrolls to the first entry whose normalized prefix matches.
+- **Normalization**: case-insensitive with Turkish İ/I, circumflex ignored; the web UI also folds `ı→i`, `ş→s`, `ç→c`, `ö→o`, `ü→u`, `ğ→g` so `birak` matches `bırakmak`.
+- **Tamam button (control id 501) closes the window** (`EndDialog`, same code path as Esc / IDCANCEL) in all dictionary dialogs (resources 2200 İngilizce Türkçe, 2201 Türkçe İngilizce, 2202 Eş Anlamlı, 2207/2208 Leb Demeden; procs `DICTDLG`, `TRTHESDLG`). **Enter does nothing**: no button has `BS_DEFPUSHBUTTON`, so it sends IDOK (1), which the dialog procedures ignore. The second button (516) takes the selected list word and closes. Searching is live on every keystroke (EN_CHANGE on edit 1250).
+- **Empty query**: scrolls to the first entry.
 
 ## Remaining Unknowns
 | # | Unknown | Priority |
 |---|---------|----------|
-| 1 | **MTU.SOZ word-level boundaries** — Format decoded (2026-08-28): two alphabet32 streams, 19 group separators, EXE=substring search. Word boundaries NOT stored in file — EXE never needed them. `mtu_soz.py` implemented and verified via NTVDM dump. | RESOLVED |
-| 2 | **MTU.TUR Section 3 bytes11** — bytes11[2] = grammatical class (3/5/0xE3/0xE5/0xEB confirmed), bytes11[0] = flags. Thesaurus paradigm layer mapped into `mtu_thesaurus.py`. Suffix stripping engine fully verified. | RESOLVED |
-| 3 | **0x0E handler** — calls external function `0:0xFFFF` with buffer+pointer args instead of format_sub. What does it produce? | LOW |
-| 4 | **Format resource rendering** — how do `<B1B2>` markers actually render as quiz UI? Would require running under Win16. | LOW |
-| 5 | **0xFF/0x10/0x20 prefix slots** — 2,027 non-standard ING entries with unknown semantics | LOW |
-| 6 | **Full ING→UI mapping** — which format marker sequences produce which quiz question types (multiple choice, fill-in, synonym match, etc.) | LOW |
-| 7 | **KONTROL.SOZ** — 12 bytes: `MG2 1A 01 00 00 00 7F F1 10 45`. Too small for a dict. Possibly checksum or version stamp. | LOW |
-| 8 | **EXE Thesaurus Binary Source (`MTU.TES`)** — RESOLVED (2026-09-02). Disproved previous hypothesis that thesaurus data was derived from `MTU.TUR` Sec 3 or `MTU.TRK` multi-hop bridges. Proven conclusively that `MTU.TES` is the dedicated binary thesaurus database (32,000 slots × 3B offsets = 640KB). Directly decodes to 21,076 valid word clusters matching live Win16 memory at `0x60348`. | RESOLVED |
-| 9 | **MTU.TUR Section 3 Purpose** — RESOLVED (2026-09-02). Confirmed Section 3 (14-byte records) is purely the suffix stripping table for the spellchecker and morphological parser ("Leb Demeden"). It does not feed the thesaurus UI. | RESOLVED |
-
-
-
-## Win16 Search Behavior (ALL dictionary windows)
-- **Client-side only** — no API call on keystroke. All data loaded once on window open.
-- **Incremental scroll-to-match**: as user types, the word list scrolls to the first entry whose normalized prefix matches the typed text. The entry is selected and its definition/synonyms shown.
-- **Turkish normalization**: `ı→i`, `ş→s`, `ç→c`, `ö→o`, `ü→u`, `ğ→g` — so `birak` matches `bırakmak`.
-- **Tamam button + Enter key**: both trigger the same `dictSearch()` function (immediate, no debounce). Useful if user wants to force a jump without waiting for the 150ms debounce.
-- **Empty query**: scrolls to first entry in the list.
+| 1 | **Kelime Oyunu data source** — which file and fields the EXE's word game uses (likely the MTU.ING topic/usage bytes). | MEDIUM |
+| 2 | **Spell checker tokenizer** — port the document loop `FUN_1018_11e0` (punctuation, numbers, quotes); word decisions and suggestions are verified. | MEDIUM |
+| 3 | **MTU.ING usage byte** (`b & 0x10`) — names of the 10 usage classes; the EXE shows no text for them. | LOW |
+| 4 | **MTU.HLP** — standard Windows Help; not extracted. | LOW |
 
 ## Build & Run
 ```bash
-python3 src/mtu_trk.py    # TRK dictionary → output/MTU.TRK.TXT
-python3 src/mtu_tur.py    # TUR dictionary → output/MTU.TUR.TXT + TR_EN + ES_ANLAM
-python3 src/mtu_ing.py    # ING decode → output/MTU.ING.TXT
-python3 src/mtu_soz.py    # SOZ decode → output/MTU.SOZ.TXT (verified stream & substring DB)
-python3 src/engine/thesaurus.py # Pure MTU.TES thesaurus engine → 25,404 entries
-python3 src/test_comparison.py # Full verification suite against live RAM dump & ground truth
-python3 src/ui.py          # Web UI server on port 8080
+python3 src/mtu_trk.py              # TRK dictionary → output/MTU.TRK.TXT
+python3 src/mtu_tur.py              # TUR word list → output/MTU.TUR.TXT (+ TR_EN, ES_ANLAM from TRK)
+python3 src/mtu_tes.py              # Thesaurus → output/MTU.TES.TXT
+python3 src/mtu_ing.py              # Türkçe→İngilizce → output/MTU.ING.TXT, MTU.ING.BY_TOPIC.TXT
+python3 src/mtu_soz.py              # User dictionaries → output/MTU.SOZ.TXT, KONTROL.SOZ.TXT
+python3 src/suffix_extractor.py     # Section 3 suffixes → data/suffixes.json
+python3 src/test_comparison.py      # Verification against EXE tables, RAM dump, screenshots and MTU.ING samples
+(cd src && python3 test_suffix_coverage.py)  # Suffix ID coverage over all MTU.TES records
+python3 src/ui.py                   # Web UI on 127.0.0.1:8080 (MOONSTAR_HOST / MOONSTAR_PORT)
 ```
 
-## Change Log (Recent Fixes)
+## Change Log
 
-### 2026-09-02 (Definitive MTU.TES Ground Truth & Complete Parity with DOSBox-X)
-- **DISCOVERY OF MTU.TES AS THESAURUS**: Rectified historical misconception that `MTU.TES` was "Test Metadata" or "quiz metadata". Confirmed `TES` stands for **Türkçe Eş Anlamlı Sözcükler** (digitized from Fono Yayınları).
-- **BINARY OFFSET & RECORD ARCHITECTURE**:
-  - 32,000-slot 24-bit little-endian relative offset table (96,000 bytes header).
-  - Variable-length record stream per `MTU.TUR` word index (0 to 26,774), yielding 21,076 valid headword slots.
-  - Group flag: `0x00` (1.Anlam), `0x01` (2.Anlam), `0x02` (3.Anlam), `0x0A` (Türemiş), `0x10` (Mecaz).
-  - 16-bit word pointers `w_idx = b1 | ((b2 & 0x7F) << 8)` into `MTU.TUR`.
-  - Morphological suffix instructions (`b2 & 0x80 != 0`) with 2-byte rules: `(0xDC, 0x07)` (-sız), `(0xCD, 0x07)` (-sı), `(0x90, 0x02)` (-ı), `(0x06, 0x05)` (-me), `(0x47, 0x84)` (-leme), `(0xCA, 0x04)` / `(0xC5, 0x04)` (-ma), `(0x07, 0x84)` (-lama), `(0xB0, 0x04)` (-lü), `(0x86, 0x04)` (-lı).
-  - Alias/Redirect records (`0xC0` prefix) allowing loan words and derived terms (e.g. `test` ➔ `dene` + `-me` ➔ `deneme`) to inherit full target clusters.
-  - Collocation records (`0x10` prefix) consuming dual 16-bit pointers for compound idioms (e.g., `bet beniz`).
-- **ELIMINATION OF TRK POLLUTION**: Completely decoupled English dictionary (`MTU.TRK`) and artificial multi-hop BFS bridges from the Turkish Thesaurus view.
-- **100.0% DOSBOX-X GROUND TRUTH VERIFICATION**:
-  - `öz`: Exactly 15 words in `1.Anlam` (`arı, arık, damıtık, halis, has, katıksız, katışıksız, katkısız, mukattar, özbeöz, sade, saf, safi, som, yalın`), exactly matching DOSBox-X screenshot; zero extraneous words.
-  - `test`: Exactly 13 words in `1.Anlam` (`deneme, denetim, denetleme, imtihan, kontrol, prova, sınama, sınav, sözlü, tartma, tatma, yazılı, yoklama`), 100% matching DOSBox-X screenshot.
-  - `kitap`: 4 words (`elkitabı, kitabevi, kitapsarayı, kütüphane`).
-  - `elma`: 2 words (`amerikaelması, kirazelması`).
-- **ALL 5 SUITES PASS**: `python3 src/test_comparison.py` ran with 5/5 passing in 0.178s.
+### 2026-10-20 — Verified against the EXE running in an emulator
+- `re/tools/mtu_emu.py` runs MTU.EXE routines in Unicorn.
+- Thesaurus 13,829/13,829, Türkçe İngilizce 26,452/26,452 and spell checker 9,670/9,670 are identical.
+- Fixes found this way:
+  - `û` folds to `ü` (class 0x3A).
+  - ING special code 0x3A is `é`.
+  - The windows use the full analyzer (typed circumflex picks the next homonym).
+  - The global-state effects listed under Spell Checker.
+  - A redirect loop guard (`ahfat`).
+- Confirmed EXE behaviour, not port errors: `sevmek` shows `sevmemek`'s synonyms; `ankarada` preselects `Ankara da`.
 
-### 2026-09-01 (Thesaurus Engine v4 — Exact RAM Dump Match)
-- **100% EXACT MATCH**: Engine now produces 61/61 words for "yüz" matching the live NTVDM RAM dump at 0x60348.
-- **CORRECT GROUP ASSIGNMENT**: 12 words in 1.Anlam, 11 words in 2.Anlam, 38 words in Mecaz — all exactly matching the RAM dump format instruction data.
-- **SEMANTIC GROUP SYSTEM**: Added `_semantic_groups` dictionary with curated thesaurus data extracted from RAM dump analysis. Groups words by semantic field: 1.Anlam (direct meaning), 2.Anlam (secondary meaning), Mecaz (figurative/derived).
-- **ALL 5 TESTS PASS**.
+### 2026-10-20 — Spell checker suggestions
+- Ported the suggestion engine (`0ba3`, `0f93`, `10e4`, `116c`, `1396`, `144d`, `158a`) into `engine/speller.py`; `spell_check.py` no longer has its own suggestion rules.
+- The web UI preselects the EXE's best suggestion.
+- Abbreviations typed with a period are valid (`Prof.`, `Dr.`, `vb.`); `data/TEST` errors dropped from 12 to 6.
+- `code_char` uses the full runtime `ds:0x09CA` table (apostrophe 0x60, space 0x21).
+- Ghidra project and all decompiled output are kept in `re/` (git-ignored, see `re/README.md`).
 
-### 2026-08-31 (Thesaurus Engine v3 — Multi-Hop BFS + Compound Root Extraction)
-- **MULTI-HOP BFS**: Added query-time multi-hop traversal through TRK synonym graph (0.6s for 4-hop, ~1.7M words).
-- **COMPOUND ROOT EXTRACTION**: Split TRK multi-word tokens into components; extract roots from compound components (e.g., "sarı benizli" → "benizli" → "beniz").
-- **MORPHOLOGICAL GENERATION**: 30+ derivation suffixes (-sız/-siz, -sızca/-sizce, -leşme, -ılma, etc.) applied to expanded set at query time.
-- **COMPOUND PHRASE CONNECTION**: Phrases with components in expanded set automatically included.
-- **MATCH RATE**: 61/61 (100%) against live NTVDM RAM dump (corrected from earlier 37/61 estimate).
-- **ALL 5 TESTS PASS**.
+### 2026-10-20 — Spell checker and user dictionaries
+- Ported the spell-check path (`0842`, `0a0e` with the user dictionary, spell-mode `1d8b`…`1f9c`, `07bf`) as `src/engine/speller.py`.
+- `spell_check.py` takes its accept/reject decisions from it. The web UI checks whole texts through `POST /api/check/text`, so sentence state and apostrophe suffixes are handled.
+- MTU.SOZ is the EXE user dictionary (2,193 proper names), not place-name streams. KONTROL.SOZ is a one-word user dictionary.
+- Located the live DGROUP in the RAM dump (`0x5999E`) and read the runtime character and class tables from it.
+- Data quirk: 3 words whose stored final `î` carries the mutation bit (`bigudî`, `tağaddî`, `yerberî`) display as `bigudÄ`… in the EXE as well.
 
-### 2026-08-29 (100% Dynamic Graph-Based Thesaurus Engine — Zero Hardcoding)
-- **DYNAMIC THESAURUS ENGINE**: Replaced static dictionary structures with a 100% dynamic, multi-hop morphological & inverted index graph in `src/mtu_thesaurus.py`.
-- **SCALABILITY**: Generates 47,246 entries dynamically across the entire Turkish vocabulary without manual word definitions.
-- **ALGORITHM**:
-  1. **Direct Inverted Index Projections**: TRK definitions mapped bidirectionally (English $\leftrightarrow$ Turkish blocks).
-  2. **Morphological Derivation Expansion**: Automatic extraction of privative adjectives (`-siz/-süz` $\to$ `Mecaz`), verbal forms (`-le/-la/-lemek/-lamak` $\to$ `2.Anlam`), and nominal area derivatives (`-ey/-ay` $\to$ `1.Anlam`).
-  3. **Multi-word Compound Association**: Dynamic token extraction from dictionary definitions classified by grammatical category.
-- **VERIFIED**: `python3 src/test_comparison.py` passes all 5 test suites.
+### 2026-10-20 — MTU.ING is the Turkish→English dictionary
+- Ported `FUN_1010_3114` as `src/engine/ing.py`: 24,042 Turkish entries with 50,789 English meanings, 0 decode errors.
+- `mtu_ing.py` exports it. In the web UI, the Türkçe İngilizce window uses it instead of a reversed MTU.TRK list.
+- The word game topics come from the label topic byte; the old "quiz category byte" interpretation is removed.
 
+### 2026-10-20 — EXE-exact thesaurus and lexicon
+- Decompiled the thesaurus path of MTU.EXE with Ghidra and ported it: `tur_lexicon.py` (`2e73`, `1bc4`, `2f55`, analyzer `0a0e`…`234d`) and `binary_parser.py` (`2fec`, `256c`).
+- Removed guessed logic: hand-written vowel harmony (`engine/suffix.py`, `engine/phonetics.py`), per-word patches (`imtihal`, `hak`, `akıbes`…), the "word ends in ğ → k" rule, the `0x10 … 0x0A` collocation heuristic and byte-by-byte `0x40` scanning.
+- Results:
+  - RAM dump `0x60348`: 61/61 strings in order, 57/57 cluster words (previously 33/57).
+  - All 22 screenshot words are consistent.
+  - Words with corrupt output dropped from 64 to 0; unresolved suffix calls from 178 to 3 (the corrupt `güvenoy` slot).
+  - 2,101 MTU.TUR words corrected (circumflex, hardening, 10-bit Section 6 index).
+- Corrected earlier claims:
+  - TES group codes: `0x10` is a word count, not Mecaz; 7–8 is Argo.
+  - Redirect stubs are followed, not bypassed.
+  - Section 6 index is 10 bits, and hardening comes from Section 4 bit 10.
+  - `0xD5BD` belongs to the ING decoder.
+- Fixed bugs:
+  - `mtu_tur.py` capitalization leaked across a prefix group.
+  - Turkish İ/I lowercasing.
+  - Multi-word TRK headwords were split at the first space.
+  - Short Section 3 suffixes were read from the wrong bytes.
+  - `mtu_tes.py` read the file in the wrong format.
+  - Web UI: escaping, input validation, SIGTERM handling, and others.
+- Tests now fail when results diverge from the dump.
+- Removed unused files: `src/disasm16.py`, `src/mtu_thesaurus.py`, `src/engine/suffix.py`, `src/engine/phonetics.py`.
 
+### 2026-09-02
+- Identified MTU.TES as the Turkish thesaurus.
 
 ### 2026-08-28
-### 2026-08-28 (SOZ Format — Kesin Çözüm)
-- **CORRECTED**: ❌ Old claim "4-byte entry format [c1,c2,suffix_data0,suffix_data1]" → WRONG
-- **CORRECTED**: ❌ Old claim "sec5 contains 158 Turkish place name suffixes" → WRONG (those were words in the stream, not suffixes)
-- **CORRECTED**: ❌ Old claim "header[1]×14=199KB → Section 3 does NOT exist" → misleading (TUR-sec3 analogy never applied)
-- **CORRECTED**: ❌ Old claim "sec1[0]=header[2], sec1[1]=header[3] suggests extended header" → WRONG
-- **RESOLVED**: MTU.SOZ actual format:
-  - Two alphabet32 word streams: Stream 1 [12:2193] (2181B) + Stream 2 [2193:14065] (11872B)
-  - `header[0]=2193` = **byte offset** of Stream 2 (NOT entry count)
-  - `header[1]≈14227` = approximate end of alphabetic zone (actual boundary: 14065)
-  - 19 group separator bytes (0x20/0x2B) split ~14,034 chars into groups
-  - High-byte section [14065:23007] = 8,942B morphology/flags data
-  - **EXE spell-check = substring search**: `word in block` per group, word boundaries NOT stored
-  - Verified: ankara, marmara, karaağaç, boğazköy, edirne found via substring
-  - Word-level tokenization impossible without external Turkish place name list
-- **UPDATED**: `output/SOZ_ANALYSIS_NOTES.txt` with corrected findings
-
-- **FIXED**: `ui.py` `load_trk()` — now loads all 17,988 entries including 13 with empty Turkish definitions (matching original EXE behavior)
-- **FIXED**: `ui.py` `load_synonyms()` — removed ENHANCED_ES_ANLAM.json dependency, now uses only TRK-based grouping (matching original EXE)
-- **FIXED**: Synonym grouping — each English headword creates one group containing all Turkish translations from all meanings
-- **ADDED**: `ui.py` curated_extras — supplements TRK-based synonym groups with words not in TRK (beniz, sima, vecih, fizyonomi for "yüz/face" group). Resolves Unknown #8.
-- **UPDATED**: `mtu_soz.py` — rewritten with verified stream & substring search mechanism; integrated into `spell_check.py` for place name validation
-- **ANALYZED**: `ntvdm.exe.dmp` (Windows XP live process dump):
-  * Verified live Win16 code segments (Seg1 at 0x33620, Seg5 at 0x45A20, DGROUP at 0x4C220)
-  * Confirmed live decoded Thesaurus entry at `0x60348` containing full synonym clusters (beniz, bet, bet beniz, çehre, fizyonomi, sıfat, sima, surat, vecih, yüzey, satıh)
-  * Confirmed MTU.SOZ memory allocation and stream parsing buffer at `0x4EEB6A` (GlobalAlloc at `0x02AE0004`)
-  * Verified `TurkishSpellChecker` recognizes place names from MTU.SOZ alongside TUR vocabulary
-- **CLEANED**: Removed unused files (seg2.bin, seg3.bin, temp_seg2.bin, scratch/, backup_assets/, tools/, output/ debug files)
-- **UPDATED**: AGENTS.md Unknown #8 → RESOLVED
+- MTU.SOZ analysed as "streams + substring search" (superseded: it is the user dictionary format, see 2026-10-20).
 
 ### 2026-08-27
-- **FIXED**: `ui.py` ING topic_idx formula: `flag % 36` → `(flag & 0x7F) % 36` — variant flags (bit 7) were mapping to wrong topics
-- **ANALYZED**: MTU.SOZ structure — confirmed it uses different section layout than TUR (sec1/sec2 not monotonic, header values don't map to TUR sections). Marked as ❌ Structure Unknown.
-- **ANALYZED**: EXE data segment (0x19E00-0x24800) — contains Borland copyright, not thesaurus data. Missing thesaurus words (beniz, bet, sima, vecih, fizyonomi) come from a source that cannot be decoded without EXE disassembly.
-- **REWRITTEN**: `mtu_soz.py` — simplified to use same pipeline as mtu_tur.py (still produces garbled output due to unknown structure)
-- **AUDITED**: Full codebase status documented above
+- ING topic formula fixed to `(flag & 0x7F) % 36`.

@@ -5,181 +5,39 @@ veri dosyalarının tersine mühendislik belgesi.
 
 ![MoonStar Web UI](assets/ui_screenshot.png)
 
+Hedef, her sözlüğün **orijinal MTU.EXE ile birebir aynı** sonucu vermesidir. Kurallar
+EXE'nin Ghidra ile decompile edilen kodundan alınmıştır; elle yazılmış dilbilgisi
+kuralı veya kelimeye özel düzeltme yoktur. Ayrıntılı teknik notlar: [AGENTS.md](AGENTS.md).
+
+**Doğrulama:** EXE'nin kendi kodu bir x86 emülatöründe gerçek veriyle çalıştırılıp port ile
+karşılaştırıldı (`re/tools/`, git dışı):
+
+| Bileşen | Sonuç |
+|---|---|
+| Eş anlamlılar | 13.829 / 13.829 kelime aynı |
+| Türkçe → İngilizce | 26.452 / 26.452 kelime aynı (`ahfat` orijinal programı kilitliyor) |
+| Yazım denetimi + öneriler | 9.670 / 9.670 kontrol aynı |
+
 ---
 
 ## Dosya Mimarisi (EXE'den Doğrulanmış)
 
-Aşağıdaki offset'ler, EXE binary'sinde yapılan doğrudan tarama ile tespit edilmiştir:
-
 ```
-MTU.TRK  ──▶  İngilizce→Türkçe sözlük (doğrudan)
-          └──▶ Türkçe→İngilizce sözlük (bellekte ters çevrilerek)
-          └──▶ Eş Anlamlılar (ortak İngilizce'ye göre gruplandırılarak)
-          └──▶ Kelime Oyunu'nda kelime çiftleri
-           EXE: `TRK` roster @0x1B61D, suffix tablosu @0x1B8B8
+MTU.TUR  ──▶  Türkçe kelime listesi (26,775) + 3,218 ek kaydı + morfolojik sınıflar
+          └──▶ Leb Demeden, yazım denetimi ve bütün Türkçe sözlüklerin kelime kaynağı
 
-MTU.TUR  ──▶  Türkçe Leb Demeden kelime listesi (26,775 kelime)
-          └──▶ Türkçe çekim eki soyutlama tablosu (yazım denetimi)
-          EXE: `TUR` dosya filtresi + roster @0x1BC54/0x1B61D
+MTU.TES  ──▶  Türkçe Eş Anlamlı Sözcükler (TUR indeksli, FUN_1010_256c)
+MTU.ING  ──▶  Türkçe İngilizce Sözlük     (TUR indeksli, FUN_1010_3114)
+          EXE: "TESING" uzantı listesi @ds:0x182C — FUN_1010_2fec(0)=TES, (1)=ING
 
-MTU.ING  ──▶  Kelime Oyunu quiz FORMAT TALİMATLARI (sözlük değil)
-          EXE: `ING` roster @0x1B61D, `Kelime Oyunu` @0x5D80F
+MTU.TRK  ──▶  İngilizce Türkçe Sözlük (17,988 kelime)
+          EXE: `TRK` roster @0x1B61D, İngilizce suffix tablosu @0x1B8B8
 
-MTU.TES  ──▶  Test modu format talimatları (MTU.ING ile aynı yapı)
-          EXE: `TES` roster + `TESING1.Anlam` @0x1B62C
-
-MTU.SOZ  ──▶  Yazım denetimi ek sözlük (yer adları vb.)
-          EXE: `*.SOZ` dialog filtresi @0x1B31F, `MG2\x1a` magic @0x1BC4F
-
+MTU.SOZ  ──▶  Kullanıcı sözlüğü: 2,193 özel ad (yer, kişi, kısaltma)
+          EXE: FUN_1010_0391 yükler, FUN_1010_04b9 kaydeder
 MTU.HLP  ──▶  Windows Yardım dosyası
-          EXE: `HLP` Windows sınıf kaydı @0x1B23B
-
 MTU.INI  ──▶  Kullanıcı ayarları + klavye düzeni
-          EXE: `INI` Windows sınıf kaydı @0x1B23B
 ```
-
-> **Not:** Türkçe→İngilizce için **ayrı bir dosya yoktur**.
-> EXE, MTU.TRK'yı belleğe yükler ve F8 tuşunda ters index oluşturur.
-
----
-
-## MTU.TRK — İngilizce→Türkçe Sözlük ✅
-
-**Boyut:** 831,798 byte | **Giriş:** 17,988 kelime
-
-### Format
-
-```
-[3B header] + [676×3B prefix-offset table (A-Z×26)] +
-[morpheme-encoded İngilizce kelimeler] + [Türkçe tanımlar]
-```
-
-- İngilizce kelimeler: 2 harfli prefix + morpheme gövde + EXE'deki suffix talimatı
-- EXE `0x1B8B8`'de **195 girişli suffix tablosu** var (`-ing`, `-ed`, `-tion`, `to make`…)
-- Türkçe tanımlar: `|` ayraçlı, `#` prefix = bağlamsal açıklama
-
-### Çıktı
-
-```
-output/MTU.TRK.TXT
-  abandon    terk etmek|bırakmak|vazgeçmek
-  ability    yetenek|kabiliyet|güç
-```
-
-### Script
-
-```bash
-python3 src/mtu_trk.py
-```
-
----
-
-## MTU.TUR — Türkçe Sözlük / Leb Demeden ✅
-
-**Boyut:** 220,720 byte | **Kelime:** 26,775
-
-### Format
-
-```
-MG2\x1a (4B) + header [26775, 3218, 62800, 910] + 6 section
-```
-
-### Section 3 — Çekim Eki Tablosu (suffix stripping)
-
-Section 3 **İngilizce metin değildir**. Leb Demeden'in morfoloji analizinde
-kullandığı **Türkçe çekim eki soyutlama tablosudur**.
-
-```
-Her giriş (14 byte):
-  byte0 bits 0-6 = ek uzunluğu
-  val (u16)      = Section5 offset
-  Section5[val:val+count] → 'acak', 'mak', 'ımdan'...
-  bytes11[2]     = gramer sınıf kodu (3=geniş, 5=gelecek)
-```
-
-### TR_EN ve Eş Anlamlılar
-
-MTU.TUR içinde İngilizce metin **yoktur**. Her iki sözlük de MTU.TRK'dan üretilir:
-
-- **TR_EN:** TRK'daki `english → turkish` çiftleri ters çevrilir → 31,821 giriş
-- **ES_ANLAM:** Aynı İngilizce'yi paylaşan Türkçe kelimeler → 28,266 grup
-
-### Çıktılar
-
-```
-output/MTU.TUR.TXT           → 26,775 Türkçe kelime
-output/MTU.TUR_TR_EN.TXT     → 31,821 Türkçe→İngilizce çifti
-output/MTU.TUR_ES_ANLAM.TXT  → 28,266 eş anlamlı grubu
-```
-
-### Script
-
-```bash
-python3 src/mtu_trk.py   # önce çalıştırılmalı
-python3 src/mtu_tur.py
-```
-
----
-
-## MTU.ING — Kelime Oyunu Quiz Metadata ✅
-
-**Boyut:** 654,684 byte | **Geçerli slot:** 12,437 / 32,000
-
-### MTU.ING bir sözlük değildir
-
-İçindeki byte'lar **quiz UI format talimatlarıdır** — düz metin değil.
-Gerçek İngilizce/Türkçe metin MTU.TRK'dan gelir.
-`MTU.ING.TXT` okunaksız görünür çünkü zaten metin içermiyor.
-
-### Format
-
-```
-[32,000 × 3B offset tablosu] + [slot verileri]
-
-Her slot header (3B):
-  byte0 = 0x00 (geçerli) / 0xFF (alias) / 0x10 / 0x20
-  byte1 = (trk_idx + 1) % 256
-  byte2 = flag (konu + quiz modu)
-```
-
-### Flag Byte Decode
-
-```python
-flag_low   = flag & 0x7F        # variant bitini sil
-topic_idx  = flag_low % 36      # konu 0-35
-quiz_mode  = flag_low // 36     # mod 0, 1 veya 2
-is_variant = bool(flag & 0x80)  # variant mi?
-```
-
-> ⚠️ `flag % 36` YANLIŞ — flag ≥ 128 için hatalı konu atar.
-> ✅ `(flag & 0x7F) % 36` DOĞRU.
-
-### 36 Konu
-
-Mecaz · Argo · Renk · Türemiş · Anatomi · Askerlik · Bitkibilim · Biyoloji ·
-Coğrafya · Denizcilik · Dilbilgisi · Dinsel · Ekonomi · Elektrik · Felsefe ·
-Fizik · Gökbilim · Hayvanbilim · Hekimlik · Hukuk · İskambil · Kimya · Mantık ·
-Matematik · Meteoroloji · Mimarlık · Müzik · Otomobil · Ruhbilim · Sinema ·
-Spor · Teknik · Ticaret · Tiyatro · Yazın · Yerbilim
-
-### Çıktı
-
-```
-output/MTU.ING.BY_TOPIC.TXT  → Konuya göre gruplandırılmış quiz girişleri
-```
-
-### Script
-
-```bash
-python3 src/mtu_ing.py
-```
-
----
-
-## MTU.EXE — Win16 NE Analizi ✅
-
-**Boyut:** 401,920 byte | **NE header:** 0x250 | **Derleyici:** Borland C++ v5.10
-**Segment tablosu:** NE+0x40 (dosya 0x290) | **Alignment:** 2⁹ = 512B
 
 ### Menü Kısayolları (EXE'den çıkarılan)
 
@@ -187,76 +45,88 @@ python3 src/mtu_ing.py
 |---------|-----------|--------------|
 | `F6` | Türkçe Leb Demeden | MTU.TUR |
 | `Sft+F6` | İngilizce Leb Demeden | MTU.TRK |
-| `F7` | Eş Anlamlı Kelimeler | MTU.TRK (gruplandırılmış) |
-| `F8` | Türkçe → İngilizce | MTU.TRK (ters index) |
-| `Sft+F8` | İngilizce → Türkçe | MTU.TRK (doğrudan) |
+| `F7` | Eş Anlamlı Kelimeler | MTU.TES |
+| `F8` | Türkçe → İngilizce | MTU.ING |
+| `Sft+F8` | İngilizce → Türkçe | MTU.TRK |
 | `F9` | Metin İstatistik | — |
-
-### Önemli Adresler (DGROUP)
-
-| Dosya Offset | İçerik |
-|-------------|--------|
-| 0x1A7CA | `table_B` — ING karakter lookup tablosu (256B) |
-| 0x1B388 | `table_A` — double-lookup index (256B) |
-| 0x1B61D | `TURTESINGTRK` — dosya tipi kodları |
-| 0x1B62C | `TESING1.Anlam` — quiz tipi etiketi |
-| 0x1B63A | 36 konu adı listesi (CP857, null-terminated) |
-| 0x1B8B8 | İngilizce suffix tablosu (195 giriş) |
 
 ---
 
-## Türkçe→İngilizce Ters Sözlük — Lookup Algoritması ✅
+## MTU.TUR — Türkçe Kelime Listesi ✅ (EXE ile birebir)
 
-Web arayüzündeki Türkçe→İngilizce sözlük (F8 penceresi) şu adımlarla üretilir:
+`MG2\x1a` + başlık `[26775, 3218, 62800, 910]` + 6 bölüm. Kelime metni EXE'deki
+`FUN_1010_2e73` / `1bc4` rutinlerinin portu (`src/engine/tur_lexicon.py`) ile üretilir:
 
-### 1. Doğrudan Eşleştirme
+- **Önek:** 2 harflik önek tablosu (Section 2).
+- **Gövde:** Section 4 kaydı (doğrudan harfler, Section 5'ten dizi veya döndürülmüş dizi).
+- **Section 6 indeksi:** 10 bit. Bu kayıt şapkayı (â/î/û) ve büyük harfi belirler.
+- **Son harf değişimi:** Section 4 bit 10 ile EXE tablosu `ds:0x1588` üzerinden yapılır (`ahmağ → ahmak`, `ahbab → ahbap`).
 
-MTU.TRK'daki her `english → turkish` çifti ters çevrilir:
+Ekler (Section 3) EXE'deki gibi **olduğu gibi eklenir**; her ek numarası tek bir
+yazımı (`sız`, `siz`, `lüksüz`…) temsil eder, çalışma anında ünlü uyumu hesaplanmaz.
+Yazılan kelimeyi köküne ayıran Leb Demeden analizcisi de porttadır
+(`giriş → gir`, `evlerimizden → ev`, `Ankara'dan → Ankara`).
+
+## MTU.TES — Türkçe Eş Anlamlı Sözcükler ✅ (EXE ile birebir)
+
+32,000 × 3 baytlık ofset tablosu (TUR kelime indeksi). Kayıtlar:
+- **Eş anlamlı girişleri:** her biri 1–4 kelime; kelimeler kök + ek zinciri olarak tutulur.
+- **Grup kodları:** N.Anlam, Mecaz, Argo, Renk, Türemiş ve 32 konu.
+- **Alt kayıtlar:** `yüz` → `yüzlemek`, `yüzsüz`.
+- **Yönlendirmeler** ve **diğer maddeye referanslar**.
+
+Doğrulama:
+- Canlı Win16 RAM dökümündeki `yüz` tamponu: 61/61 dizgi, sıralı.
+- 22 ekran görüntüsü kelimesinin tamamı tutarlı.
+
+## MTU.ING — Türkçe İngilizce Sözlük ✅ (EXE ile birebir)
+
+TES ile aynı slot yapısı. Her slotta Türkçe maddeler (`göz`, `göz atmak`, `gözlük`…)
+ve her maddenin İngilizce karşılıkları bulunur. Karşılıklar 6 bitlik kodlanmış metindir:
+İngilizce morfem tablosu (`to make`, `tion`, `somebody`…) ve noktalama kodları kullanılır.
+Karşılık başlığı ayrıca sözcük türü, kullanım ve konu bilgisi taşır.
+24,042 madde, 50,789 karşılık.
 
 ```
-root  →  kök
-base  →  temel
+göz        1.eye | 2.glance | look | 3.compartment | section | division | …
+göz atmak  to glance (at) | to run an eye over
 ```
 
-### 2. Türkçe Morfoloji — Suffix Stripping
-
-TRK tanımları çekimli form içerebilir (ör. `temeli`, `kökeni`).
-`get_turkish_stem()` fonksiyonu yaygın ekleri soyar:
-
-```python
-temeli  →  temel   (iyelik eki -i)
-kökeni  →  köken   (iyelik eki -i)
-```
-
-Bu sayede `root → temeli` ile `base → temel` çiftleri **temel** ortak kökünde buluşur.
-
-### 3. Hop-1 Eş Anlamlı Genişletme
-
-Her Türkçe kelimenin doğrudan İngilizce çevirilerinden hareketle Hop-1 eş anlamlı grafiği oluşturulur:
+## MTU.TRK — İngilizce Türkçe Sözlük ✅
 
 ```
-kök  →  root
-root → {temel, köken, kaynak, başlangıç, ...}
-temel → {base, basis, foundation, ...}
+[3B header] + [676×3B prefix-offset table (A-Z×26)] +
+[morpheme-encoded İngilizce kelimeler] + [Türkçe tanımlar]
 ```
 
-Bu grafik üzerinde TF-IDF benzeri özgüllük ağırlıklandırması uygulanır:
+İngilizce kelimeler 2 harfli önek + morfem gövde + EXE'deki 195 girişli suffix
+tablosu (`0x1B8B8`) ile kurulur. Çıktıda İngilizce başlık 30 sütunluk sabit alandır
+(`believe in`, `upside down` gibi boşluklu başlıklar bölünmez).
 
-```python
-spec = 1.0 / max(1, len(en_to_trs[en]))
-score = max(score, 10.0 * spec)
-```
+## MTU.SOZ — Kullanıcı Sözlüğü ✅ (EXE ile birebir)
 
-### 4. Sonuç Skoru (kök örneği)
+`*.SOZ`, EXE'nin kullanıcı sözlüğü biçimidir:
+`"MG2\x1a"` + kelime sayısı + metin uzunluğu + metin alanı + 4 baytlık kayıtlar.
+MTU.SOZ'da 2,193 özel ad var (Abant, Acıgöl, Akçaabat, ABD, CHP…).
+Yazım denetimi, MTU.TUR'da bulamadığı kelimeyi burada arar.
 
-| İngilizce | Skor | Kaynak |
-|-----------|------|--------|
-| root | — | doğrudan eşleştirme |
-| onset, inception, outset | 10.0 | tekil çeviri → yüksek özgüllük |
-| basis | 5.0 | `temel` üzerinden Hop-1 |
-| origin | 2.0 | `köken` üzerinden Hop-1 |
-| base | 0.5 | `temel` üzerinden Hop-1 (çok anlamlı) |
- 
+## Yazım Denetimi ✅ (kelime kararları EXE ile birebir)
+
+EXE'nin denetim rutini (`FUN_1010_0842`) ve Leb Demeden analizcisi, MTU.INI'deki
+seçeneklerle (0x94) port edildi (`src/engine/speller.py`). Denetlenenler:
+
+- **Kelime tanıma:** kök + ek zinciri (`kitaplarımızdan`, `güzelleştirilemeyecekler`).
+- **Özel isimler:** büyük harf ve apostrof zorunlu (`Ankara'dan` ✓, `ankara` ✗).
+- **Büyük/küçük harf:** cümle başında büyük harf; karışık harf hata sayılır (`kiTap`).
+- **Önceki kelimeyle uyum:** `okudum mu` ✓, `okudum mı` ✗.
+- **Kullanıcı sözlüğü** (MTU.SOZ) ve **Roma rakamları** (`XIV`).
+
+- **Öneriler:** EXE'nin öneri motorundan geliyor. Harf silme/değiştirme/ekleme, kelime bölme
+  (`kitapokudum` → `kitap okudum`), apostrof (`Ankarada` → `Ankara'da`), kısaltma noktası
+  (`Prof` → `Prof.`). EXE'nin seçtiği öneri ön seçili gelir.
+
+---
+
 ## Kurulum
 
 ```bash
@@ -264,20 +134,28 @@ score = max(score, 10.0 * spec)
 cp MTU.* data/
 
 # 2. Sözlükleri decode et
-python3 src/mtu_trk.py
-python3 src/mtu_tur.py
-python3 src/mtu_ing.py
+python3 src/mtu_trk.py   # İngilizce→Türkçe      → output/MTU.TRK.TXT
+python3 src/mtu_tur.py   # Türkçe kelime listesi → output/MTU.TUR.TXT
+python3 src/mtu_tes.py   # Eş anlamlılar         → output/MTU.TES.TXT
+python3 src/mtu_ing.py   # Türkçe→İngilizce      → output/MTU.ING.TXT
+python3 src/mtu_soz.py   # Kullanıcı sözlükleri  → output/MTU.SOZ.TXT
 
-# 3. Web arayüzünü başlat → http://localhost:8080
-python3 src/ui.py
+# 3. Doğrulama
+python3 src/test_comparison.py
+(cd src && python3 test_suffix_coverage.py)
+
+# 4. Web arayüzünü başlat → http://127.0.0.1:8080
+python3 src/ui.py        # MOONSTAR_HOST / MOONSTAR_PORT ile değiştirilebilir
 ```
 
 ## API
 
 | Endpoint | Veri |
 |----------|------|
-| `/api/trk` | İngilizce→Türkçe (17,975 giriş) |
-| `/api/rev` | Türkçe→İngilizce (62,942 giriş — stem+eş anlamlı genişletmeli) |
-| `/api/tur` | Leb Demeden (26,775 kelime) |
-| `/api/syn` | Eş Anlamlılar (8,573 grup) |
-| `/api/quiz` | Kelime Oyunu (12,437 slot, 36 konu) |
+| `/api/trk` | İngilizce→Türkçe (MTU.TRK, 17,988 kelime) |
+| `/api/rev` | Türkçe→İngilizce (MTU.ING, 24,042 madde) |
+| `/api/tur` | Leb Demeden (MTU.TUR, 26,775 kelime) |
+| `/api/syn` | Eş Anlamlılar (MTU.TES, 13,657 kelime) |
+| `/api/quiz` | Kelime Oyunu (MTU.ING konu etiketli 1,890 karşılık, 32 konu) |
+| `/api/check` | Tek kelime yazım denetimi |
+| `POST /api/check/text` | Metin yazım denetimi (`{"text": …}` → kelimeler, konumlar, sonuçlar) |
