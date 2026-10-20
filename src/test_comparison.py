@@ -5,11 +5,14 @@ test_comparison.py — MoonStar Ground-Truth Binary & Live RAM Dump Verification
 
 Performs direct, uncompromising comparison against:
   1. data/MTU.EXE (Raw Win16 bytecode tables & category strings)
-  2. data/ntvdm.exe.dmp (Live RAM dump @ 0x5adf6 for Thesaurus 'yüz' block —
-     0x60348 was wrong, that's the process environment block)
+  2. data/ntvdm.exe.dmp (Live RAM dump @ 0x60348 holds the decoded Thesaurus
+     'yüz' block; 0x5adf6 is the DGROUP string area — window class names,
+     the TURTESINGTRK roster and topic names — not thesaurus data)
   3. data/MTU.TRK (Raw binary stream vs MTU.TRK.TXT)
   4. data/MTU.TUR (Raw Section 4/6 binary vs MTU.TUR.TXT)
-  5. data/MTU.SOZ (Raw binary stream & boundary markers)
+  5. data/MTU.SOZ (user dictionary file format)
+  6. data/MTU.ING (Turkish→English dictionary)
+  7. Spell checker decisions (FUN_1010_0842)
 
 Reports exact match percentages, missing entries, and ground-truth discrepancies.
 """
@@ -22,7 +25,6 @@ import unittest
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
 
-import mtu_soz
 
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
@@ -64,10 +66,10 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         cls.trk_output = []
         with open(os.path.join(OUTPUT_DIR, "MTU.TRK.TXT"), "r", encoding="utf-8") as f:
             for line in f:
-                line = line.rstrip()
-                if line:
-                    parts = line.split(None, 1)
-                    cls.trk_output.append((parts[0], parts[1] if len(parts) == 2 else ""))
+                # Fixed 30-column English headword field (may contain spaces)
+                line = line.rstrip("\r\n")
+                if line.strip():
+                    cls.trk_output.append((line[:30].rstrip(), line[30:].strip()))
 
         cls.tur_output = [w.strip() for w in open(os.path.join(OUTPUT_DIR, "MTU.TUR.TXT"), "r", encoding="utf-8") if w.strip()]
 
@@ -143,24 +145,64 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         """
         print("\n[TEST 4] CANLI NTVDM RAM DÖKÜMÜ (0x60348) EŞ ANLAMLI KIYASLAMASI:")
 
-        # 1. Extract ground truth words from RAM dump @ 0x60348 (verified real CP857 block)
-        dump_raw = self.dump_bytes[0x60348 : 0x60348 + 1200]
-        dump_words = []
-        for s in dump_raw.split(b"\x00"):
-            if s and len(s) >= 2:
-                try:
-                    dec = s.decode("cp857").strip()
-                    if all(c.isalnum() or c in " -" for c in dec):
-                        dump_words.append(dec.lower())
-                except:
-                    pass
+        from engine.thesaurus import ThesaurusEngine
+        from core.text import turkish_sort_key
+        thesaurus_engine = ThesaurusEngine()
 
-        dump_ground_truth = [w for w in dump_words if w not in ["1.anlam", "2.anlam", "mecaz"]]
+        # 0. Ground truth from RAM dump @ 0x60348: NUL-separated CP857 strings.
+        #    The block is the 'yüz' headword cluster followed by the clusters
+        #    of its derived headwords, then the group labels used by the
+        #    window ("1.Anlam", "2.Anlam", "Mecaz").
+        dump_raw = self.dump_bytes[0x60348 : 0x60348 + 1200]
+        # Bytes after the group labels are unrelated binary data, so decode
+        # with errors="replace"; the word/label strings themselves are clean.
+        dump_strings = [s.decode("cp857", errors="replace") for s in dump_raw.split(b"\x00")]
+        self.assertIn("1.Anlam", dump_strings, "RAM dump bloğunda grup etiketleri bulunamadı!")
+        label_pos = dump_strings.index("1.Anlam")
+        self.assertEqual(dump_strings[label_pos : label_pos + 3], ["1.Anlam", "2.Anlam", "Mecaz"])
+        dump_words = dump_strings[:label_pos]
+        self.assertEqual(len(dump_words), 61, "RAM dump bloğu 61 dizgi içermeli!")
+
+        dump_heads = ["yüz", "yüzlemek", "yüzsüzce", "yüzsüz"]
+        head_pos = [dump_words.index(h) for h in dump_heads] + [len(dump_words)]
+        self.assertEqual(head_pos[0], 0)
+        dump_clusters = {
+            h: dump_words[head_pos[i] + 1 : head_pos[i + 1]] for i, h in enumerate(dump_heads)
+        }
+
+        # 0a. 'yüz': exact equality per group. The dump keeps the words of
+        #     each group contiguous (in the EXE's stored order), so slice it
+        #     group by group and compare as sets.
+        yuz_result = thesaurus_engine.lookup("yüz")
+        self.assertEqual([g for g, _ in yuz_result], ["1.Anlam", "2.Anlam", "Mecaz"])
+        cursor = 0
+        for grp, ws in yuz_result:
+            dump_slice = dump_clusters["yüz"][cursor : cursor + len(ws)]
+            self.assertEqual(set(ws), set(dump_slice),
+                             f"'yüz' {grp} grubu RAM dökümüyle birebir eşleşmiyor!")
+            cursor += len(ws)
+        self.assertEqual(cursor, len(dump_clusters["yüz"]),
+                         "'yüz' kelime sayısı RAM dökümüyle eşleşmiyor!")
+
+        # 0b. The block is FUN_1010_256c's string buffer for 'yüz': headword,
+        #     members and the 0x40 sub-record titles, in stored order.
+        entries, _, _, _ = thesaurus_engine.parser.build_buffer(thesaurus_engine.find_index("yüz"))
+        self.assertEqual(entries, dump_words, "'yüz' EXE tamponu RAM dökümüyle birebir (sıralı) eşleşmiyor!")
+
+        # 0c. Each derived headword in the block must decode to exactly its cluster.
+        total_dump = 0
+        total_match = 0
+        for h in dump_heads:
+            expected = set(dump_clusters[h])
+            got = set().union(*[ws for _, ws in thesaurus_engine.lookup(h)])
+            match = expected & got
+            total_dump += len(expected)
+            total_match += len(match)
+            print(f"  • RAM dump '{h}': {len(match)} / {len(expected)} eşleşme")
+            self.assertEqual(got, expected, f"'{h}' RAM dökümüyle birebir eşleşmiyor!")
+        print(f"  • RAM dump 0x60348 toplam örtüşme : {total_match} / {total_dump} (sıralı tampon: 61 / 61)")
+
         # 1. Verify "öz" Türemiş group against the original screenshot ground truth
-        import mtu_thesaurus
-        trk_path = os.path.join(OUTPUT_DIR, "MTU.TRK.TXT")
-        tur_path = os.path.join(OUTPUT_DIR, "MTU.TUR.TXT")
-        thesaurus_engine = mtu_thesaurus.SemanticThesaurus(trk_path, tur_path)
 
         oz_groups = _grp_dict(thesaurus_engine.lookup("öz"))
         self.assertIn("1.Anlam", oz_groups)
@@ -316,26 +358,105 @@ class TestMoonStarGroundTruth(unittest.TestCase):
 
     # ─── 5. MTU.SOZ PLACE NAMES STREAM VERIFICATION ──────────────────────────
 
-    def test_05_soz_stream_verification(self):
-        """[TEST 5] MTU.SOZ Yer Adları Akışı ve Sınır Parametreleri Doğrulaması"""
-        print("\n[TEST 5] MTU.SOZ YER ADLARI VE ÖZEL İSİMLER AKIŞ DOĞRULAMASI:")
+    def test_05_soz_user_dictionary(self):
+        """[TEST 5] MTU.SOZ Kullanıcı Sözlüğü (FUN_1010_0391 dosya biçimi)"""
+        print("\n[TEST 5] MTU.SOZ KULLANICI SÖZLÜĞÜ DOĞRULAMASI:")
+        from engine.speller import UserDictionary
+        from engine.tur_lexicon import default_lexicon
 
         soz_path = os.path.join(DATA_DIR, "MTU.SOZ")
-        soz_data = mtu_soz.decode_soz(soz_path)
+        raw = open(soz_path, "rb").read()
+        count, text_len = struct.unpack("<HH", raw[4:8])
+        self.assertEqual(raw[:4], b"MG2\x1a")
+        self.assertEqual((count, text_len), (2193, 14227))
+        self.assertEqual(len(raw), 8 + text_len + count * 4, "Dosya boyutu başlıkla birebir eşleşmeli!")
 
-        self.assertEqual(soz_data["header"], [2193, 14227, 6415, 6166])
-        self.assertEqual(len(soz_data["groups"]), 20)
-        self.assertEqual(soz_data["total_alpha_chars"], 14034)
+        soz = UserDictionary(soz_path, default_lexicon())
+        words = soz.words
+        self.assertEqual(len(words), 2193)
+        self.assertFalse([w for w in words if "?" in w], "Çözülemeyen harf kodu var!")
+        for w in ["Abant", "Acıgöl", "Akçaabat", "Boğazköy", "Derinkuyu", "ABD", "CHP"]:
+            self.assertIn(w, words)
+        self.assertEqual(UserDictionary(os.path.join(DATA_DIR, "KONTROL.SOZ"), default_lexicon()).words, ["denir"])
 
-        checker = mtu_soz.SozPlaceSpellChecker(soz_path)
-        sample_places = ["ankara", "marmara", "edirne", "derinkuyu", "karaağaç", "boğazköy"]
-        for p in sample_places:
-            self.assertTrue(checker.check(p))
+        print(f"  • Başlık                   : {count} kelime, {text_len} bayt metin -> [BOYUT BİREBİR]")
+        print("  • Örnekler                 : Abant, Acıgöl, Akçaabat, Boğazköy, Derinkuyu, ABD, CHP -> [HEPSİ MEVCUT]")
+        print("  • KONTROL.SOZ              : denir -> [BİREBİR]")
 
-        print(f"  • Başlık Sınır İşaretleri   : {soz_data['header']} -> [BİREBİR]")
-        print(f"  • Toplam Grup Bloğu        : {len(soz_data['groups'])} / 20 Blok")
-        print(f"  • Toplam Karakter Sayısı   : {soz_data['total_alpha_chars']:,} / 14,034 Karakter")
-        print(f"  • Test Edilen Örnek Yerler : {', '.join(sample_places)} -> [HEPSİ DOĞRULANDI]")
+    # ─── 6. MTU.ING TURKISH→ENGLISH DICTIONARY ────────────────────────────────
+
+    def test_06_ing_turkish_english(self):
+        """[TEST 6] MTU.ING Türkçe→İngilizce Sözlük (FUN_1010_3114 portu)"""
+        print("\n[TEST 6] MTU.ING TÜRKÇE→İNGİLİZCE SÖZLÜK DOĞRULAMASI:")
+        from engine.ing import IngDictionary
+
+        ing = IngDictionary()
+        entries = ing.all_entries()
+        labels = sum(len(e["labels"]) for e in entries)
+        self.assertEqual(len(entries), 24042, "MTU.ING 24.042 Türkçe madde içermeli!")
+        self.assertEqual(labels, 50789, "MTU.ING 50.789 İngilizce karşılık içermeli!")
+        self.assertFalse([e for e in entries if not e["tr"]], "Boş Türkçe madde var!")
+        # The original data has 4 entries without meanings (duplicated headers and 'intak')
+        self.assertEqual(sorted(e["tr"] for e in entries if not e["labels"]),
+                         ["ilkyardım", "incehastalık", "intak", "karatahta"])
+
+        def texts(word):
+            entry = ing.lookup(word)
+            self.assertIsNotNone(entry, f"'{word}' bulunamadı!")
+            return entry["tr"], [l["text"] for l in entry["labels"]]
+
+        self.assertEqual(texts("kitap"), ("kitap", ["book"]))
+        self.assertEqual(texts("kitapçılar"), ("kitapçı", [" 1.bookseller", " 2.bookshop", "   bookstore"]))
+        self.assertEqual(texts("göz")[1][:3], [" 1.eye", " 2.glance", "   look"])
+        self.assertEqual(texts("gözlük"), ("gözlük", ["glasses", "spectacles", "eyeglasses", "specs"]))
+        self.assertEqual(texts("gelmek")[1][-2:], ["15.to have an orgasm", "   to come"])
+
+        print(f"  • Toplam Türkçe Madde      : {len(entries):,} / 24,042")
+        print(f"  • Toplam İngilizce Karşılık: {labels:,} / 50,789")
+        print("  • kitap, kitapçılar, göz, gözlük, gelmek -> [%100 TAM EŞLEŞME]")
+
+
+    # ─── 7. SPELL CHECKER (FUN_1010_0842) ─────────────────────────────────────
+
+    def test_07_spell_checker(self):
+        """[TEST 7] Yazım Denetimi (FUN_1010_0842 portu, seçenekler 0x94)"""
+        print("\n[TEST 7] YAZIM DENETİMİ DOĞRULAMASI:")
+        from engine.speller import SENTENCE_START, Speller
+
+        sp = Speller()
+        accepted = ["kitap", "kitaplarımızdan", "evlerimizden", "Ankara", "Ankara'dan", "İstanbul",
+                    "Abant", "geliyorum", "güzelleştirilemeyecekler", "XIV", "xiv", "KİTAP", "o"]
+        rejected = ["ankara", "ankaradan", "yanlis", "kitapp", "Xiv", "kiTap"]
+        for w in accepted:
+            self.assertTrue(sp.check(w)["valid"], f"'{w}' kabul edilmeli!")
+        for w in rejected:
+            self.assertFalse(sp.check(w)["valid"], f"'{w}' reddedilmeli!")
+        self.assertEqual(sp.check("Abant")["source"], "soz")
+        self.assertFalse(sp.check("kitap", SENTENCE_START)["valid"], "Cümle başı küçük harf reddedilmeli!")
+        self.assertTrue(sp.check("Kitap", SENTENCE_START)["valid"])
+        # Enclitics agree with the previous word's vowel harmony state
+        state = sp.check("okudum")["state"]
+        self.assertTrue(sp.check("mu", state)["valid"])
+        self.assertFalse(sp.check("mı", state)["valid"])
+
+        # Suggestions (FUN_1010_0ba3): edits, case fixes, apostrophes, word splits, abbreviations
+        def best(w, prev=None):
+            r = sp.suggest(w, prev)
+            return r["suggestions"][r["best"]] if r["best"] is not None else None
+        self.assertEqual(best("kitapp"), "kitap")
+        self.assertEqual(best("kiatp"), "kitap")
+        self.assertEqual(best("ankara"), "Ankara")
+        self.assertEqual(best("kitap", SENTENCE_START), "Kitap")
+        self.assertEqual(best("gidiyorumm"), "gidiyorum")
+        self.assertEqual(best("kitapokudum"), "kitap okudum")
+        self.assertEqual(best("Prof"), "Prof.")
+        self.assertIn("Ankara'da", sp.suggest("Ankarada")["suggestions"])
+        self.assertEqual(sp.suggest("evlerimizdne")["suggestions"], ["evlerimizde", "evlerimizden"])
+
+        print(f"  • Kabul edilen örnekler    : {len(accepted)} / {len(accepted)}")
+        print(f"  • Reddedilen örnekler      : {len(rejected)} / {len(rejected)}")
+        print("  • Cümle başı ve 'okudum mu/mı' uyumu -> [DOĞRULANDI]")
+        print("  • Öneriler: kitapp→kitap, ankara→Ankara, kitapokudum→kitap okudum, Prof→Prof. -> [DOĞRULANDI]")
 
 
 def main():
