@@ -176,10 +176,13 @@ def Import(dictionary, path):
             dictionary.append((english, turkish))
 
 def Export(dictionary, path):
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", encoding="utf-8") as file:
         for english, turkish in dictionary:
             file.write(english)
-            file.write(' ' * (30 - len(english))) # padding
+            # Fixed 30-column headword field (English headwords may contain
+            # spaces, e.g. "believe in"); always keep at least one space.
+            file.write(' ' * max(1, 30 - len(english))) # padding
             file.write(turkish)
             file.write('\n')
 
