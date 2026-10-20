@@ -3,9 +3,22 @@
 core/constants.py — MoonStar System Constants & Tables
 """
 
-from typing import Dict, List
+import os
+from typing import List
 
-# 32-letter custom MoonStar alphabet used across MTU.TUR and MTU.SOZ
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def project_path(*parts: str) -> str:
+    """Path inside the repository (data/, output/, …)."""
+    return os.path.join(PROJECT_ROOT, *parts)
+
+
+# File offset of DGROUP (NE segment 6) in MTU.EXE: ds:xxxx = file 0x19E00 + xxxx
+DGROUP_FILE_OFFSET = 0x19E00
+
+# 32-letter MoonStar alphabet used across MTU.TUR and MTU.SOZ; code | 0x20 selects
+# the circumflex variant (â = 0x20, î = 0x2B, û = 0x3A)
 ALPHABET = "abcçdefgğhıijklmnoöpqrsştuüvwxyzâ..........î..............û"
 
 # 36 official categories compiled at MTU.EXE offset 0x1B63A (DGROUP: 0x183A)
@@ -17,34 +30,3 @@ TOPIC_NAMES: List[str] = [
     "Otomobil, otomotiv", "Ruhbilim (psikoloji)", "Sinema", "Spor", "Teknik, teknoloji",
     "Ticaret", "Tiyatro", "Yazın (edebiyat)", "Yerbilim (jeoloji)"
 ]
-
-# Static named groups mapped from lower nibble (flag & 0x0F)
-NAMED_GROUPS: Dict[int, str] = {
-    0x05: "Mecaz",
-    0x06: "Mecaz",
-    0x07: "Argo",
-    0x09: "Renk",
-    0x0A: "Türemiş",
-}
-
-# Consonant softening rules
-SOFTEN_MAP: Dict[str, str] = {
-    "k": "ğ",
-    "p": "b",
-    "t": "d",
-    "ç": "c",
-}
-
-# Consonant hardening rules (Section 6 morphology)
-HARDEN_MAP: Dict[str, str] = {
-    "ğ": "k",
-    "g": "k",
-    "b": "p",
-    "c": "ç",
-    "d": "t",
-}
-
-# Vowel classifications
-BACK_VOWELS = "aıouâû"
-FRONT_VOWELS = "eiöüî"
-ALL_VOWELS = BACK_VOWELS + FRONT_VOWELS

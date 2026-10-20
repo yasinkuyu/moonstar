@@ -3,7 +3,7 @@
 core/text.py — Turkish Text Normalization and Sorting Utilities
 """
 
-from typing import List, Optional, Tuple
+from typing import List
 
 
 def tr_lower(s: str) -> str:
@@ -11,25 +11,9 @@ def tr_lower(s: str) -> str:
     return s.replace("İ", "i").replace("I", "ı").lower().replace("\u0307", "")
 
 
-def clean_tr_token(token: str) -> Tuple[str, Optional[str]]:
-    """Token normalizer returning (cleaned_word, optional_tag)."""
-    return tr_lower(token.strip()), None
-
-
-def normalize_turkish(text: str) -> str:
-    """Türkçe karakterleri ASCII eşdeğerlerine dönüştürür (arama için)."""
-    tr_map = str.maketrans({
-        "ı": "i", "İ": "i", "I": "i",
-        "ş": "s", "Ş": "s",
-        "ç": "c", "Ç": "c",
-        "ö": "o", "Ö": "o",
-        "ü": "u", "Ü": "u",
-        "ğ": "g", "Ğ": "g",
-        "â": "a", "Â": "a",
-        "î": "i", "Î": "i",
-        "û": "u", "Û": "u",
-    })
-    return text.lower().translate(tr_map)
+def fold_circumflex(s: str) -> str:
+    """The EXE's circumflex letters are a / i / ü with bit 0x20 (DGROUP 0x0A8B), so "û" folds to "ü"."""
+    return s.replace("â", "a").replace("î", "i").replace("û", "ü")
 
 
 def turkish_sort_key(s: str) -> List[str]:
