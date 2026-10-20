@@ -458,6 +458,69 @@ class TestMoonStarGroundTruth(unittest.TestCase):
         print("  • Cümle başı ve 'okudum mu/mı' uyumu -> [DOĞRULANDI]")
         print("  • Öneriler: kitapp→kitap, ankara→Ankara, kitapokudum→kitap okudum, Prof→Prof. -> [DOĞRULANDI]")
 
+    def test_08_document_check(self):
+        """[TEST 8] Belge denetimi (FUN_1018_11e0 / 0f58) ve Sözlük kontrol (FUN_1018_10c4)"""
+        print("\n[TEST 8] BELGE DENETİMİ DOĞRULAMASI:")
+        from spell_check import TurkishSpellChecker, next_word
+
+        # FUN_1018_0f58: tags in front of a word, '.' attached, punctuation running into a word
+        self.assertEqual(next_word("<BL>Başlık", 0), (4, "Başlık", 10, False))
+        self.assertEqual(next_word("evet. hayır", 0), (0, "evet.", 5, False))
+        self.assertEqual(next_word("kitap,defter", 0), (0, "kitap", 5, True))
+        self.assertEqual(next_word("Ali'nin 3 kitabı", 7), (10, "kitabı", 16, False))
+
+        checker = TurkishSpellChecker()
+        # Only '.' and a new paragraph start a sentence; '?' and '!' do not
+        self.assertEqual(checker.check_text("Geldin mi? evet geldim."), [])
+        self.assertEqual([e["word"] for e in checker.check_text("Ben geldim. evet")], ["evet"])
+        self.assertEqual([e["word"] for e in checker.check_text("Bu iyi\nbu da iyi")], ["bu"])
+        # "Noktalama Hatası": missing space after punctuation
+        err = checker.next_error("Kitap,defter ve kalem.")["error"]
+        self.assertEqual((err["kind"], err["word"], err["replacement"]), ("punct", "Kitap,d", "Kitap, d"))
+        # "Devam" skips every later occurrence of the word
+        self.assertEqual([e["word"] for e in checker.check_text("Kitapp ve kitapp")], ["Kitapp", "kitapp"])
+        self.assertEqual([e["word"] for e in checker.check_text("Bu kitapp ve kitapp")], ["kitapp"])
+        # The demo document: six errors, as in the EXE
+        with open(os.path.join(PROJECT_ROOT, "data", "TEST"), encoding="cp857") as f:
+            errors = checker.check_text(f.read())
+        self.assertEqual([e["word"] for e in errors], ["BL", "Akat", "Göceçlik", "Emsan", "Ofas", "gibi"])
+        # Sözlük kontrol: forms of KONTROL.SOZ entries (denir)
+        self.assertEqual(checker.control_match("Böyle denir. Öyle denirse")["word"], "denir.")
+        self.assertEqual(checker.control_match("Böyle denir. Öyle denirse", 12)["word"], "denirse")
+        self.assertIsNone(checker.control_match("denildi"))
+        print("  • Sözcük ayırma, cümle sonu, noktalama ve 'Devam' listesi -> [DOĞRULANDI]")
+        print(f"  • data/TEST: {len(errors)} hata -> [DOĞRULANDI]")
+        print("  • Sözlük kontrol (KONTROL.SOZ: denir) -> [DOĞRULANDI]")
+
+    def test_09_word_windows(self):
+        """[TEST 9] İngilizce Türkçe Sözlük (397b), Leb Demeden (3648), Kelime Oyunu (4b79)"""
+        print("\n[TEST 9] SÖZCÜK PENCERELERİ DOĞRULAMASI:")
+        from engine.game import MAIN, USER, game_words
+        from engine.speller import Speller
+        from engine.trk import TrkDictionary
+
+        trk = TrkDictionary()
+        book = trk.lookup("BOOK")
+        self.assertEqual([w["en"] for w in book[:3]], ["book", "bookable", "bookbinder"])
+        lines = trk.meaning_lines(book[0]["ptr"])
+        self.assertEqual(lines[:4], [" 1.kitap", " 2.defter", " 3.deste", "   paket"])
+        self.assertEqual(trk.first_meaning(lines), "kitap")
+        self.assertEqual(trk.lookup("b"), [])
+        self.assertEqual(len(trk.entries()), 17988)
+
+        sp = Speller()
+        self.assertEqual(sp.completions("leb"), ["lebalep", "lebiderya", "leblebi"])
+        self.assertEqual(sp.completions("Prof")[0], "Prof.")
+        self.assertIn("hamid", sp.completions("ha"))  # 1e22 drops the capital of a softened proper noun
+
+        main_words = game_words(sp.lex, source=MAIN)
+        user_words = game_words(sp.lex, sp.user, USER)
+        self.assertEqual((len(main_words), len(user_words)), (17400, 1860))
+        self.assertTrue(all(5 <= len(w) <= 15 and w == w.upper() for w in main_words))
+        print(f"  • İngilizce Türkçe Sözlük: {len(trk.entries())} sözcük, numaralı karşılıklar -> [DOĞRULANDI]")
+        print("  • Türkçe Leb Demeden: leb → lebalep, lebiderya, leblebi -> [DOĞRULANDI]")
+        print(f"  • Kelime Oyunu: {len(main_words)} ana sözlük, {len(user_words)} kullanıcı sözlüğü sözcüğü -> [DOĞRULANDI]")
+
 
 def main():
     suite = unittest.TestLoader().loadTestsFromTestCase(TestMoonStarGroundTruth)
