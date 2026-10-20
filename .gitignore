@@ -123,3 +123,5 @@ desktop.ini
 !.vscode/launch.json
 # Reverse-engineering workspace (Ghidra project, decompiled output)
 re/
+# Static GitHub Pages build (src/build_static.py)
+site/
