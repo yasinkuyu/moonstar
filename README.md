@@ -3,6 +3,8 @@
 **MoonStar Türkçe Denetim Editörü** — 1995 tarihli Borland C++ Win16 uygulamasının
 veri dosyalarının tersine mühendislik belgesi.
 
+![MoonStar Web UI](assets/ui_screenshot.png)
+
 ---
 
 ## Dosya Mimarisi (EXE'den Doğrulanmış)
@@ -254,26 +256,7 @@ score = max(score, 10.0 * spec)
 | basis | 5.0 | `temel` üzerinden Hop-1 |
 | origin | 2.0 | `köken` üzerinden Hop-1 |
 | base | 0.5 | `temel` üzerinden Hop-1 (çok anlamlı) |
-
-### Hardcode Yok
-
-Tüm eşleştirmeler **tamamen dinamik** — `kök`, `malak`, `sıpa` vb. için
-hiçbir `if tr_word == ...` kontrolü kullanılmaz.
-
----
-
-## Açık Sorular
-
-| # | Konu | Öncelik |
-|---|------|---------|
-| 1 | MTU.SOZ tam decode — Section3 yapısı MTU.TUR'dan farklı | MEDIUM |
-| 2 | MTU.TUR Section3 `bytes11` gramer sınıfları — tam anlam bilinmiyor | MEDIUM |
-| 3 | ING `0x0E` handler — `format_sub` yerine harici fonksiyon, ne üretiyor? | LOW |
-| 4 | ING `0xFF/0x10/0x20` prefix slotlar — 2,027 non-standard giriş | LOW |
-| 5 | KONTROL.SOZ — 12 byte, amaç belirsiz | LOW |
-
----
-
+ 
 ## Kurulum
 
 ```bash
