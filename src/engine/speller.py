@@ -19,7 +19,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 
 from core.constants import ALPHABET, project_path
 from core.text import fold_circumflex, tr_lower
-from engine.tur_lexicon import TurLexicon, code_char, codes_text, default_lexicon, unpack_body, upper_tr
+from engine.tur_lexicon import TurLexicon, char_class, code_char, codes_text, default_lexicon, unpack_body, upper_tr
 
 SENTENCE_START = 0x80          # DGROUP 0x8B8B state before the first word of a sentence
 DEFAULT_OPTIONS = 0x94         # DGROUP 0x009E → 0x7A1B (MTU.INI offset 0x48); bit 7 = suggestions on
@@ -475,6 +475,129 @@ class Speller:
                     return "soz", i, st, out
         return None
 
+    # ─── FUN_1010_0929: "Sözlük kontrol" ───
+
+    def in_dictionary(self, raw: str, dictionary: "UserDictionary", prev: int = 0) -> bool:
+        """
+        FUN_1010_0929: the word is a form of an entry of `dictionary` (user dictionary 1, the
+        control dictionary), analysed in suggestion mode (DGROUP 0x8B8C = 0x40) with suffixes.
+        An accepted entry whose Section 6 byte 0 has bit 4 ends the search with no match.
+        `prev` stands for DGROUP 0x8B8B, which the EXE leaves as the last check set it.
+        """
+        word = TypedWord(raw)
+        codes = word.codes
+        if not dictionary.records:
+            return False
+        saved, self.user = self.user, dictionary
+        self._c8c = 0
+        try:
+            out = list(codes)
+            for i, end in self._soz_stems(codes, range(len(codes), 0, -1)):
+                s6 = dictionary.section6_index(i)
+                if self._accepts(s6, word, codes[end:], 0, prev, True, out, end):
+                    return not self.lex.sec6[s6 * 4] & 0x10
+            return False
+        finally:
+            self.user = saved
+
+    # ─── FUN_1010_3648: Türkçe Leb Demeden ───
+
+    @staticmethod
+    def _typed_codes(raw: str) -> Tuple[List[int], bool]:
+        """
+        FUN_1010_18f3 as the word list sees it: every character is stored, letters as their code
+        (case and circumflex removed), other characters as their class & 0x7F; '.' ends the text.
+        Also returns DGROUP 0x8B8F bit 4: the text holds a character that is not a letter.
+        """
+        codes, other = [], False
+        for ch in raw:
+            if ch == ".":
+                break
+            cls = char_class(ch) & 0x7F
+            if cls == _APOSTROPHE:
+                if ch in ("'", "`"):
+                    codes.append(cls)
+                continue
+            if cls & 0x20:
+                cls ^= 0x20
+            if cls & 0x40:
+                other = True
+            codes.append(cls)
+        return codes, other
+
+    def _listed_word(self, prefix: List[int], body: List[int], s6: int) -> str:
+        """FUN_1010_38cd: display text of a listed word (prefix circumflex, capital, abbreviation period)."""
+        b0, b1, b2 = self.lex.sec6[s6 * 4:s6 * 4 + 3]
+        if b1 & 0x01 and (b2 & 0x0C) == 0x08:
+            b1 &= 0xFE  # FUN_1010_1e22 drops the capital of a proper noun with a softened end
+        out = []
+        for i, c in enumerate(prefix + body):
+            if i < 2 and b0 & 0x40 and c in (0x00, 0x0B, 0x1A):
+                c |= 0x20
+            if b1 & 0x01 and i == 0:
+                c |= 0x80
+            out.append(code_char(c))
+        if b1 & 0x80 and b1 & 0x04:
+            out.append(".")
+        return "".join(out)
+
+    @staticmethod
+    def _starts_with(body: List[int], typed: List[int]) -> int:
+        """FUN_1010_3840: 0 when the stored body starts with the typed codes."""
+        for b, t in zip(body, typed):
+            d = (b & 0x5F) - t
+            if d:
+                return d
+        return -1 if len(body) < len(typed) else 0
+
+    def completions(self, raw: str) -> List[str]:
+        """
+        FUN_1010_3648 (Türkçe Leb Demeden): the words that start with the typed text, first
+        from user dictionary 0, then from MTU.TUR's two-letter block; words that cannot stand
+        alone or are enclitics (Section 6 byte 2 bits 7 / 6) are left out, and a word equal to
+        the one listed before it is not repeated.
+        """
+        typed, other = self._typed_codes(raw)
+        if len(typed) < 2:
+            return []
+        out: List[str] = []
+
+        def add(text):
+            if not out or out[-1] != text:
+                out.append(text)
+
+        if self.user and self.user.records:
+            records = self.user.codes
+            lo, hi, first = 0, len(records), -1
+            while lo <= hi:  # FUN_1010_1ac5 with FUN_1010_3840 as the comparison
+                mid = (lo + hi) >> 1
+                r = self._starts_with(records[mid] if mid < len(records) else [], typed)
+                if r == 0:
+                    first = mid
+                    break
+                if r < 0:
+                    lo = mid + 1
+                else:
+                    hi = mid - 1
+            if first >= 0:
+                while first and self._starts_with(records[first - 1], typed) == 0:
+                    first -= 1
+                i = first
+                while i < len(records) and self._starts_with(records[i], typed) == 0:
+                    s6 = self.user.section6_index(i)
+                    if not self.lex.sec6[s6 * 4 + 2] & 0xC0:
+                        add(self._listed_word([], records[i], s6))
+                    i += 1
+        k = typed[0] * 32 + typed[1]  # an apostrophe (0x60) indexes another block, as in the EXE
+        if not other and k + 1 < len(self.lex.prefix_starts):
+            for idx in range(self.lex.prefix_starts[k], self.lex.prefix_starts[k + 1]):
+                body = self.lex.body_codes(idx)
+                if self._starts_with(body, typed[2:]) == 0:
+                    s6 = self.lex.section6_index(idx)
+                    if not self.lex.sec6[s6 * 4 + 2] & 0xC0:
+                        add(self._listed_word(typed[:2], body, s6))
+        return out
+
     # ─── Dictionary windows (thesaurus FUN_1010_256c, Türkçe İngilizce FUN_1010_3114) ───
 
     @classmethod
@@ -512,8 +635,7 @@ class Speller:
         self._c8c = 4 if word.period else 0
         n = len(word.codes)
         if n < self.min_length:
-            state = SENTENCE_START if n == 0 or (n > 1 and word.period) else harmony_state(word.codes)
-            return {"valid": True, "state": state, "source": None, "index": None, "reason": "short"}
+            return {"valid": True, "state": self._word_state(word), "source": None, "index": None, "reason": "short"}
         found = self._analyze(word, prev)
         if found is None:
             valid = (word.case & 0x0C) == 0 and self._roman(word)
@@ -533,6 +655,20 @@ class Speller:
             valid = not word.case & 0x08
             reason = None if valid else "case"
         return {"valid": valid, "state": state, "source": source, "index": index, "reason": reason}
+
+    @staticmethod
+    def _word_state(word: TypedWord) -> int:
+        """FUN_1010_0746: 0x80 after a word ending in '.', else the harmony class of its last vowel."""
+        n = len(word.codes)
+        return SENTENCE_START if n == 0 or (n > 1 and word.period) else harmony_state(word.codes)
+
+    def sentence_state(self, raw: str) -> int:
+        """FUN_1010_0723: sentence state after a word that is not analysed (skipped or replaced)."""
+        return self._word_state(TypedWord(raw))
+
+    def is_roman(self, raw: str) -> bool:
+        """FUN_1010_07a0: the typed text is a Roman numeral."""
+        return self._roman(TypedWord(raw))
 
     @staticmethod
     def _roman(word: TypedWord) -> bool:
